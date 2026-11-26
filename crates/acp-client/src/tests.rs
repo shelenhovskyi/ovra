@@ -750,3 +750,45 @@ async fn a_research_session_does_not_start() {
         "Fake over ACP cannot run research sessions yet"
     );
 }
+
+#[tokio::test]
+async fn a_line_past_the_limit_fails_the_session() {
+    let mut s = session("go").await;
+    s.agent.expect(v1::initialize(0)).await;
+    let long = vec![b' '; driver::MAX_LINE + 1];
+    s.agent.stdout.write_all(&long).await.expect("writes");
+    s.wait_status("failed").await;
+    assert_eq!(
+        s.ended.await.expect("ended"),
+        Ended::Failed("the agent wrote a line longer than 4 MiB".into())
+    );
+}
+
+#[tokio::test]
+async fn a_long_line_within_the_limit_is_read_in_pieces() {
+    let mut s = session("go").await;
+    s.agent.expect(v1::initialize(0)).await;
+    // Padding before the JSON, written in pieces the driver reads apart.
+    let padding = " ".repeat(driver::MAX_LINE - 100);
+    for piece in padding.as_bytes().chunks(1 << 16) {
+        s.agent.stdout.write_all(piece).await.expect("writes");
+    }
+    s.agent
+        .write(r#"{"jsonrpc":"2.0","id":0,"result":{"protocolVersion":1}}"#)
+        .await;
+    s.agent
+        .expect(v1::new_session(1, std::path::Path::new(ROOT)))
+        .await;
+    s.stop().await;
+}
+
+#[tokio::test]
+async fn stderr_keeps_a_bounded_tail_of_any_bytes() {
+    let mut noise = vec![0xff_u8; 1 << 20];
+    noise.extend_from_slice("\u{e9}".repeat(STDERR_TAIL).as_bytes());
+    noise.extend_from_slice(b"\xfe the end\n");
+    let tail = stderr_tail(noise.as_slice()).await;
+    assert!(tail.starts_with('\u{2026}'), "{}", &tail[..20]);
+    assert!(tail.ends_with("\u{fffd} the end"));
+    assert_eq!(tail.chars().count(), STDERR_TAIL + 2);
+}

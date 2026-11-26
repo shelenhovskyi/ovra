@@ -21,7 +21,7 @@ use ovra_core::services::{
     AgentHost, AgentRuntime, AgentSpec, AgentState, CommandLine, ProfileNetwork, ProviderLists,
     Result, RunningAgent, Sandbox, SandboxProfile, SandboxStatus,
 };
-use tokio::io::{AsyncReadExt, BufReader};
+use tokio::io::{AsyncRead, AsyncReadExt, BufReader};
 use tokio::process::Command as Process;
 use tokio::sync::mpsc;
 
@@ -211,16 +211,12 @@ async fn session(
     if let Some(pid) = child.id() {
         host.process(pid);
     }
-    let (Some(stdin), Some(stdout), Some(mut stderr)) =
+    let (Some(stdin), Some(stdout), Some(stderr)) =
         (child.stdin.take(), child.stdout.take(), child.stderr.take())
     else {
         return failed(format!("{name} started without pipes"));
     };
-    let stderr = tokio::spawn(async move {
-        let mut text = String::new();
-        let _ = stderr.read_to_string(&mut text).await;
-        tail(&text)
-    });
+    let stderr = tokio::spawn(stderr_tail(stderr));
     let ended = driver::run(
         BufReader::new(stdout),
         stdin,
@@ -267,6 +263,24 @@ fn network(network: &ProfileNetwork) -> SandboxNetwork {
         ProfileNetwork::Proxy { .. } => SandboxNetwork::Proxy,
         ProfileNetwork::Open => SandboxNetwork::Open,
     }
+}
+
+/// Reads `stderr` to its end, whatever it holds, and returns the tail of
+/// it as text. Only the last bytes are kept, so the agent's stderr cannot
+/// take Ovra's memory.
+async fn stderr_tail(mut stderr: impl AsyncRead + Unpin) -> String {
+    // A char is at most four bytes.
+    let keep = STDERR_TAIL * 4;
+    let mut kept = Vec::new();
+    let mut chunk = [0u8; 8192];
+    while let Ok(n @ 1..) = stderr.read(&mut chunk).await {
+        kept.extend_from_slice(&chunk[..n]);
+        if kept.len() > 2 * keep {
+            kept.drain(..kept.len() - keep);
+        }
+    }
+    let start = kept.len().saturating_sub(keep);
+    tail(&String::from_utf8_lossy(&kept[start..]))
 }
 
 fn tail(text: &str) -> String {

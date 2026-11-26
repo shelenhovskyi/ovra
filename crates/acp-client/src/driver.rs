@@ -11,7 +11,7 @@ use ovra_core::protocol::agents::{AgentMessage, AgentStatus, TurnUsage};
 use ovra_core::protocol::permissions::{Decision, PermissionReason};
 use ovra_core::services::{AgentHost, BeforeTool};
 use serde_json::Value;
-use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncWrite, AsyncWriteExt};
+use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 
@@ -44,6 +44,48 @@ pub(crate) enum Ended {
     Unresponsive,
     /// The session failed in a way the agent cannot recover from.
     Failed(String),
+}
+
+/// The longest line Ovra reads from an agent, so that its output cannot
+/// take Ovra's memory.
+pub(crate) const MAX_LINE: usize = 4 << 20;
+
+/// Reads from `stdout` into `buf` up to the next newline, the end of the
+/// output, or [`MAX_LINE`] bytes. Cancel safe: what it read stays in
+/// `buf`, and the next call goes on from there.
+async fn read_line(
+    stdout: &mut (impl AsyncBufRead + Unpin),
+    buf: &mut Vec<u8>,
+) -> std::io::Result<()> {
+    let room = (MAX_LINE + 1).saturating_sub(buf.len());
+    (&mut *stdout)
+        .take(room as u64)
+        .read_until(b'\n', buf)
+        .await
+        .map(drop)
+}
+
+/// The line [`read_line`] read, without its line ending: `None` at the end
+/// of the output, `Err` for a line too long or not UTF-8.
+fn take_line(buf: &mut Vec<u8>) -> Result<Option<String>, String> {
+    if buf.is_empty() {
+        return Ok(None);
+    }
+    let mut line = std::mem::take(buf);
+    if line.last() == Some(&b'\n') {
+        line.pop();
+        if line.last() == Some(&b'\r') {
+            line.pop();
+        }
+    } else if line.len() > MAX_LINE {
+        return Err(format!(
+            "the agent wrote a line longer than {} MiB",
+            MAX_LINE >> 20
+        ));
+    }
+    String::from_utf8(line)
+        .map(Some)
+        .map_err(|_| "the agent wrote a line Ovra cannot read: it is not UTF-8".to_owned())
 }
 
 /// Writes JSON lines to stdin until the channel closes, then closes stdin.
@@ -351,7 +393,9 @@ pub(crate) async fn run(
         stopping: false,
     };
     driver.write(v1::initialize(INITIALIZE));
-    let mut stdout = stdout.lines();
+    let mut stdout = stdout;
+    // The line being read; it survives a `select!` that a command wins.
+    let mut buf = Vec::new();
     let mut deadline = None;
     let ended = loop {
         let grace = async {
@@ -361,14 +405,15 @@ pub(crate) async fn run(
             }
         };
         tokio::select! {
-            line = stdout.next_line() => match line {
-                Ok(Some(line)) => {
+            read = read_line(&mut stdout, &mut buf) => match read.map(|()| take_line(&mut buf)) {
+                Ok(Ok(Some(line))) => {
                     if let Err(message) = driver.line(&line).await {
                         break Ended::Failed(message);
                     }
                 }
-                Ok(None) => break Ended::Closed { stopped: driver.stopping },
-                Err(e) => break Ended::Failed(format!("the agent wrote a line Ovra cannot read: {e}")),
+                Ok(Ok(None)) => break Ended::Closed { stopped: driver.stopping },
+                Ok(Err(message)) => break Ended::Failed(message),
+                Err(e) => break Ended::Failed(format!("could not read the agent's output: {e}")),
             },
             command = commands.recv(), if !driver.stopping => {
                 driver.command(command);
