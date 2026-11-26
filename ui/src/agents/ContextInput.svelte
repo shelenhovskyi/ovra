@@ -152,8 +152,12 @@ $effect(() => {
   const follow = (event: KeyboardEvent) => {
     if (["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.code)) refresh();
   };
+  // Removing the focused field fires blur while Svelte updates the DOM, where
+  // state must not change: close the menu just after.
   const leave = () => {
-    at = null;
+    queueMicrotask(() => {
+      if (at !== null) at = null;
+    });
   };
   box.addEventListener("keyup", follow);
   box.addEventListener("blur", leave);
