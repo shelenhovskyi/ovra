@@ -16,6 +16,7 @@ mod overlap;
 mod policy;
 mod prepare;
 mod publish;
+mod push;
 mod review;
 mod saved;
 mod setup;
@@ -29,6 +30,7 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 pub use ide::{Output, WorkerState};
 pub(crate) use policy::{IDE_TOOL_PREFIX, decide};
+pub use push::{PushArgs, Pushed};
 
 use crate::Core;
 use crate::protocol::agents::{AgentStatus, SessionId};

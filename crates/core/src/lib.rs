@@ -35,4 +35,4 @@ pub mod services;
 pub mod untrusted;
 
 pub use crate::core::{Client, Core, CoreBuilder};
-pub use crate::orchestration::{Output, WorkerState};
+pub use crate::orchestration::{Output, PushArgs, Pushed, WorkerState};

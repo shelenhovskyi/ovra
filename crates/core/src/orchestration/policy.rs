@@ -24,8 +24,9 @@ const COORDINATOR_TOOLS: [&str; 5] = [
 /// Tools every session with IDE tools may call; the board's act on the
 /// caller's own task, the `server_*` ones on the caller's own work dir
 /// only, the `browser_*` ones on its own session's browser.
-const SHARED_TOOLS: [&str; 25] = [
+const SHARED_TOOLS: [&str; 26] = [
     "request_review",
+    "push",
     "claim",
     "release",
     "ask",
@@ -95,6 +96,9 @@ fn decide_for(
             Err("a worker may ask for a review of its own work only".to_owned())
         }
         ToolRole::Worker => Ok(()),
+        ToolRole::Coordinator if name == "push" => {
+            Err("a coordinator has no changes of its own; a worker pushes its work".to_owned())
+        }
         ToolRole::Coordinator => {
             let task = tasks::of_coordinator(core, session).map_err(|e| e.message)?;
             let asked = tasks::asked_for_review(&core.orchestration_state().lock().reviews);

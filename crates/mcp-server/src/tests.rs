@@ -37,7 +37,7 @@ fn names(reply: &Option<Value>) -> Vec<&str> {
 #[test]
 fn every_tool_definition_is_a_closed_object_schema() {
     let tools: Vec<Value> = serde_json::from_str(TOOLS).unwrap_or_else(|e| panic!("{e}"));
-    assert_eq!(tools.len(), 30);
+    assert_eq!(tools.len(), 31);
     for tool in &tools {
         let name = tool["name"].as_str().unwrap_or("");
         assert!(
@@ -66,11 +66,13 @@ async fn initialize_lists_and_calls_like_an_mcp_server() {
     assert_eq!(ask(ToolRole::Worker, initialized).await, None);
 
     let list = json!({"jsonrpc": "2.0", "id": 1, "method": "tools/list"});
-    assert_eq!(
-        names(&ask(ToolRole::Worker, list.clone()).await),
-        SHARED_TOOLS
-    );
-    assert_eq!(names(&ask(ToolRole::Coordinator, list).await).len(), 30);
+    let mut worker = SHARED_TOOLS.to_vec();
+    worker.insert(1, "push");
+    assert_eq!(names(&ask(ToolRole::Worker, list.clone()).await), worker);
+    let listed = ask(ToolRole::Coordinator, list).await;
+    let coordinator = names(&listed);
+    assert_eq!(coordinator.len(), 30);
+    assert!(!coordinator.contains(&"push"));
 
     let call = |name: &str| {
         json!({"jsonrpc": "2.0", "id": 2, "method": "tools/call",

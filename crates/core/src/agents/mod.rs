@@ -9,7 +9,7 @@ mod requests;
 mod state;
 mod transcript;
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use crate::orchestration::direct::Direct;
@@ -21,7 +21,7 @@ use crate::protocol::audit::{AuditEvent, DecidedBy};
 use crate::protocol::permissions::{
     Decision, PermissionAnswer, PermissionId, PermissionReason, PermissionRequest, PermissionsEvent,
 };
-use crate::protocol::policy::PolicyAction;
+use crate::protocol::policy::{PolicyAction, PolicyRule};
 use crate::protocol::projects::ProjectId;
 use crate::protocol::{ErrorCode, ProtocolError};
 use crate::services::{
@@ -913,6 +913,24 @@ impl AgentHost {
             // Unreadable policy: ask, never decide on its own.
             _ => {}
         }
+        let always = |cwd: Option<&Path>, sandbox: Option<&SandboxReport>| {
+            cwd.filter(|_| open)
+                .and_then(|cwd| crate::policy::always_rule(&tool.name, &tool.call, cwd, sandbox))
+        };
+        self.ask_person(&tool, title, reason, always).await
+    }
+
+    /// Puts `tool` to the person and waits for the answer, as [`Self::ask`]
+    /// does once no rule decided it; `always` gives the rule "Always
+    /// allow" offers, from the session's folder and sandbox.
+    pub(crate) async fn ask_person(
+        &self,
+        tool: &ToolRequest,
+        title: Option<String>,
+        reason: Option<PermissionReason>,
+        always: impl FnOnce(Option<&Path>, Option<&SandboxReport>) -> Option<PolicyRule>,
+    ) -> PermissionAnswer {
+        let tool = tool.clone();
         let registered = self.sessions.find(&self.session, |s| {
             if s.stopping() {
                 return Err(PermissionAnswer::deny("the session was stopped"));
@@ -922,9 +940,7 @@ impl AgentHost {
             }
             let cwd = s.launch().map(|l| l.cwd);
             let sandbox = s.info().sandbox;
-            let always = cwd.as_deref().filter(|_| open).and_then(|cwd| {
-                crate::policy::always_rule(&tool.name, &tool.call, cwd, sandbox.as_ref())
-            });
+            let always = always(cwd.as_deref(), sandbox.as_ref());
             Ok(s.permissions.register(PermissionRequest {
                 id: PermissionId(String::new()),
                 session: self.session.clone(),

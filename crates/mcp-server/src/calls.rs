@@ -33,6 +33,15 @@ struct Spawn {
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+struct Push {
+    message: String,
+    branch: Option<String>,
+    remote: Option<String>,
+    base: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct Agent {
     agent_id: String,
 }
@@ -161,6 +170,30 @@ pub(crate) async fn call(
             Ok(escaped(&text(
                 &json!({"review_id": item.id, "state": item.state, "files": files}),
             )))
+        }
+        "push" => {
+            let Push {
+                message,
+                branch,
+                remote,
+                base,
+            } = parse(arguments)?;
+            let args = ovra_core::PushArgs {
+                message,
+                branch,
+                remote,
+                base,
+            };
+            let pushed = core.push_work(caller, args).await.map_err(failed)?;
+            let short: String = pushed.commit.chars().take(12).collect();
+            let from = match &pushed.base {
+                Some(base) => format!(" (a new branch from {}/{base})", pushed.remote),
+                None => String::new(),
+            };
+            Ok(format!(
+                "Pushed commit {short} to {}/{}{from}.",
+                pushed.remote, pushed.branch
+            ))
         }
         "open_in_ui" => {
             let target = target(parse(arguments)?)?;

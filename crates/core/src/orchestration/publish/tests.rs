@@ -17,21 +17,21 @@ use crate::protocol::review::{ReviewItem, ReviewResponse, ReviewState};
 use crate::protocol::{ErrorCode, Event, ProtocolError, Request, Response};
 use crate::services::{AuditLog, ToolCaller, ToolRole, Worktrees};
 
-const ROOT: &str = crate::test_path!("/work/a");
+pub(crate) const ROOT: &str = crate::test_path!("/work/a");
 const WORKTREES: &str = crate::test_path!("/data/worktrees");
 
-struct Fx {
-    core: Core,
-    wt: Arc<MemoryWorktrees>,
-    forge: Arc<MemoryForge>,
-    audit: Arc<MemoryAudit>,
+pub(crate) struct Fx {
+    pub(crate) core: Core,
+    pub(crate) wt: Arc<MemoryWorktrees>,
+    pub(crate) forge: Arc<MemoryForge>,
+    pub(crate) audit: Arc<MemoryAudit>,
 }
 
-fn dir() -> PathBuf {
+pub(crate) fn dir() -> PathBuf {
     Path::new(WORKTREES).join("p1").join("t1").join("w")
 }
 
-fn lock<T>(m: &std::sync::Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+pub(crate) fn lock<T>(m: &std::sync::Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     m.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
@@ -43,7 +43,16 @@ async fn fx() -> Fx {
 
 /// As [`fx`], with agents that play `turns`.
 async fn fx_with(turns: Vec<Vec<Step>>) -> Fx {
+    fx_in(turns, None).await
+}
+
+/// As [`fx_with`], with agents that report running in `sandbox`.
+pub(crate) async fn fx_in(
+    turns: Vec<Vec<Step>>,
+    sandbox: Option<crate::protocol::agents::SandboxReport>,
+) -> Fx {
     let agent = Arc::new(ScriptedAgent::new(turns));
+    *lock(&agent.sandbox) = sandbox;
     let wt = Arc::new(MemoryWorktrees::default());
     wt.put(ROOT, "a.rs", "one\n");
     let forge = Arc::new(MemoryForge::default());
@@ -87,12 +96,12 @@ async fn fx_with(turns: Vec<Vec<Step>>) -> Fx {
     }
 }
 
-async fn call(core: &Core, json: serde_json::Value) -> Result<Response, ProtocolError> {
+pub(crate) async fn call(core: &Core, json: serde_json::Value) -> Result<Response, ProtocolError> {
     let request: Request = serde_json::from_value(json).unwrap_or_else(|e| panic!("{e}"));
     core.handle(request).await
 }
 
-async fn ok(core: &Core, json: serde_json::Value) -> Response {
+pub(crate) async fn ok(core: &Core, json: serde_json::Value) -> Response {
     call(core, json).await.unwrap_or_else(|e| panic!("{e}"))
 }
 
@@ -116,7 +125,7 @@ async fn until(rx: &mut broadcast::Receiver<Event>, session: &str, want: AgentSt
 }
 
 /// The worker's item as the inbox shows it.
-async fn item(core: &Core) -> ReviewItem {
+pub(crate) async fn item(core: &Core) -> ReviewItem {
     let list = ok(
         core,
         json!({"method": "review.list", "params": {"project": "p1"}}),
@@ -151,7 +160,7 @@ fn pull_request(response: Response) -> PullRequest {
 }
 
 /// The files of commit `id`.
-async fn files_of(wt: &MemoryWorktrees, id: &str) -> Vec<(String, String)> {
+pub(crate) async fn files_of(wt: &MemoryWorktrees, id: &str) -> Vec<(String, String)> {
     let at = PathBuf::from(WORKTREES).join("look").join(id);
     let made = wt
         .create(ROOT.into(), at.clone(), format!("look/{id}"), id.into())

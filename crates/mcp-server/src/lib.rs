@@ -54,6 +54,10 @@ const SHARED_TOOLS: [&str; 25] = [
     "browser_inspect",
 ];
 
+/// Tools only a worker may call: a coordinator has no changes of its own
+/// to push.
+const WORKER_TOOLS: [&str; 1] = ["push"];
+
 /// The IDE tools server.
 #[derive(Debug)]
 pub struct IdeServer {
@@ -71,8 +75,13 @@ impl IdeServer {
         self.tools
             .iter()
             .filter(|tool| {
-                role == ToolRole::Coordinator
-                    || SHARED_TOOLS.contains(&tool["name"].as_str().unwrap_or(""))
+                let name = tool["name"].as_str().unwrap_or("");
+                match role {
+                    ToolRole::Coordinator => !WORKER_TOOLS.contains(&name),
+                    ToolRole::Worker => {
+                        SHARED_TOOLS.contains(&name) || WORKER_TOOLS.contains(&name)
+                    }
+                }
             })
             .cloned()
             .collect()

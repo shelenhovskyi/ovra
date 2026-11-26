@@ -95,6 +95,39 @@
     }
   },
   {
+    "name": "push",
+    "description": "Push your changes to a branch on a remote, as one commit Ovra makes of them. The person approves each push on a card unless a project rule allows it; you wait for the answer. Never forced; changes to protected files (workflows, agent configuration) are refused, ask for review instead. Fails, pushing nothing, when the branch moved meanwhile: call it again.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "message": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 20000,
+          "description": "The commit message: a title line of at most 72 characters, then a blank line and a body."
+        },
+        "branch": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_][A-Za-z0-9._/-]{0,199}$",
+          "description": "The branch to push to. Default: your own branch, ovra/<task>/<name>."
+        },
+        "remote": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_][A-Za-z0-9._-]{0,99}$",
+          "default": "origin",
+          "description": "A remote's name, never a URL."
+        },
+        "base": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_][A-Za-z0-9._/-]{0,199}$",
+          "description": "What a new branch starts from on the remote. Default: the branch the main checkout tracks, else main."
+        }
+      },
+      "required": ["message"],
+      "additionalProperties": false
+    }
+  },
+  {
     "name": "open_in_ui",
     "description": "Show the person a file, a worker or a review in Ovra. Changes nothing.",
     "inputSchema": {
