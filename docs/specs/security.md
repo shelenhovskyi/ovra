@@ -316,6 +316,8 @@ subtree read-only. The backstop is outside the sandbox:
   (`GEMINI.md`, `AGENTS.override.md` and `QWEN.md` in any folder,
   `.cursorrules`, `.goosehints`, `.github/copilot-instructions.md`,
   `.github/instructions|agents|prompts|chatmodes|hooks/`, `.agents/`);
+  GitHub's `.github/workflows/` and `.github/actions/`, which run with
+  the repository's secrets once a pull request's branch is pushed;
   the configuration of agents Ovra does not know well yet (`.qwen`,
   `.kiro`, `.windsurf`, `.windsurfrules`, `.amazonq`, `.roo`,
   `.roomodes`, `.kilocode`, `.clinerules`, `.continue`, `.crush`,

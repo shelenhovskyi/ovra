@@ -44,8 +44,10 @@ pub const PROTECTED_IN_WORK_DIR: [&str; 19] = [
 /// root), git hooks managers and attributes (SEC-5), other agents'
 /// instruction files (a rules file is often a link to `AGENTS.md`, which
 /// the sandbox cannot keep read-only, so it would refuse the session),
-/// and the configuration of agents Ovra does not know well yet.
-const MARKED_IN_REVIEW: [&str; 37] = [
+/// the configuration of agents Ovra does not know well yet, and GitHub
+/// workflows and actions, which run with the repository's secrets as soon
+/// as a pull request's branch is pushed.
+const MARKED_IN_REVIEW: [&str; 39] = [
     "**/.envrc",
     "**/.claude",
     "**/.codex",
@@ -68,6 +70,8 @@ const MARKED_IN_REVIEW: [&str; 37] = [
     ".github/prompts",
     ".github/chatmodes",
     ".github/hooks",
+    ".github/workflows",
+    ".github/actions",
     ".agents",
     ".qwen",
     ".kiro",
@@ -277,7 +281,21 @@ mod tests {
             assert!(!is_protected(path), "{path}");
             assert!(changes(path, None), "{path}");
         }
-        assert!(!changes(".github/workflows/ci.yml", None));
+    }
+
+    #[test]
+    fn github_workflows_and_actions_are_marked() {
+        for path in [
+            ".github/workflows/ci.yml",
+            ".GitHub/Workflows/release.yaml",
+            ".github/actions/setup/action.yml",
+        ] {
+            assert!(!is_protected(path), "{path}");
+            assert!(changes(path, None), "{path}");
+        }
+        assert!(changes("ci.yml", Some(".github/workflows/ci.yml")));
+        assert!(!changes(".github/CODEOWNERS", None));
+        assert!(!changes("sub/.github/workflows/ci.yml", None));
     }
 
     #[test]
