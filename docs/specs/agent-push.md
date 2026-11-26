@@ -84,17 +84,28 @@ network is limited (every worker on Linux and macOS).
 - **Protected branches** always ask unless a rule names them exactly: a
   rule ending in `/*` or without a match never pushes to them without
   asking. Protected are `main`, `master`, `trunk`, `develop`, `development`,
-  `production`, `prod`, `stable`, `release`, `release/*`, `release-*`,
-  `hotfix/*`, and the branch the main checkout's branch tracks on that
-  remote. "Always allow" is never offered for them; only the person can
+  `production`, `prod`, `stable`, `release`, `staging`, `next`,
+  `gh-pages`, `release/*`, `release-*`, `hotfix/*`, and the branch the
+  main checkout's branch tracks on that remote. (The remote's default
+  branch by `refs/remotes/<remote>/HEAD` is a follow-up: it needs a forge
+  call.)
+- **Other branches than the worker's own** are treated like protected
+  ones: a wide rule pushes only to the worker's own `ovra/<task>/<name>`.
+  Another live worker's branch, or the branch of another item's pull
+  request, is refused outright. "Always allow" is never offered for them; only the person can
   write such a rule, in Settings.
-- **What "Always allow" offers**: `Push(<remote> ovra/*)` for Ovra's own
-  agent branches, else `Push(<remote> <branch>)`. Never for a protected
-  branch. The card says it in words: "Always allow pushes to ovra/… on
+- **What "Always allow" offers**: `Push(<remote> ovra/*)`, which lets
+  each worker push to its own branch. Never for a protected branch or
+  another branch. The card says it in words: "Always allow pushes to ovra/… on
   origin".
 - **Force push** does not exist for agents, with or without a rule.
 - An agent tool that happens to be named `Push` is never decided by these
   rules.
+
+When a worker pushes to the branch of its own pull request, the pull
+request's lease follows (`pushed`), but what the person reviewed
+(`published_from`) does not: the item still shows those changes as not
+reviewed.
 
 ## Phone
 
@@ -123,7 +134,15 @@ This loosens ADR 0010 on the owner's request. What keeps it narrow:
   hides `gh`'s configuration and the token variables.
 - What goes out is one commit built by Ovra from the worker's files, shown
   on the card; hooks never run; workflows and other protected files never
-  go out through the tool.
+  go out through the tool. The message may not carry `Reviewed-by` or
+  `Signed-off-by` trailers, control or text-direction characters.
+- Only remotes whose URL names a host: a remote that is a folder on this
+  computer is refused.
+- **What this does not stop**: the pushed code (tests, build scripts,
+  `package.json` scripts) runs in the repository's CI as soon as the branch
+  is pushed, with the secrets and network CI has there, outside Ovra's
+  sandbox and netproxy. The card says so on every push, and that is the
+  reason a rule covers only workers' own branches.
 - No force, no deletes, protected branches ask unless named exactly.
 - The tool, the policy and the core code are security code and need an
   independent reviewer agent's verdict.

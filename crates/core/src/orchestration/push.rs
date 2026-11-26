@@ -70,8 +70,26 @@ fn commit_message(message: &str) -> Result<String> {
     if title.chars().count() > MAX_TITLE {
         return bad("the commit message's title line is longer than 72 characters");
     }
-    if message.len() > MAX_MESSAGE || message.contains('\0') {
-        return bad("the commit message is too long or holds a NUL character");
+    if message.len() > MAX_MESSAGE {
+        return bad("the commit message is too long");
+    }
+    // What the card shows must be what the commit says: no escapes, no
+    // text that runs backwards.
+    let hidden = |c: char| {
+        (c.is_control() && c != '\n' && c != '\t')
+            || matches!(c, '\u{200b}'..='\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}')
+    };
+    if message.chars().any(hidden) {
+        return bad("the commit message holds control or text-direction characters");
+    }
+    // The trailer promises a person's review (AI_POLICY.md); the commit
+    // is signed as the person.
+    let claims_review = message.lines().any(|line| {
+        let line = line.trim_start().to_ascii_lowercase();
+        line.starts_with("reviewed-by:") || line.starts_with("signed-off-by:")
+    });
+    if claims_review {
+        return bad("the commit message may not carry Reviewed-by or Signed-off-by trailers");
     }
     Ok(message.to_owned())
 }
@@ -92,6 +110,12 @@ async fn push(core: &Core, caller: &ToolCaller, args: PushArgs) -> Result<Pushed
         None => worker.branch.clone(),
     };
     let message = commit_message(&args.message)?;
+    if let Some(owner) = taken_branch(core, &entry, &remote, &branch) {
+        return Err(forbidden(format!(
+            "{remote}/{branch} is {owner}; push to your own branch ({}) or another one",
+            worker.branch
+        )));
+    }
 
     let worktrees = core.worktrees();
     let snapshot = worktrees.snapshot(entry.workspace.dir.clone()).await?;
@@ -150,9 +174,17 @@ async fn push(core: &Core, caller: &ToolCaller, args: PushArgs) -> Result<Pushed
         )));
     }
     let host = forge.status(root.clone(), remote.clone()).await.ok();
+    // A remote git cannot read a host from may be a folder on this
+    // computer: nothing a card can name.
+    let Some(host) = host.and_then(|h| h.host) else {
+        return Err(forbidden(format!(
+            "{remote} is not a remote with a host in its URL; Ovra pushes only to those"
+        )));
+    };
     let plan = PushPlan {
+        own_branch: branch == worker.branch,
         remote: remote.clone(),
-        host: host.and_then(|h| h.host),
+        host: Some(host),
         protected_branch: policy::protected_branch(&branch, tracked.as_deref()),
         branch: branch.clone(),
         new_branch: base.is_some(),
@@ -197,11 +229,12 @@ async fn push(core: &Core, caller: &ToolCaller, args: PushArgs) -> Result<Pushed
         .as_ref()
         .is_some_and(|pr| pr.remote == remote && pr.branch == branch);
     if pr_branch {
+        // Only the lease follows: what the person reviewed stays where it
+        // was, so the review still shows what went out without them.
         let entry = review::update(core, &entry.id, |e| {
             if let Some(pr) = &mut e.pull_request {
                 pr.pushed = commit.clone();
             }
-            e.published_from = Some(snapshot);
         })?;
         publish::emit(core, &entry);
     }
@@ -213,6 +246,27 @@ async fn push(core: &Core, caller: &ToolCaller, args: PushArgs) -> Result<Pushed
         commit,
         base,
     })
+}
+
+/// Whose `branch` on `remote` is, when it is another worker's branch or
+/// the branch of another item's pull request: never pushed to from here.
+fn taken_branch(core: &Core, entry: &review::Entry, remote: &str, branch: &str) -> Option<String> {
+    let state = core.orchestration_state().lock();
+    let worker = state
+        .tasks
+        .iter()
+        .flat_map(|t| &t.workers)
+        .find(|w| w.session != entry.session && w.branch == branch);
+    if let Some(worker) = worker {
+        return Some(format!("worker {}'s branch", worker.name));
+    }
+    state
+        .reviews
+        .iter()
+        .filter(|r| r.session != entry.session)
+        .filter_map(|r| r.pull_request.as_ref())
+        .find(|pr| pr.remote == remote && pr.branch == branch)
+        .map(|pr| format!("the branch of pull request #{}", pr.number))
 }
 
 /// Decides `plan` by the project's `Push` rules, else asks the person and

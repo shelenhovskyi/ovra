@@ -177,7 +177,7 @@ pub(crate) const PUSH_TOOL: &str = "Push";
 
 /// Branches an agent's push always asks about unless a rule names them
 /// exactly, compared in any case, with [`PROTECTED_BRANCH_PREFIXES`].
-const PROTECTED_BRANCHES: [&str; 9] = [
+const PROTECTED_BRANCHES: [&str; 12] = [
     "main",
     "master",
     "trunk",
@@ -187,6 +187,9 @@ const PROTECTED_BRANCHES: [&str; 9] = [
     "prod",
     "stable",
     "release",
+    "staging",
+    "next",
+    "gh-pages",
 ];
 const PROTECTED_BRANCH_PREFIXES: [&str; 3] = ["release/", "release-", "hotfix/"];
 
@@ -778,8 +781,9 @@ mod tests;
 pub(crate) struct PushTarget<'a> {
     pub(crate) remote: &'a str,
     pub(crate) branch: &'a str,
-    /// One of [`protected_branch`]'s: only a rule naming it exactly
-    /// pushes to it without asking.
+    /// One of [`protected_branch`]'s, or not the worker's own branch:
+    /// only a rule naming it exactly pushes to it without asking, and
+    /// "Always allow" offers none.
     pub(crate) protected: bool,
 }
 
@@ -788,7 +792,7 @@ impl PushPlan {
         PushTarget {
             remote: &self.remote,
             branch: &self.branch,
-            protected: self.protected_branch,
+            protected: self.protected_branch || !self.own_branch,
         }
     }
 }

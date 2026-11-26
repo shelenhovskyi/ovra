@@ -75,6 +75,7 @@ describe("a worker's push", () => {
       { path: "c.rs", kind: "renamed", from: "a.rs", additions: 2, deletions: 1 },
     ],
     protected_branch: false,
+    own_branch: true,
   };
 
   it("says where it goes, what it builds on, its files and message", () => {
@@ -82,6 +83,7 @@ describe("a worker's push", () => {
     expect([summary.action, summary.object]).toEqual(["Push to origin/ovra/t1/w", "origin/ovra/t1/w"]);
     expect(summary.details).toEqual([
       { label: "where", text: "A new branch from origin/main on github.com" },
+      { label: "runs in CI", text: "The pushed code runs in this repository's CI, with its secrets." },
       { label: "2 files", text: "A b.rs  +1 −0\nR a.rs → c.rs  +2 −1" },
       { label: "commit message", text: "Add b\n\nThe second file." },
     ]);

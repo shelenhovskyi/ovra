@@ -1,7 +1,7 @@
 use serde_json::json;
 use tokio::sync::broadcast;
 
-use super::super::publish::tests::{Fx, call, dir, files_of, fx_in, lock, ok};
+use super::super::publish::tests::{Fx, call, dir, files_of, fx_in, lock, ok, opened};
 use crate::fakes::Step;
 use crate::protocol::agents::{SandboxNetwork, SandboxReport, SessionId};
 use crate::protocol::audit::AuditEvent;
@@ -33,12 +33,21 @@ fn args(branch: Option<&str>) -> PushArgs {
 /// A worker `w` (session `s2`) that added `b.rs`, sandboxed without a
 /// network, so `auto` rules count.
 async fn fx() -> Fx {
+    fx_on(SandboxNetwork::Blocked).await
+}
+
+async fn fx_on(network: SandboxNetwork) -> Fx {
     let sandbox = SandboxReport {
         name: "test".into(),
-        network: SandboxNetwork::Blocked,
+        network,
         gaps: Vec::new(),
     };
     fx_in(vec![vec![Step::Say("done")]], Some(sandbox)).await
+}
+
+fn allow_ovra_branches() -> serde_json::Value {
+    json!({"method": "policy.set", "params": {"project": "p1",
+        "policy": {"rules": [{"tool": "Push", "match": "origin ovra/*", "action": "auto"}]}}})
 }
 
 /// The next push the person is asked about.
@@ -258,5 +267,119 @@ async fn protected_files_coordinators_and_bad_names_are_refused_before_asking() 
     let refused = pushed.err().unwrap_or_else(|| panic!("pushed"));
     assert_eq!(refused.code, ErrorCode::Forbidden);
     assert!(refused.message.contains(".github/workflows/ci.yml"));
+    assert!(lock(&f.forge.pushed).is_empty());
+}
+
+#[tokio::test]
+async fn a_rule_pushes_only_to_the_workers_own_branch_and_only_where_contained() {
+    let f = fx().await;
+    ok(&f.core, allow_ovra_branches()).await;
+    // Another branch under ovra/ asks, and offers no rule.
+    let (request, pushed) = answered(&f, Some("ovra/t1/other"), "allow").await;
+    assert!(!plan(&request).own_branch);
+    assert_eq!(request.always, None);
+    assert!(pushed.is_ok(), "{pushed:?}");
+
+    let open = fx_on(SandboxNetwork::Open).await;
+    ok(&open.core, allow_ovra_branches()).await;
+    let (request, pushed) = answered(&open, None, "allow").await;
+    assert!(plan(&request).own_branch);
+    assert_eq!(request.always, None);
+    assert!(pushed.is_ok(), "{pushed:?}");
+}
+
+#[tokio::test]
+async fn another_workers_branch_is_not_the_workers_to_take() {
+    let f = fx().await;
+    let boss = caller(ToolRole::Coordinator);
+    let other = f.core.spawn_agent(&boss, "v", "add v", false).await;
+    let other = other.unwrap_or_else(|e| panic!("{e}"));
+    let worker = caller(ToolRole::Worker);
+    let taken = f.core.push_work(&worker, args(Some(&other.branch))).await;
+    let taken = taken.err().unwrap_or_else(|| panic!("pushed"));
+    assert_eq!(taken.code, ErrorCode::Forbidden);
+    assert!(taken.message.contains("worker v"), "{}", taken.message);
+    assert!(lock(&f.forge.pushed).is_empty());
+}
+
+#[tokio::test]
+async fn a_push_to_the_items_pull_request_moves_its_lease_but_not_what_was_reviewed() {
+    let f = fx().await;
+    let (id, pr) = opened(&f).await;
+    let reviewed = |core: &crate::Core| {
+        let state = core.orchestration_state().lock();
+        let entry = state.reviews.iter().find(|r| r.id.0 == id);
+        entry.map(|e| {
+            (
+                e.published_from.clone(),
+                e.pull_request.clone().map(|p| p.pushed),
+            )
+        })
+    };
+    let (before, _) = reviewed(&f.core).unwrap_or_default();
+    f.wt.put(dir(), "c.rs", "three\n");
+    ok(&f.core, allow_ovra_branches()).await;
+    let pushed = f
+        .core
+        .push_work(&caller(ToolRole::Worker), args(Some(&pr.branch)))
+        .await;
+    let pushed = pushed.unwrap_or_else(|e| panic!("{e}"));
+    let (after, lease) = reviewed(&f.core).unwrap_or_default();
+    assert_eq!(after, before);
+    assert_eq!(lease, Some(pushed.commit));
+}
+
+#[tokio::test]
+async fn a_branch_that_moved_while_the_person_looked_is_not_overwritten() {
+    let f = fx().await;
+    let mut rx = f.core.subscribe();
+    let core = f.core.clone();
+    let push = tokio::spawn(async move {
+        core.push_work(&caller(ToolRole::Worker), args(Some("main")))
+            .await
+    });
+    let request = asked(&mut rx).await;
+    lock(&f.forge.branches).insert(("origin".into(), "main".into()), "someone-else".into());
+    let params = json!({"id": request.id, "decision": "allow"});
+    let sent = call(
+        &f.core,
+        json!({"method": "permissions.answer", "params": params}),
+    )
+    .await;
+    assert!(sent.is_ok());
+    let refused = push.await.unwrap_or_else(|e| panic!("{e}")).err();
+    let refused = refused.unwrap_or_else(|| panic!("pushed"));
+    assert_eq!(refused.code, ErrorCode::Conflict);
+    assert!(
+        refused.message.contains("Call push again"),
+        "{}",
+        refused.message
+    );
+}
+
+#[tokio::test]
+async fn review_trailers_hidden_text_and_remotes_without_a_host_are_refused() {
+    let f = fx().await;
+    let worker = caller(ToolRole::Worker);
+    for message in [
+        "Add b\n\nReviewed-by: someone <a@b>",
+        "Add b\n\nSigned-off-by: someone <a@b>",
+        "Add \u{202e}b",
+        "Add \u{1b}[31mb",
+    ] {
+        let bad = PushArgs {
+            message: message.to_owned(),
+            ..args(None)
+        };
+        let bad = f.core.push_work(&worker, bad).await;
+        assert_eq!(
+            bad.err().map(|e| e.code),
+            Some(ErrorCode::BadRequest),
+            "{message:?}"
+        );
+    }
+    lock(&f.forge.gh).host = None;
+    let local = f.core.push_work(&worker, args(None)).await;
+    assert_eq!(local.err().map(|e| e.code), Some(ErrorCode::Forbidden));
     assert!(lock(&f.forge.pushed).is_empty());
 }

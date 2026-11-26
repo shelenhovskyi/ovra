@@ -112,7 +112,10 @@ function describePush(input: unknown): ToolSummary | null {
   const details: Detail[] = [{ label: "where", text: where }];
   if (plan.protected_branch === true) {
     details.push({ label: "shared branch", text: "People and CI use this branch; the push lands there for everyone." });
+  } else if (plan.own_branch === false) {
+    details.push({ label: "not its own branch", text: "The worker pushes to a branch other than its own." });
   }
+  details.push({ label: "runs in CI", text: "The pushed code runs in this repository's CI, with its secrets." });
   const files = plan.files.map((f) => {
     const letter = KIND_LETTER[f.kind] ?? "?";
     const path = f.from ? `${f.from} → ${f.path}` : f.path;

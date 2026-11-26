@@ -176,7 +176,7 @@ fn transcript(core: &Core) -> Vec<AgentMessage> {
 }
 
 /// Opens the pull request of the worker's item as drafted.
-async fn opened(f: &Fx) -> (String, PullRequest) {
+pub(crate) async fn opened(f: &Fx) -> (String, PullRequest) {
     let id = item(&f.core).await.id.0;
     let prepared = prepare(&f.core, &id).await;
     let pr = pull_request(ok(&f.core, create(&prepared, &id)).await);

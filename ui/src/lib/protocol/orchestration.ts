@@ -26,6 +26,8 @@ export type PushPlan = {
   files: PushedFile[];
   /** A shared branch such as `main`: only a rule naming it exactly pushes to it without asking. */
   protected_branch: boolean;
+  /** The worker's own branch; any other is pushed to without asking only by a rule naming it exactly. */
+  own_branch?: boolean;
 };
 
 export type PushedFile = {
