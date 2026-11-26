@@ -551,7 +551,8 @@ test("keep the computer awake while an agent works", async ({ page }) => {
   await page.keyboard.press("ControlOrMeta+Enter");
   await expect(page.getByTestId("approvals").getByRole("group", { name: "Run ls -la" })).toBeVisible();
   await expect(awake).toHaveClass(held);
-  await expect(awake).toHaveAttribute("title", /Keeping the computer awake/);
+  await expect(page.getByTestId("keep-awake-tip")).toContainText("Keep awake: on");
+  await expect(page.getByTestId("keep-awake-tip")).toContainText("Keeping the computer awake");
 
   const session = page.getByTestId("agent-session");
   await session.getByRole("button", { name: "Stop" }).click();
