@@ -307,6 +307,28 @@ fn a_program_in_the_home_folder_brings_its_own_folder_only() {
     assert!(OsStr::new("x") != plan.path);
 }
 
+/// A build next to the helper in the home folder (`target/debug` of a
+/// checkout there): the program's own folder already holds the helper.
+#[test]
+fn a_program_in_the_helpers_own_folder_runs() {
+    let root = Root::new("program-by-helper");
+    let mut setup = root.setup("/usr/bin");
+    setup.helper = root.file("home/work/ovra/target/debug/ovra");
+    let program = root.file("home/work/ovra/target/debug/fake-lsp");
+    let project = root.dir("project");
+    let plan = Plan::new(&setup, &profile(&project)).unwrap();
+    let line = plan.line(
+        Path::new("/usr/bin/bwrap"),
+        &setup.helper,
+        Landlock::Require,
+        line(&program, &project),
+        &Root::outer_env(),
+    );
+    let shown = root.show(&line.unwrap());
+    assert!(shown.contains("--ro-bind ROOT/home/work/ovra/target/debug\n"));
+    assert!(!shown.contains("--ro-bind ROOT/home/work/ovra/target/debug/ovra\n"));
+}
+
 #[test]
 fn ovra_data_inside_the_project_stays_hidden() {
     let root = Root::new("data-inside");

@@ -747,9 +747,14 @@ impl Plan {
             args.push(os(flag));
         }
         let mut mounts = self.mounts.clone();
-        // The helper and the program, wherever they are installed.
-        mounts.push(Mount::Ro(helper.clone()));
-        mounts.push(Mount::Ro(self.program_root(&program)));
+        // The helper and the program, wherever they are installed. A
+        // program's own folder may hold the helper already (a build next
+        // to it): binding the helper first would be lost under it.
+        let program_root = self.program_root(&program);
+        if helper == program_root || !helper.starts_with(&program_root) {
+            mounts.push(Mount::Ro(helper.clone()));
+        }
+        mounts.push(Mount::Ro(program_root));
         nothing_lost(&mounts)?;
         for mount in &mounts {
             let (flag, from, to) = match mount {
