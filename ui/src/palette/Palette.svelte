@@ -7,6 +7,7 @@ import { focusMain } from "../editor/open-files.svelte";
 import { runCommand } from "../keys/keybindings";
 import { formatShortcut, inBrowserTab, isApple, liveKeys } from "../keys/shortcut";
 import { useOvra } from "../shell/context";
+import FileIcon from "../shell/file-icons/FileIcon.svelte";
 import { FolderOpener } from "../tree/folder-opener.svelte";
 import { focusStartScreen } from "./commands";
 import { type Ranked, segments } from "./fuzzy";
@@ -261,6 +262,9 @@ function onfocusout(event: FocusEvent): void {
           onkeydown={() => {}}
         >
           <span class="title">
+            {#if item.item.id.startsWith("file:")}<FileIcon
+                name={item.item.label.slice(item.item.label.lastIndexOf("/") + 1)}
+              />{/if}
             {#if item.item.category}<span class="category">{item.item.category}</span>{/if}
             {#each segments(item.item.label, item.positions) as part}
               {#if part.hit}<mark>{part.text}</mark>{:else}{part.text}{/if}
@@ -354,6 +358,11 @@ function onfocusout(event: FocusEvent): void {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+  .title :global(.file-icon) {
+    display: inline-block;
+    margin-right: 8px;
+    vertical-align: -3px;
   }
   .detail {
     margin-left: 8px;

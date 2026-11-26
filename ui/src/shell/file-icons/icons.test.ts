@@ -1,5 +1,7 @@
+import { flushSync, mount, unmount } from "svelte";
 import { describe, expect, it } from "vitest";
 import icons from "./data";
+import FileIcon from "./FileIcon.svelte";
 import { iconName, iconUrl, loadIcons } from "./icons.svelte";
 
 describe("iconName", () => {
@@ -31,5 +33,18 @@ describe("iconUrl", () => {
   it("is null until the table loads, then a data URL", async () => {
     await loadIcons();
     expect(iconUrl("a.rs", "file", false)).toMatch(/^data:image\/svg\+xml;charset=utf-8,%3Csvg/);
+  });
+});
+
+describe("FileIcon", () => {
+  it("keeps an empty slot, then shows the icon once the table loads", async () => {
+    const target = document.createElement("div");
+    const app = mount(FileIcon, { target, props: { name: "Cargo.toml" } });
+    await loadIcons();
+    flushSync();
+    const img = target.querySelector("img.file-icon");
+    expect(img?.getAttribute("alt")).toBe("");
+    expect(img?.getAttribute("src")).toContain("data:image/svg+xml");
+    unmount(app);
   });
 });

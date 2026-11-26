@@ -32,7 +32,7 @@ ui/src/shell/icons.ts contains icon paths copied from Lucide
   ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
   OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
-ui/src/tree/icons/data.ts contains file and folder icons from Material Icon
+ui/src/shell/file-icons/data.ts contains file and folder icons from Material Icon
 Theme (https://github.com/material-extensions/vscode-material-icon-theme),
 with muted colours, under the MIT License:
 

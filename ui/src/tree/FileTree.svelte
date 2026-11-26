@@ -46,9 +46,9 @@ import { rootMenu, rowMenu, selectionMenu } from "./menu";
 import { ancestorsOf, type Filter, isGone, parentOf, type Row, TreeModel, typeaheadMatch, visibleRange } from "./model";
 import NameInput from "./NameInput.svelte";
 import { keyAction, moveTarget, stemRange } from "./ops";
+import FileIcon from "../shell/file-icons/FileIcon.svelte";
 import { ExpandedSaver, loadExpanded } from "./persist";
 import { clickKind, rangeOf, toggled, topLevel } from "./selection";
-import { iconUrl, loadIcons } from "./icons/icons.svelte";
 import TrashConfirm from "./TrashConfirm.svelte";
 import WatchLimitNotice from "./WatchLimitNotice.svelte";
 
@@ -80,7 +80,6 @@ let {
 } = $props();
 
 const ROW_HEIGHT = 28;
-void loadIcons();
 const OVERSCAN = 8;
 const TYPEAHEAD_RESET_MS = 700;
 const ID = `tree-${Math.random().toString(36).slice(2, 8)}`;
@@ -829,11 +828,7 @@ function onkeydown(e: KeyboardEvent): void {
                 oncancel={() => actions.cancel()}
               />
             {:else}
-              {@const icon = iconUrl(row.name, row.kind, row.expanded)}
-              {#if icon}<img class="icon" src={icon} alt="" width="16" height="16" draggable="false" />{:else}<span
-                  class="icon"
-                  aria-hidden="true"
-                ></span>{/if}
+              <FileIcon name={row.name} kind={row.kind} open={row.expanded} />
               <span class="name git-{row.git ?? 'clean'}">{row.name}</span>
             {/if}
             {#if row.loading}<span class="hint" aria-hidden="true">…</span>{/if}
@@ -963,14 +958,8 @@ function onkeydown(e: KeyboardEvent): void {
     color: var(--text-2);
     font-style: italic;
   }
-  .ignored .icon {
+  .ignored :global(.file-icon) {
     opacity: 0.55;
-  }
-  /* 16 px, the slot kept empty while the icon table loads. */
-  .icon {
-    flex: none;
-    width: var(--icon-sm);
-    height: var(--icon-sm);
   }
   /* A 12 px chevron in a 16 px column, turned down while the folder is open. */
   .twisty {

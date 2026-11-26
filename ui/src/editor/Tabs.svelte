@@ -33,6 +33,7 @@ import type { ProjectId } from "../lib/protocol";
 import { CoreError } from "../lib/transport";
 import { isMenuKey, openContextMenu } from "../menu/context-menu.svelte";
 import { useOvra } from "../shell/context";
+import FileIcon from "../shell/file-icons/FileIcon.svelte";
 import Icon from "../shell/Icon.svelte";
 import type { GroupIndex } from "../shell/workspace.svelte";
 import { revealLabel } from "../tree/ops";
@@ -370,6 +371,7 @@ function scrollToActive(): void {
           }}
           onkeydown={(event) => onkeydown(event, path)}
         >
+          <FileIcon name={path.slice(path.lastIndexOf("/") + 1)} />
           <span class="name">{labels.get(path)?.name}</span>
           {#if labels.get(path)?.hint && !pinned}<span class="hint">{labels.get(path)?.hint}</span>{/if}
         </button>
@@ -421,6 +423,7 @@ function scrollToActive(): void {
           tabindex="0"
           onkeydown={ondiffkeydown}
         >
+          <FileIcon name={diffName} />
           <span class="name">{diffName}</span>
           <span class="hint">{side}</span>
         </button>

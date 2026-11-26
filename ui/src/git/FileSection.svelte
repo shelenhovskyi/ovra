@@ -9,6 +9,7 @@
 import { tick } from "svelte";
 import type { GitChange, StatusFile } from "../lib/protocol";
 import { isMenuKey, type MenuEntry, openContextMenu } from "../menu/context-menu.svelte";
+import FileIcon from "../shell/file-icons/FileIcon.svelte";
 import Icon from "../shell/Icon.svelte";
 import { rowOf } from "./focus";
 import { CHANGE_LABEL, CHANGE_LETTER, type GitModel } from "./model.svelte";
@@ -207,6 +208,7 @@ const all = $derived(files.flatMap((f) => (kind === "staged" && f.from ? [f.path
             onclick={() => primary(file)}
             onkeydown={(event) => onrowkeydown(event, file, i)}
           >
+            <FileIcon name={name(file.path)} />
             <span class="file">{name(file.path)}</span>
             <span class="folder">{folder(file.path)}</span>
             <span class="visually-hidden">, {CHANGE_LABEL[what]}{kind === "staged" ? ", staged" : ""}</span>
