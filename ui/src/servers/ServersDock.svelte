@@ -57,7 +57,7 @@ $effect(() => {
   const shown = { project, workDir: serversDock.workDir, everywhere: serversDock.everywhere };
   untrack(() => {
     void servers.show(shown.project, shown.workDir, shown.everywhere);
-    if (shown.project) sessions.load(shown.project).catch(() => {});
+    if (shown.project) sessions.show(shown.project).catch(() => {});
   });
 });
 

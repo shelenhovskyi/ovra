@@ -46,7 +46,7 @@ const refusal = $derived.by(() => {
 const asks = $derived(browsers.asks.filter((a) => list.some((s) => s.id === a.session)));
 
 $effect(() => {
-  if (browsers.shown && project) untrack(() => sessions.load(project).catch(() => {}));
+  if (browsers.shown && project) untrack(() => sessions.show(project).catch(() => {}));
 });
 
 // Showing the pane moves focus to it: to the first ask waiting, if any.

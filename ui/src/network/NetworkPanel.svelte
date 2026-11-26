@@ -75,7 +75,7 @@ $effect(() => {
     void access.show(project);
     sessionsError = false;
     if (project)
-      sessions.load(project).catch(() => {
+      sessions.show(project).catch(() => {
         sessionsError = true;
       });
   });
