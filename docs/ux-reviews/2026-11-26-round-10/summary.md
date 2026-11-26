@@ -65,18 +65,22 @@ Majors:
   show as untracked while a session runs, and "Commit N files" would commit
   them. The core should say which files are placeholders.
 
-Minors and polish:
+Minors and polish, fixed in a later pass (2026-11-26):
 
-- Agents: ORCH-5 (Cancel on the secret-file question drops the safe files
-  too), ORCH-7 (Get started repeats the approval card), ORCH-10 (trust card
-  hidden while a task is open), NEW-8 (`.ovra-attachments` not shown as
-  ignored, no note why it exists), NEW-9 and A11Y-12 (Interrupt, Stop, Close),
-  A11Y-6 (Markdown headings in the page outline), A11Y-9 (chip from the @
-  menu not announced), KEY-8 (a half-typed mention is sent as text), KEY-9
-  (no keyboard way to add tree files to a task).
-- Focus: ORCH-6 (reviews still waiting count as done), A11Y-10 (no Add
-  context button), KEY-7 (Alt+N, Alt+Shift+G, Mod+Shift+A say nothing),
-  A11Y-8 (two texts below 4.5:1).
-- Shell: A11Y-7 (hairlines 1.25:1, the title bar's one is a shadow that
-  forced colours drop), NEW-11 (icon-only controls: sparkle, speaker).
-- Not tested: a worker's push approval card (the fake worker never pushes).
+- Agents: ORCH-5 (only the secret-looking files of a paste wait), ORCH-7
+  (Get started says "Answer the request above", counts, and shows one step
+  in a busy run), ORCH-10 (one trust line in an open task), NEW-8
+  (`.ovra-attachments` shows as ignored, the first copy says why), NEW-9 and
+  A11Y-12 (Stop, End task, Close task <name>), A11Y-6 (headings h4 to h6),
+  A11Y-9 (@ chip announced), KEY-8 (typing reopens the menu, the name stays
+  in the text), KEY-9 (Add to task in the tree's menu and the palette).
+- Focus: ORCH-6 ("N to review" apart from done), A11Y-10 (Add context
+  button), KEY-7 (Mod+N goes to Focus's box; Git, Search and Files leave
+  Focus), A11Y-8 (quiet text at `--text-2`).
+- Shell: A11Y-7 (3:1 hairlines with increased contrast, the title bar's
+  line is a border), NEW-11 (the git sparkle reads "Ask agent").
+
+Still open: NEW-11's terminal speaker toggle (terminal area, its own
+thread), Mod+Shift+A with nothing pending says nothing (KEY-7), Escape does
+not leave Focus, and a worker's push approval card is untested (the fake
+worker never pushes).
