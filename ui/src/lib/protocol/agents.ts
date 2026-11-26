@@ -98,7 +98,17 @@ export type SessionInfo = {
   can_undo_go_back?: boolean;
   /** A research session started without WebSearch. */
   no_web?: boolean;
+  /** When it started, ms since the Unix epoch; null for sessions saved before it was kept (absent from older cores). */
+  started_ms?: number | null;
+  /** Its latest message or change of status, ms since the Unix epoch; null for sessions saved before it was kept. */
+  active_ms?: number | null;
 };
+
+/** A piece of a message with the first matched word at `from`..`to` (UTF-16 offsets). */
+export type Snippet = { text: string; from: number; to: number };
+
+/** A session `agents.history` found; `snippet` is null when the title or project name matched, or nothing was searched for. */
+export type HistoryEntry = { session: SessionInfo; snippet: Snippet | null };
 
 /** A direct session's turn whose files can be set back to before it. */
 export type Checkpoint = {
@@ -272,6 +282,8 @@ export type AgentsRequest =
   | { method: "agents.set_project_account"; params: { project: ProjectId; account: string | null } }
   | { method: "agents.project_config"; params: { project: ProjectId } }
   | { method: "agents.list"; params: { project: ProjectId } }
+  /** Sessions of every project, or of `project`, with every word of `query`; newest activity first, at most 200. */
+  | { method: "agents.history"; params: { query: string; project?: ProjectId | null } }
   | {
       method: "agents.start";
       /** `account`: a `Account.id`; null or left out uses the project's. */
@@ -312,6 +324,7 @@ export type AgentsResponse =
   | { type: "agents.accounts"; data: AccountsOverview }
   | { type: "agents.project_config"; data: ProjectConfigReview }
   | { type: "agents.list"; data: SessionInfo[] }
+  | { type: "agents.history"; data: HistoryEntry[] }
   | { type: "agents.session"; data: SessionInfo }
   | { type: "agents.transcript"; data: SessionTranscript }
   | { type: "agents.capacity"; data: AgentCapacity }

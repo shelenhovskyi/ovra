@@ -117,6 +117,19 @@ pub(crate) async fn agents(
                 sessions.list(&project),
             )))
         }
+        AgentsRequest::History { query, project } => {
+            let names = ctx
+                .projects
+                .list()?
+                .into_iter()
+                .map(|p| (p.id, p.name))
+                .collect();
+            Ok(Response::Agents(AgentsResponse::History(sessions.history(
+                &query,
+                project.as_ref(),
+                &names,
+            ))))
+        }
         AgentsRequest::Start {
             project,
             agent,
@@ -507,6 +520,8 @@ pub(crate) async fn start(ctx: &Ctx<'_>, new: NewSession) -> Result<SessionInfo>
         undone_from: None,
         can_undo_go_back: false,
         no_web: new.no_web,
+        started_ms: Some(super::now_ms()),
+        active_ms: Some(super::now_ms()),
     };
     // With its folder and role from the start, so that it counts in its
     // role, and its first message if it waits.

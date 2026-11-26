@@ -3,6 +3,7 @@
 //! [`AgentRuntime`](crate::services::AgentRuntime).
 
 mod accounts;
+mod history;
 mod net;
 mod permissions;
 mod requests;
@@ -42,8 +43,15 @@ use transcript::Transcript;
 const UNREADABLE_POLICY: &str = "the policy could not be read";
 
 /// Ended sessions kept per project, with their transcripts; older ones are
-/// forgotten when a new session starts.
-const MAX_ENDED_PER_PROJECT: usize = 20;
+/// forgotten when a new session starts. History reaches back this far.
+const MAX_ENDED_PER_PROJECT: usize = 50;
+
+/// Unix time in milliseconds; 0 for a clock before 1970.
+pub(crate) fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX))
+}
 
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
     m.lock().unwrap_or_else(PoisonError::into_inner)
@@ -243,6 +251,28 @@ impl Sessions {
         }
     }
 
+    /// `agents.history` over the kept sessions of the projects in `names`.
+    pub(crate) fn history(
+        &self,
+        query: &str,
+        project: Option<&ProjectId>,
+        names: &std::collections::BTreeMap<ProjectId, String>,
+    ) -> Vec<crate::protocol::agents::HistoryEntry> {
+        let list = lock(&self.list);
+        let messages: Vec<Vec<AgentMessage>> =
+            list.iter().map(|s| s.transcript.messages()).collect();
+        let candidates = list
+            .iter()
+            .zip(&messages)
+            .map(|(s, m)| history::Candidate {
+                info: s.info(),
+                messages: m.iter().collect(),
+            })
+            .collect();
+        drop(list);
+        history::search(candidates, query, project, names)
+    }
+
     pub(crate) fn list(&self, project: &ProjectId) -> Vec<SessionInfo> {
         lock(&self.list)
             .iter()
@@ -436,6 +466,8 @@ impl SessionView<'_> {
     /// Adds a message and returns it as kept (long texts cut), with its number.
     pub(crate) fn push(&mut self, message: AgentMessage) -> (AgentMessage, u64) {
         let kept = self.session.transcript.push(message);
+        // Kept with the session's next save: not a write per message.
+        self.session.info.active_ms = Some(now_ms());
         let _ = self.store.append(&self.session.info.id, &kept);
         (kept, self.session.transcript.seq())
     }
@@ -507,6 +539,7 @@ impl SessionView<'_> {
     pub(crate) fn restart(&mut self) {
         self.session.run += 1;
         self.session.info.status = AgentStatus::Starting;
+        self.session.info.active_ms = Some(now_ms());
         self.session.stopping = false;
         // The new process reports its own sandbox; until it does, none.
         self.session.info.sandbox = None;
@@ -527,6 +560,7 @@ impl SessionView<'_> {
             self.session.pid = None;
         }
         self.session.info.status = status;
+        self.session.info.active_ms = Some(now_ms());
         self.save();
         true
     }

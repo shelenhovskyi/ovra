@@ -617,13 +617,71 @@ async fn old_ended_sessions_are_forgotten() {
         .projects(Arc::new(MemoryProjects::default()))
         .build();
     project(&core).await;
-    for _ in 0..25 {
+    for _ in 0..55 {
         assert_eq!(code(&core, start("x")).await, ErrorCode::Unavailable);
     }
     let ids: Vec<String> = sessions(&core).await.into_iter().map(|s| s.id.0).collect();
-    // Twenty kept when the last one started, plus the last one.
-    let kept: Vec<String> = (5..=25).map(|n| format!("s{n}")).collect();
+    // Fifty kept when the last one started, plus the last one.
+    let kept: Vec<String> = (5..=55).map(|n| format!("s{n}")).collect();
     assert_eq!(ids, kept);
+}
+
+/// `agents.history` for `query` (and `project`), as `id: snippet` lines.
+async fn history(core: &Core, query: &str, project: Option<&str>) -> Vec<String> {
+    let request =
+        json!({"method": "agents.history", "params": {"query": query, "project": project}});
+    match ok(core, request).await {
+        Response::Agents(AgentsResponse::History(found)) => found
+            .into_iter()
+            .map(|e| match e.snippet {
+                Some(s) => format!("{}: {}", e.session.id.0, s.text),
+                None => e.session.id.0,
+            })
+            .collect(),
+        other => panic!("unexpected {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn history_finds_sessions_of_every_project_by_what_they_said() {
+    let core = core_with(ScriptedAgent::new(vec![vec![Step::Say(
+        "Looked around.\nFixed the login bug in auth.rs",
+    )]]));
+    project(&core).await;
+    ok(
+        &core,
+        json!({"method": "projects.add", "params": {"root": crate::test_path!("/work/b")}}),
+    )
+    .await;
+    let mut rx = core.subscribe();
+    ok(&core, start("Fix login")).await;
+    until(&mut rx, AgentStatus::Idle).await;
+    let second = json!({"method": "agents.start", "params": {
+        "project": "p2", "agent": "claude", "mode": "direct", "prompt": "Write the README"}});
+    ok(&core, second).await;
+    until(&mut rx, AgentStatus::Idle).await;
+
+    let found = [
+        ("", None),
+        ("LOGIN", None),
+        ("readme AUTH", None),
+        ("auth", Some("p1")),
+        ("login nothing", None),
+    ];
+    let mut lines = Vec::new();
+    for (query, project) in found {
+        let ids = history(&core, query, project).await;
+        lines.push(format!("{query:?} in {project:?}: {ids:?}"));
+    }
+    insta::assert_snapshot!(lines.join("\n"), @r#"
+    "" in None: ["s2", "s1"]
+    "LOGIN" in None: ["s2: Fixed the login bug in auth.rs", "s1"]
+    "readme AUTH" in None: ["s2: Fixed the login bug in auth.rs"]
+    "auth" in Some("p1"): ["s1: Fixed the login bug in auth.rs"]
+    "login nothing" in None: []
+    "#);
+    let info = &sessions(&core).await[0];
+    assert!(info.started_ms.is_some() && info.active_ms >= info.started_ms);
 }
 
 #[tokio::test]

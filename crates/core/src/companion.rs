@@ -42,6 +42,8 @@ pub(crate) fn allows(request: &Request) -> bool {
             | AgentsRequest::RemoveAccount { .. }
             | AgentsRequest::SetProjectAccount { .. }
             | AgentsRequest::ProjectConfig { .. }
+            // Past tasks of every project stay on the computer.
+            | AgentsRequest::History { .. }
             | AgentsRequest::Start { .. }
             | AgentsRequest::Resume { .. }
             | AgentsRequest::SetLimit { .. }

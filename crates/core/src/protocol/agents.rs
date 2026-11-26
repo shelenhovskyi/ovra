@@ -163,6 +163,32 @@ pub struct SessionInfo {
     /// `no_web`): it only reads the project.
     #[serde(default)]
     pub no_web: bool,
+    /// When it was started, in ms since the Unix epoch; `None` for sessions
+    /// saved before Ovra kept it.
+    #[serde(default)]
+    pub started_ms: Option<u64>,
+    /// Its latest message or change of status, in ms since the Unix epoch;
+    /// `None` for sessions saved before Ovra kept it.
+    #[serde(default)]
+    pub active_ms: Option<u64>,
+}
+
+/// A session `agents.history` found (`docs/specs/task-history.md`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HistoryEntry {
+    pub session: SessionInfo,
+    /// The line of the conversation around the first match; `None` when the
+    /// title or the project's name matched, or nothing was searched for.
+    pub snippet: Option<Snippet>,
+}
+
+/// A piece of a message, with the match marked.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Snippet {
+    pub text: String,
+    /// The first matched word's range in `text`, in UTF-16 code units.
+    pub from: u32,
+    pub to: u32,
 }
 
 /// A turn of a direct session whose files can be set back to how they
@@ -482,6 +508,9 @@ impl AgentSettings {
     }
 }
 
+/// The most entries `agents.history` answers with.
+pub const HISTORY_LIMIT: usize = 200;
+
 /// The id of the account that runs `claude` as the user set it up, without
 /// a configuration folder of Ovra's choosing.
 pub const DEFAULT_ACCOUNT: &str = "default";
@@ -660,6 +689,16 @@ pub enum AgentsRequest {
     /// Sessions of a project, oldest first.
     #[serde(rename = "agents.list")]
     List { project: ProjectId },
+    /// Sessions of every project, or of `project`, whose title, project
+    /// name or conversation has every word of `query`; newest activity
+    /// first, at most [`HISTORY_LIMIT`].
+    #[serde(rename = "agents.history")]
+    History {
+        #[serde(default)]
+        query: String,
+        #[serde(default)]
+        project: Option<ProjectId>,
+    },
     /// Starts a session with a first prompt.
     #[serde(rename = "agents.start")]
     Start {
@@ -748,6 +787,8 @@ pub enum AgentsResponse {
     ProjectConfig(ProjectConfigReview),
     #[serde(rename = "agents.list")]
     List(Vec<SessionInfo>),
+    #[serde(rename = "agents.history")]
+    History(Vec<HistoryEntry>),
     #[serde(rename = "agents.session")]
     Session(SessionInfo),
     #[serde(rename = "agents.transcript")]
