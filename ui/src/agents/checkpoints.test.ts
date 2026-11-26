@@ -112,7 +112,7 @@ describe("Transcript", () => {
       props: { messages: four, undone: { from: 2, to: 3 } },
     });
     flushSync();
-    const rows = [...document.querySelectorAll("[data-testid=transcript] > li")];
+    const rows = [...document.querySelectorAll("[data-testid=transcript] > ol > li")];
     expect(rows.map((li) => (li.classList.contains("undone") ? "undone" : li.textContent?.trim()))).toEqual([
       "You Write one",
       "Agent Wrote one.",

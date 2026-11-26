@@ -55,7 +55,9 @@ describe("LiveActivity", () => {
     flushSync();
     expect(target.querySelector("[data-testid=streaming-text]")?.textContent).toContain("All tests");
     // The last item is the live row.
-    expect(target.querySelector("[data-testid=transcript] > li:last-child")?.classList.contains("live")).toBe(true);
+    expect(target.querySelector("[data-testid=transcript] > ol > li:last-child")?.classList.contains("live")).toBe(
+      true,
+    );
     unmount(app);
   });
 });

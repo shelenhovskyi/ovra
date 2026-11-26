@@ -380,7 +380,15 @@ async function showApprovals(): Promise<void> {
     <TitleBar {layout} shown={{ side: !folded.side, agents: !folded.agents }} {waiting} {toggle} {showApprovals} inbox={reviews} />
   </div>
   <div class="rail-area"><Rail {layout} /></div>
-  <aside class="panel side" data-testid="sidebar" aria-label={workspace.project ? view.name : "Projects"}>
+  <!-- On the start screen the project list is the page's main content: the
+       sidebar is its main landmark then, and a complementary one beside the
+       files once a project is open (or while a view such as Settings is the
+       main area). -->
+  <div
+    class="panel side"
+    role={!workspace.project && !mainView.current ? "main" : "complementary"}
+    data-testid="sidebar"
+    aria-label={workspace.project ? view.name : "Projects"}>
     <div class="body" hidden={folded.side}>
       <!-- The file tree draws its own header; Search and Git get one here. -->
       {#if workspace.project && workspace.sidebar !== "files"}
@@ -397,7 +405,7 @@ async function showApprovals(): Promise<void> {
         </section>
       {/if}
     </div>
-  </aside>
+  </div>
   {#each PANELS as panel (panel)}
     {#if !folded[panel] && (panel === "agents" || workspace.project)}
       <div class="handle {panel}-handle">
@@ -505,7 +513,8 @@ async function showApprovals(): Promise<void> {
       <ProblemsDock />
     </div>
   </main>
-  <aside class="panel agents" data-testid="agents" aria-label="Agents and approvals">
+  <!-- In Focus the agents' work is all the page shows: its main landmark. -->
+  <div class="panel agents" role={focusing ? "main" : "complementary"} data-testid="agents" aria-label="Agents and approvals">
     {#if folded.agents && !focusing}
       <div class="strip">
         <button
@@ -534,7 +543,7 @@ async function showApprovals(): Promise<void> {
       <!-- Hidden, not unmounted, in Focus: its commands, drafts and transcripts stay. -->
       <div class="agents-panel" hidden={focusing}><AgentsPanel /></div>
     </div>
-  </aside>
+  </div>
   <!-- Only what needs a person: the connection when it is lost (screen
        readers still hear it come and go), and on the right the open file's
        quiet facts and what runs for the open project. -->

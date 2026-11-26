@@ -177,6 +177,25 @@ function onkeydown(event: KeyboardEvent): void {
   .handle:focus-visible {
     outline: none;
   }
+  /* Forced colors replace the accent fills: the hairline and grip take system
+     colours, and focus shows as an outline, as on every other control. */
+  @media (forced-colors: active) {
+    .handle::before,
+    .handle::after {
+      forced-color-adjust: none;
+      background: CanvasText;
+    }
+    .handle:hover::before,
+    .handle:focus-visible::before,
+    .active::before,
+    .handle::after {
+      background: Highlight;
+    }
+    .handle:focus-visible {
+      outline: 2px solid Highlight;
+      outline-offset: -2px;
+    }
+  }
   /* While dragging, the whole window shows the resize cursor and selects no text. */
   .dragging {
     position: fixed;

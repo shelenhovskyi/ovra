@@ -178,7 +178,7 @@ it("folds Ovra's notes in a row into one quiet line, and a tool's raw answer beh
     },
   });
   flushSync();
-  const items = [...document.querySelectorAll("[data-testid=transcript] > li")];
+  const items = [...document.querySelectorAll("[data-testid=transcript] > ol > li")];
   // No grey cards: one quiet line for each run of notes.
   expect(items.map((li) => li.className.split(" ")[0])).toEqual(["steps", "notes", "assistant_text", "notes"]);
   // In the person's words: what they did is "You".

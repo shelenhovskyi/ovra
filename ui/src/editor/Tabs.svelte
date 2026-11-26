@@ -317,7 +317,10 @@ function scrollToActive(): void {
 {#if (own && own.files.length > 0) || diff}
   {@const files = own?.files ?? []}
   {@const selected = diff ? null : (own?.active ?? null)}
-  <!-- The tabs take focus, not the strip; it only takes drops. -->
+  <!-- The tabs take focus, not the strip; it only takes drops. A tab list
+       holds only tabs, so the pin and close buttons are for the pointer and
+       hidden from screen readers: the keyboard closes with Delete, pins and
+       does the rest from the tab's menu (Shift+F10). -->
   <!-- svelte-ignore a11y_interactive_supports_focus -->
   <div
     class="tabs"
@@ -381,6 +384,7 @@ function scrollToActive(): void {
             class="close"
             class:dirty
             tabindex="-1"
+            aria-hidden="true"
             aria-label={`Unpin ${label(path)}`}
             onclick={() => togglePin(path)}
             oncontextmenu={(event) => menu(event, path)}
@@ -392,6 +396,7 @@ function scrollToActive(): void {
             type="button"
             class="pin"
             tabindex="-1"
+            aria-hidden="true"
             aria-label={`Pin ${label(path)}`}
             oncontextmenu={(event) => menu(event, path)}
             onclick={() => togglePin(path)}><Icon name="pin" small /></button
@@ -401,6 +406,7 @@ function scrollToActive(): void {
           class="close"
           class:dirty
           tabindex="-1"
+          aria-hidden="true"
           aria-label={dirty ? `Close ${label(path)} (unsaved changes)` : `Close ${label(path)}`}
           onclick={() => close(path)}
           oncontextmenu={(event) => menu(event, path)}
@@ -431,6 +437,7 @@ function scrollToActive(): void {
           type="button"
           class="close"
           tabindex="-1"
+          aria-hidden="true"
           aria-label={`Close ${diffName} (${side})`}
           onclick={closeDiff}><span class="x"><Icon name="close" small /></span></button
         >

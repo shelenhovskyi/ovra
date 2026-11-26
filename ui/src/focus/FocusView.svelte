@@ -79,7 +79,7 @@ function seeChanges(id: SessionId): void {
 
 {#snippet rows(name: string, list: FocusRow[], mark: string)}
   {#if list.length}<section class="part" aria-label={name} data-testid={`focus-${mark}`}>
-    <h3>{name}{#if list.length}<span class="n">{list.length}</span>{/if}</h3>
+    <h2>{name}{#if list.length}<span class="n">{list.length}</span>{/if}</h2>
     <ul>
         {#each list as row (`${row.id}:${row.step ?? ""}`)}
           <li><span class="mark {mark}" aria-hidden="true"></span><span class="name">{row.name}</span><span
@@ -94,9 +94,11 @@ function seeChanges(id: SessionId): void {
 <svelte:document onvisibilitychange={visibility} />
 
 <div class="focus-root">
-  <header class="focus-head">
+  <div class="focus-head">
     <div data-testid="focus-head">
-      <h2>{workspace.project?.name ?? "No project"}</h2>
+      <!-- Focus is the whole page: the project is its top heading, the
+           parts are its sections and each card is under them. -->
+      <h1>{workspace.project?.name ?? "No project"}</h1>
       {#if sections}<p>{countLine(sections)}</p>{/if}
     </div>
     <div role="status" class="away-slot">
@@ -105,9 +107,9 @@ function seeChanges(id: SessionId): void {
           <button type="button" class="dismiss" onclick={() => away.dismiss()}>Got it</button>
         </p>{/if}
     </div>
-  </header>
+  </div>
 
-  <h3 class="focus-label">Waiting on you</h3>
+  <h2 class="focus-label">Waiting on you</h2>
 
   <section class="focus-waiting" aria-label="Questions and changes to review">
     {#if nothingWaits}
@@ -149,7 +151,7 @@ function seeChanges(id: SessionId): void {
     grid-area: head;
     padding: 0 2px;
   }
-  .focus-head h2 {
+  .focus-head h1 {
     margin: 0;
     font-size: 17px;
     line-height: 24px;
@@ -185,7 +187,7 @@ function seeChanges(id: SessionId): void {
     min-width: 0;
   }
   .focus-label,
-  .part h3 {
+  .part h2 {
     display: flex;
     gap: 8px;
     margin: 0;
@@ -246,7 +248,7 @@ function seeChanges(id: SessionId): void {
     gap: 22px;
     min-width: 0;
   }
-  .part h3 {
+  .part h2 {
     margin-bottom: 6px;
   }
   .n {

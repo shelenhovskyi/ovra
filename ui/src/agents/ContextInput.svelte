@@ -131,12 +131,13 @@ $effect(() => {
   }
 });
 
-// The field is a combobox while the menu shows.
+// The field stays a multi-line textbox (a textarea cannot be a combobox):
+// while the menu shows it points at the menu and its active option, and the
+// line below says what was picked. aria-expanded is not allowed on a textbox.
 $effect(() => {
   const box = field;
   if (!box) return;
   box.setAttribute("aria-autocomplete", "list");
-  box.setAttribute("aria-expanded", String(open));
   if (open) {
     box.setAttribute("aria-controls", `${id}-menu`);
     if (options.length > 0) box.setAttribute("aria-activedescendant", `${id}-option-${active}`);

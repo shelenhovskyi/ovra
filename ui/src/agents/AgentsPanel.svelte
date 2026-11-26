@@ -1167,7 +1167,9 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
   </div>
 {/snippet}
 
-<section class="agents" aria-labelledby="agents-heading" data-testid="agents-panel">
+<!-- Not a landmark of its own: the column around it is "Agents and
+     approvals", and Settings > Agents is a region named Agents too. -->
+<section class="agents" data-testid="agents-panel">
   <header class="head">
     <h2 id="agents-heading">Agents</h2>
     {#if capacity}
@@ -2570,6 +2572,11 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
     .card,
     .pill {
       border: 1px solid CanvasText;
+    }
+    /* Forced colors drop the box's ring (a box-shadow): an outline shows instead. */
+    .compose:has(textarea:focus-visible) {
+      outline: 2px solid Highlight;
+      outline-offset: 1px;
     }
     .close {
       opacity: 1;

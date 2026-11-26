@@ -276,7 +276,7 @@ describe("FocusView", () => {
     flushSync();
     expect(target.querySelector<HTMLTextAreaElement>("#focus-task")?.value).toBe("@");
     expect(document.activeElement?.id).toBe("focus-task");
-    expect(target.querySelector("#focus-task")?.getAttribute("aria-expanded")).toBe("true");
+    expect(target.querySelector("#focus-task")?.getAttribute("aria-controls")).toMatch(/-menu$/);
   });
 
   it("takes files dropped on the task box as context chips", async () => {

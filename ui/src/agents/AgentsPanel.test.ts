@@ -73,7 +73,7 @@ const startButton = () =>
 
 const panel = () => target.querySelector<HTMLElement>("[data-testid=agents-panel]");
 const transcript = () =>
-  [...target.querySelectorAll("[data-testid=transcript] > li:not(.live)")].map((li) =>
+  [...target.querySelectorAll("[data-testid=transcript] > ol > li:not(.live)")].map((li) =>
     li.textContent?.replace(/\s+/g, " ").trim(),
   );
 
@@ -1378,7 +1378,7 @@ describe("@ context", () => {
     type(field(), "Fix @lib");
     await settle();
     expect(options()[0]).toBe("lib.rs");
-    expect(field()?.getAttribute("aria-expanded")).toBe("true");
+    expect(field()?.getAttribute("aria-controls")).toMatch(/-menu$/);
     key("Enter");
     await settle();
     // The name stays in the sentence; the chip is said.

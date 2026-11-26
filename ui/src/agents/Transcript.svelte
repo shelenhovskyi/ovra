@@ -297,9 +297,11 @@ const lastError = $derived.by(() => {
 <p class="spoken" aria-live="polite">{spoken}</p>
 <div class="frame">
 <!-- Focusable so arrow keys and Page Up/Down scroll it. A log, but not a
-     live one: the line above speaks Claude's text, not every tool output. -->
+     live one: the line above speaks Claude's text, not every tool output.
+     The log holds a list rather than being one, so the entries keep their
+     list semantics (a role on the <ol> itself would drop them). -->
 <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
-<ol
+<div
   class="transcript"
   class:faded
   role="log"
@@ -310,6 +312,7 @@ const lastError = $derived.by(() => {
   {onscroll}
   data-testid="transcript"
 >
+<ol class="entries">
   {#each shown as entry, i (i)}
     {@const turn = turnAt[i] ?? 0}
     {#if undone && turn === undone.from && turnAt[i - 1] !== turn}
@@ -421,6 +424,7 @@ const lastError = $derived.by(() => {
   {/each}
   {#if status}<LiveActivity {agent} {status} {messages} {partial} {root} {onlink} />{/if}
 </ol>
+</div>
 {#if detached}
   <!-- A small round button in its own row under the log: it never covers a line. -->
   {@const label = `${fresh > 0 ? `${fresh} new · ` : ""}Jump to latest`}
@@ -583,7 +587,6 @@ const lastError = $derived.by(() => {
     border-radius: var(--radius-sm);
   }
   .transcript {
-    list-style: none;
     margin: 0;
     padding: 4px 16px 12px;
     display: flex;
@@ -593,6 +596,11 @@ const lastError = $derived.by(() => {
     flex: 1;
     /* The panel keeps the reply box in sight: the transcript gives way. */
     min-height: 0;
+  }
+  /* The list lays out as the log's own children. */
+  .entries {
+    display: contents;
+    list-style: none;
   }
   .transcript.faded {
     mask-image: linear-gradient(to bottom, transparent, currentColor 20px);
