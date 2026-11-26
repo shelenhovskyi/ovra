@@ -284,6 +284,22 @@ export class AgentSessions {
     this.saveClosed(info.project);
   }
 
+  /**
+   * Hides a session another panel started for a purpose of its own (the git
+   * panel's agent actions), at once and in whatever state it is: that panel
+   * shows the result and stops the session itself.
+   */
+  hide(project: ProjectId, id: SessionId): void {
+    this.closed.add(id);
+    try {
+      const kept = new Set(readClosed(project));
+      kept.add(id);
+      localStorage.setItem(closedKey(project), JSON.stringify([...kept]));
+    } catch {
+      // Storage may be full or blocked: hidden for this window only.
+    }
+  }
+
   private saveClosed(project: ProjectId): void {
     const ids = this.inProject(project)
       .map((s) => s.id)
