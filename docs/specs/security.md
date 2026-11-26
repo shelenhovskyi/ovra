@@ -261,6 +261,11 @@ Known gaps on Linux, left to the backstop below:
 - a `CLAUDE.md`, `CLAUDE.local.md` or `AGENTS.md` that does not exist yet
   in a subfolder (new or not), and a missing `opencode.json`,
   `opencode.jsonc` or `.aider.conf.yml`, can be created.
+- when the helper is a development build inside a checkout that is also an
+  agent's writable work dir (`target/debug/ovra-daemon` in a direct
+  session), the agent can rebuild or replace it between sessions, and the
+  next session runs that file as the helper; while a session runs its
+  folder is read-only. Run Ovra from an install outside the project.
 
 The sandbox status lists these gaps and the UI shows them; that list must
 change with this one.
