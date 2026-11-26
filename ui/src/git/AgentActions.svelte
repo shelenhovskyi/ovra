@@ -20,7 +20,8 @@ const ACTION_HINT: Record<AssistAction, string> = {
 
 <script lang="ts">
 // The git panel's one quiet button for agent actions, with a short menu of
-// the actions that apply now. Up and Down move in the menu, Escape closes it.
+// the actions that apply now. Up and Down move in the menu, a letter jumps to
+// the next item it starts, Escape closes it and Tab leaves it.
 import { tick } from "svelte";
 import type { RepoStatus } from "../lib/protocol";
 import Icon from "../shell/Icon.svelte";
@@ -34,12 +35,13 @@ let menu = $state<HTMLElement>();
 
 const actions = $derived(Assist.available(status));
 
-async function show(): Promise<void> {
+async function show(last = false): Promise<void> {
   if (assist.busy) return;
   open = !open;
   if (!open) return;
   await tick();
-  menu?.querySelector<HTMLElement>("button")?.focus();
+  const items = menu?.querySelectorAll<HTMLElement>("button");
+  (last ? items?.[items.length - 1] : items?.[0])?.focus();
 }
 
 async function close(): Promise<void> {
@@ -59,7 +61,7 @@ function choose(action: AssistAction): void {
 function ontogglekey(event: KeyboardEvent): void {
   if (open || (event.code !== "ArrowDown" && event.code !== "ArrowUp")) return;
   event.preventDefault();
-  void show();
+  void show(event.code === "ArrowUp");
 }
 
 function onkeydown(event: KeyboardEvent): void {
@@ -78,6 +80,16 @@ function onkeydown(event: KeyboardEvent): void {
   } else if (event.code === "Home" || event.code === "End") {
     event.preventDefault();
     (event.code === "Home" ? items[0] : items.at(-1))?.focus();
+  } else if (event.key.length === 1 && !event.ctrlKey && !event.metaKey && !event.altKey) {
+    // Typeahead matches the labels' text, so it reads the typed character.
+    const letter = event.key.toLowerCase();
+    const next = [...items.slice(at + 1), ...items.slice(0, at + 1)].find((item) =>
+      item.textContent?.trim().toLowerCase().startsWith(letter),
+    );
+    if (next) {
+      event.preventDefault();
+      next.focus();
+    }
   }
 }
 
@@ -100,7 +112,7 @@ function onfocusout(event: FocusEvent): void {
       aria-disabled={assist.busy}
       bind:this={toggle}
       onkeydown={ontogglekey}
-      onclick={show}><Icon name="sparkles" small /></button
+      onclick={() => void show()}><Icon name="sparkles" small /></button
     >
     {#if open}
       <!-- svelte-ignore a11y_interactive_supports_focus -->
@@ -109,6 +121,7 @@ function onfocusout(event: FocusEvent): void {
           <button
             type="button"
             role="menuitem"
+            tabindex="-1"
             title={ACTION_HINT[action]}
             data-testid={`git-assist-${action}`}
             onclick={() => choose(action)}>{ACTION_LABEL[action]}</button

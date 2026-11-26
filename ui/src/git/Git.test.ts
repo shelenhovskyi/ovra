@@ -646,6 +646,19 @@ it("lets an agent suggest commits that the person edits and makes, and draft a m
   await settle();
   const items = [...target.querySelectorAll("[role=menuitem]")].map((i) => i.textContent);
   expect(items).toEqual(["Suggest commits", "Write commit message", "Summarize what's new"]);
+  // A letter jumps to the next item it starts; Up on the button opens on the last one.
+  const focused = () => document.activeElement?.textContent;
+  press("KeyW");
+  expect(focused()).toBe("Write commit message");
+  press("KeyS");
+  expect(focused()).toBe("Summarize what's new");
+  press("KeyS");
+  expect(focused()).toBe("Suggest commits");
+  press("Escape");
+  await settle();
+  press("ArrowUp");
+  await settle();
+  expect(focused()).toBe("Summarize what's new");
   click("[data-testid=git-assist-commits]");
   await settle();
   const start = core.calls.find((c) => c.method === "agents.start");
