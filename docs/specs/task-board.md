@@ -128,7 +128,8 @@ Left for later: entries in the audit log; a time on each entry; the watch
 tick comparing a new change with other workers' claims (it compares
 changes only); saving boards apart from the rest of the orchestration
 state; approval cards that name a preceding entry; the task row's "who
-changes what" view; the e2e test.
+changes what" view; the e2e test; keeping two sends that race to one
+agent from carrying the same entry twice.
 
 ## Protocol (`board.*`)
 
