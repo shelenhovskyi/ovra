@@ -76,6 +76,16 @@ fn main() -> anyhow::Result<()> {
     serve()
 }
 
+impl Args {
+    /// The data folder as an absolute path: worktrees live in it, and the
+    /// core checks agents' absolute file paths against them (board claims,
+    /// policies), which a relative folder would never match.
+    fn absolute(mut self) -> anyhow::Result<Self> {
+        self.data_dir = std::path::absolute(&self.data_dir).context("resolving --data-dir")?;
+        Ok(self)
+    }
+}
+
 #[tokio::main]
 async fn serve() -> anyhow::Result<()> {
     tracing_subscriber::fmt()
@@ -84,7 +94,7 @@ async fn serve() -> anyhow::Result<()> {
         )
         .with_writer(std::io::stderr)
         .init();
-    let args = Args::parse();
+    let args = Args::parse().absolute()?;
 
     // Loopback only: headless mode must never be reachable from the network.
     let listener =
@@ -816,4 +826,19 @@ impl ovra_core::services::DevServers for PresetServers {
 fn new_token() -> String {
     let bytes: [u8; 16] = rand::rng().random();
     bytes.iter().map(|b| format!("{b:02x}")).collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use clap::Parser;
+
+    use super::Args;
+
+    #[test]
+    fn the_default_data_folder_is_made_absolute() {
+        let args = Args::parse_from(["ovra-daemon"]).absolute();
+        let args = args.unwrap_or_else(|e| panic!("{e}"));
+        assert!(args.data_dir.is_absolute(), "{}", args.data_dir.display());
+        assert!(args.data_dir.ends_with(".ovra-data"));
+    }
 }
