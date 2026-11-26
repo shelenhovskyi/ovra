@@ -5,7 +5,7 @@
 
 mod menu;
 
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::Arc;
 use std::time::Instant;
 
 use ovra_agent_runtime::ClaudeCli;
@@ -55,15 +55,14 @@ async fn ovra_pick_folder(window: tauri::WebviewWindow) -> Result<Option<String>
         .map_err(|_| "Ovra cannot open folders whose path is not valid Unicode yet.".to_owned())
 }
 
-/// The paths of the last drop onto the window, kept in Rust: the window
-/// gets only their id (`ovra://drop`), so no text a page sends names a file
-/// outside a project. Headless mode has no drops.
-struct WindowDrops(Mutex<Drops>);
-
-/// The file service and project store `ovra_import_drop` copies with.
+/// What `ovra_import_drop` copies with. `drops` holds the paths of the
+/// last drop onto the window, in Rust: the window gets only their id
+/// (`ovra://drop`), so no text a page sends names a file outside a
+/// project. Headless mode has no drops.
 struct Importer {
     fs: Arc<FsIndex>,
     projects: Arc<Store>,
+    drops: Arc<Drops>,
 }
 
 /// What the window learns about a drop: its id, the paths (for opening a
@@ -102,12 +101,10 @@ fn on_drop(window: &tauri::Window, paths: &[std::path::PathBuf], at: tauri::Phys
     if window.label() != "main" {
         return;
     }
-    let drops = window.state::<WindowDrops>();
-    let id = drops
-        .0
-        .lock()
-        .unwrap_or_else(PoisonError::into_inner)
-        .put(paths.to_vec(), Instant::now());
+    let Some(importer) = window.try_state::<Importer>() else {
+        return;
+    };
+    let id = importer.drops.put(paths.to_vec(), Instant::now());
     let at = at.to_logical::<f64>(window.scale_factor().unwrap_or(1.0));
     let frame = DropFrame {
         id,
@@ -122,12 +119,11 @@ fn on_drop(window: &tauri::Window, paths: &[std::path::PathBuf], at: tauri::Phys
 }
 
 /// Copies the drop `drop_id` into the folder `target_dir` of `project`
-/// (`FsIndex::import`). With `clash: "ask"` and a name that exists already,
-/// nothing is copied, the names come back and the drop stays for the
-/// person's answer until it expires; any other outcome uses it up.
+/// (`FsIndex::import_drop`). With `clash: "ask"` and a name that exists
+/// already, nothing is copied, the names come back and the drop stays for
+/// the person's answer until it expires; any other outcome uses it up.
 #[tauri::command]
 async fn ovra_import_drop(
-    drops: tauri::State<'_, WindowDrops>,
     importer: tauri::State<'_, Importer>,
     drop_id: String,
     project: ProjectId,
@@ -136,41 +132,28 @@ async fn ovra_import_drop(
 ) -> Result<ImportReply, String> {
     let into = RelPath::parse(&target_dir).map_err(|e| e.message)?;
     let root = importer.projects.get(&project).map_err(|e| e.message)?.root;
-    let taken = drops
-        .0
-        .lock()
-        .unwrap_or_else(PoisonError::into_inner)
-        .take(&drop_id, Instant::now())
-        .ok_or("That drop is over. Drop the files again.")?;
     let clash = match clash {
         ClashAnswer::Ask => Clash::Ask,
         ClashAnswer::Replace => Clash::Replace,
         ClashAnswer::KeepBoth => Clash::KeepBoth,
     };
-    let fs = Arc::clone(&importer.fs);
-    let (done, taken) = tauri::async_runtime::spawn_blocking(move || {
-        let done = fs.import(std::path::Path::new(&root), taken.paths(), &into, clash);
-        (done, taken)
+    let (fs, drops) = (Arc::clone(&importer.fs), Arc::clone(&importer.drops));
+    let done = tauri::async_runtime::spawn_blocking(move || {
+        let root = std::path::Path::new(&root);
+        fs.import_drop(&drops, &drop_id, Instant::now(), root, &into, clash)
     })
     .await
     .map_err(|err| format!("Copying failed: {err}"))?;
-    match done.map_err(|e| e.message)? {
-        Imported::Clashes(names) => {
-            drops
-                .0
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner)
-                .put_back(taken);
-            Ok(ImportReply::Clashes { names })
-        }
+    Ok(match done.map_err(|e| e.message)? {
+        Imported::Clashes(names) => ImportReply::Clashes { names },
         Imported::Copied {
             paths,
             skipped_links,
-        } => Ok(ImportReply::Copied {
+        } => ImportReply::Copied {
             paths: paths.iter().map(|p| p.as_str().to_owned()).collect(),
             skipped_links,
-        }),
-    }
+        },
+    })
 }
 
 /// Tells the UI, before it starts, that the window draws its content under
@@ -225,6 +208,7 @@ fn main() {
             app.manage(Importer {
                 fs: fs.clone(),
                 projects: store.clone(),
+                drops: Arc::new(Drops::new()),
             });
             let core = Core::builder("tauri")
                 .secrets(secrets.clone())
@@ -272,7 +256,6 @@ fn main() {
             });
             Ok(())
         })
-        .manage(WindowDrops(Mutex::new(Drops::new())))
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::DragDrop(tauri::DragDropEvent::Drop { paths, position }) =
                 event

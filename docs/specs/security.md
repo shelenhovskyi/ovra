@@ -763,15 +763,31 @@ relative to the root's handle (`openat2` with `RESOLVE_BENEATH`, or
 Files and folders dropped onto the window from the system's file manager
 are copied into the project only on the person's drop onto the file tree.
 The desktop app keeps the dropped paths in Rust under a random id that is
-used once and expires after 60 s (`ovra_fs_index::Drops`); the window gets
-the id and copies by it with the window-only command `ovra_import_drop`.
-No client frame names a source path, headless mode has no drops, and
-agents have no tool for it. The target folder is checked like `fs.copy`'s.
-The import looks at everything before copying: links are skipped and named,
-a device, pipe or socket refuses the drop, and so do more than 10,000
-entries or 1 GB. An existing name is replaced only after the person answers
-Replace, and the old entry goes to the trash first. Copies keep only the
-rwx bits.
+used once and expires after 60 s (`ovra_fs_index::Drops`); a newer drop
+replaces it. The window gets the id and copies by it with the window-only
+command `ovra_import_drop`. No source path goes from the page to the app,
+headless mode has no drops, and agents have no tool for it.
+
+- The target folder is checked like `fs.copy`'s, so the parent-swap race
+  described above applies here too.
+- The import is planned before anything changes: links are skipped and
+  named, a device, pipe or socket refuses the drop, and so do more than
+  10,000 entries, 1 GB or 256 nested folders. Two dropped names that one
+  folder can hold only once (by case or Unicode normalization) refuse it.
+- An existing name is replaced only when the person was shown it and
+  answered Replace; the old entry goes to the trash first. Every refusal
+  comes before the first change, and a name that appears during the copy
+  stops it with `conflict` instead of being replaced.
+- Copies keep the permission bits up to 0o755: no setuid, setgid, sticky
+  or group and other write.
+- A failed import keeps what was copied before the failure but removes a
+  partly copied file.
+- A dropped folder with a nested `.git` is copied as it is, as the
+  system's file manager would.
+- Error texts name the dropped item, not its full path.
+- Windows: opening sources does not yet refuse a reparse point swapped in
+  after the scan (`open_file` and `check_dir` have no Windows variant);
+  pending with the Windows sandbox work.
 
 ## Tests
 
