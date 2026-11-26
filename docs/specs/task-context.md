@@ -126,6 +126,31 @@ its own: it lives in the @ menu.
   branch tracks the person's fork, the pull request is in the parent
   repository) finds no pull request.
 
+## Images
+
+Added 2026-11-26: a pasted screenshot, or a PNG, JPEG, GIF or WebP image
+dropped or picked with @, becomes an **image chip** with a thumbnail
+instead of a file chip, when it is 3.75 MB at most (its base64 then stays
+within the 5 MB a model takes); a larger one stays a file chip.
+
+- An agent whose provider sees images (`Capabilities::images`; Claude
+  does) gets the image itself with the message: Ovra reads the file when
+  the message is sent and adds it as a base64 image block after the text
+  (stream-json `user` content). The note names it ("Image: `path`,
+  attached to this message"). A worker in its own worktree gets it too,
+  although its worktree has no attachments folder.
+- An agent that does not see images gets the name only, as for a file.
+- This is the one item Ovra reads for the agent, because the person chose
+  to show it. The chip checks apply as for a file (a protected or
+  secret-looking path waits for Send anyway). The core refuses a name that
+  is not an image's, bytes that are not one of the four formats (the type
+  comes from the bytes, not the name), an image over the limit, and more
+  than 8 images in one message.
+- `ContextWhat::Image { path }` in the protocol; `AgentSpec::images` and
+  `RunningAgent::send_with_images` carry them to the runtime.
+- Not yet: ACP agents (`promptCapabilities.image`), thumbnails in the
+  transcript, and shrinking a larger screenshot so it can go as an image.
+
 ## Safety
 
 The core checks every item, when it is added (`context.check`) and again
@@ -134,6 +159,7 @@ when it is sent (`agents.start`, `agents.send`, `orchestration.start`):
 - Paths go through `RelPath::parse`: nothing outside the project.
 - Files and folders are **referenced, never read** by Ovra: the agent reads
   them with its own tools, so the sandbox and approvals apply as before.
+  Image chips are the exception (see Images).
 - An item is **sensitive** when its path is protected
   (`ovra_core::protected`), or looks like a secret store (`.env*`, `*.env`,
   `*.pem`, `*.key`, `*.tfvars`, `id_rsa*`, `.npmrc`, `.netrc`,
@@ -165,5 +191,5 @@ take an optional `context: ContextItem[]`.
 
 ## Out of scope
 
-Limits and cost display; reading file contents into the message; images in
-messages; a test view; saved context sets.
+Limits and cost display; reading file contents into the message (other
+than images); a test view; saved context sets.

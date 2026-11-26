@@ -19,7 +19,8 @@ expression: providers
       "usage": true,
       "cost": true,
       "billing": true,
-      "accounts": true
+      "accounts": true,
+      "images": true
     }
   }
 ]

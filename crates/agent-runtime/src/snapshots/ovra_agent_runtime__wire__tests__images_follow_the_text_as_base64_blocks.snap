@@ -1,0 +1,24 @@
+---
+source: crates/agent-runtime/src/wire.rs
+expression: "user(\"look\", &[image])"
+---
+{
+  "message": {
+    "content": [
+      {
+        "text": "look",
+        "type": "text"
+      },
+      {
+        "source": {
+          "data": "iVBORw0K",
+          "media_type": "image/png",
+          "type": "base64"
+        },
+        "type": "image"
+      }
+    ],
+    "role": "user"
+  },
+  "type": "user"
+}

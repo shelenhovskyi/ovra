@@ -24,6 +24,7 @@ const ACP: Capabilities = Capabilities {
     cost: false,
     billing: false,
     accounts: false,
+    images: false,
 };
 
 /// How a known agent is checked and how it says it needs a sign-in.

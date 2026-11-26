@@ -4,6 +4,7 @@
 
 use ovra_core::protocol::agents::{AgentMessage, Billing, TurnUsage};
 use ovra_core::protocol::permissions::PermissionReason;
+use ovra_core::services::AgentImage;
 use serde_json::{Value, json};
 
 /// Request id of our `initialize` control request.
@@ -290,8 +291,18 @@ pub(crate) fn initialize() -> Value {
     }})
 }
 
-pub(crate) fn user(text: &str) -> Value {
-    json!({"type": "user", "message": {"role": "user", "content": text}})
+/// A user message: its text, then its images as base64 image blocks.
+pub(crate) fn user(text: &str, images: &[AgentImage]) -> Value {
+    if images.is_empty() {
+        return json!({"type": "user", "message": {"role": "user", "content": text}});
+    }
+    let mut content = vec![json!({"type": "text", "text": text})];
+    content.extend(images.iter().map(|image| {
+        json!({"type": "image", "source": {
+            "type": "base64", "media_type": image.media_type, "data": image.data,
+        }})
+    }));
+    json!({"type": "user", "message": {"role": "user", "content": content}})
 }
 
 pub(crate) fn interrupt(request_id: &str) -> Value {
@@ -327,6 +338,19 @@ pub(crate) fn deny(message: &str) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn images_follow_the_text_as_base64_blocks() {
+        let image = AgentImage {
+            media_type: "image/png",
+            data: "iVBORw0K".into(),
+        };
+        insta::assert_json_snapshot!(user("look", &[image]));
+        assert_eq!(
+            user("go", &[]),
+            json!({"type": "user", "message": {"role": "user", "content": "go"}})
+        );
+    }
 
     #[test]
     fn lines_that_do_not_matter_are_ignored() {

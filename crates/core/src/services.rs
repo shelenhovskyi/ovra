@@ -268,6 +268,18 @@ pub struct AgentSpec {
     pub sandbox: SandboxProfile,
     /// A research session without `WebSearch` ([`SessionInfo::no_web`]).
     pub no_web: bool,
+    /// Images that go with `prompt`, for a provider that sees images.
+    pub images: Vec<AgentImage>,
+}
+
+/// An image the person sent with a message, such as a pasted screenshot.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AgentImage {
+    /// `image/png`, `image/jpeg`, `image/gif` or `image/webp`, as its bytes
+    /// show.
+    pub media_type: &'static str,
+    /// The image in standard base64.
+    pub data: String,
 }
 
 /// A program to start: plain data, so the core can pass it around without
@@ -1078,6 +1090,18 @@ pub trait AgentRuntime: Send + Sync + Debug {
 pub trait RunningAgent: Send + Sync + Debug {
     /// Queues the next user message.
     fn send(&self, text: String) -> Result<()>;
+    /// Queues the next user message with images; only a provider that
+    /// sees images (`Capabilities::images`) gets any.
+    fn send_with_images(&self, text: String, images: Vec<AgentImage>) -> Result<()> {
+        if images.is_empty() {
+            self.send(text)
+        } else {
+            Err(ProtocolError::new(
+                ErrorCode::Unavailable,
+                "this agent cannot see images",
+            ))
+        }
+    }
     /// Stops the current turn; the session then waits for the next message.
     fn interrupt(&self) -> Result<()> {
         Err(ProtocolError::new(

@@ -24,8 +24,8 @@ use ovra_core::protocol::agents::{
 };
 use ovra_core::protocol::{ErrorCode, ProtocolError};
 use ovra_core::services::{
-    AgentHost, AgentRuntime, AgentSpec, BoxFuture, ProfileNetwork, Result, RunningAgent, Sandbox,
-    SandboxStatus,
+    AgentHost, AgentImage, AgentRuntime, AgentSpec, BoxFuture, ProfileNetwork, Result,
+    RunningAgent, Sandbox, SandboxStatus,
 };
 use tokio::io::{AsyncReadExt, BufReader};
 use tokio::sync::mpsc;
@@ -104,6 +104,7 @@ const CLAUDE: Capabilities = Capabilities {
     cost: true,
     billing: true,
     accounts: true,
+    images: true,
 };
 
 impl AgentRuntime for ClaudeCli {
@@ -246,7 +247,7 @@ async fn session(
         spec.cwd,
         host,
         spec.tools,
-        spec.prompt,
+        (spec.prompt, spec.images),
         commands,
     )
     .await;
@@ -307,7 +308,10 @@ impl ClaudeProcess {
 
 impl RunningAgent for ClaudeProcess {
     fn send(&self, text: String) -> Result<()> {
-        self.command(Command::Send(text))
+        self.command(Command::Send(text, Vec::new()))
+    }
+    fn send_with_images(&self, text: String, images: Vec<AgentImage>) -> Result<()> {
+        self.command(Command::Send(text, images))
     }
     fn interrupt(&self) -> Result<()> {
         self.command(Command::Interrupt)

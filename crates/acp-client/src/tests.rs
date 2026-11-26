@@ -690,6 +690,7 @@ fn spec() -> AgentSpec {
             work_env: None,
         },
         no_web: false,
+        images: Vec::new(),
     }
 }
 

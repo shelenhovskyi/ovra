@@ -18,8 +18,8 @@ use crate::protocol::permissions::{
 use crate::protocol::projects::{Project, ProjectId};
 use crate::protocol::{ErrorCode, OkResponse, ProtocolError, Response};
 use crate::services::{
-    AgentRuntime, AgentSpec, EventSink, ProfileNetwork, ProjectStore, SandboxProfile, Secrets,
-    ToolRole,
+    AgentImage, AgentRuntime, AgentSpec, EventSink, ProfileNetwork, ProjectStore, SandboxProfile,
+    Secrets, ToolRole,
 };
 
 type Result<T> = std::result::Result<T, ProtocolError>;
@@ -151,8 +151,11 @@ pub(crate) async fn agents(
                     "isolated sessions are started by a coordinator (orchestration.start)",
                 ));
             }
+            let sees = sees_images(ctx, agent);
             let context = match sessions.core() {
-                Some(core) => crate::context::message(&core, &project, None, &context).await?,
+                Some(core) => {
+                    crate::context::message(&core, &project, None, &context, sees).await?
+                }
                 None if context.is_empty() => None,
                 None => return Err(shutting_down()),
             };
@@ -187,8 +190,10 @@ pub(crate) async fn agents(
             let core = sessions.core();
             let added = match &core {
                 Some(core) => {
-                    let project = sessions.find(&session, |s| s.info().project)?;
-                    crate::context::message(core, &project, Some(&session), &context).await?
+                    let (project, agent) =
+                        sessions.find(&session, |s| (s.info().project, s.info().agent))?;
+                    let sees = sees_images(ctx, agent);
+                    crate::context::message(core, &project, Some(&session), &context, sees).await?
                 }
                 None if context.is_empty() => None,
                 None => return Err(shutting_down()),
@@ -197,9 +202,10 @@ pub(crate) async fn agents(
                 .as_ref()
                 .and_then(|c| crate::browser::pending(c, &session));
             let mut parts = vec![(text, MessageFrom::Person)];
-            parts.extend(added.map(|t| (t, MessageFrom::Ovra)));
+            let images = added.as_ref().map(|c| c.images.clone()).unwrap_or_default();
+            parts.extend(added.map(|c| (c.text, MessageFrom::Ovra)));
             parts.extend(picks.as_ref().map(|(t, _)| (t.clone(), MessageFrom::Ovra)));
-            send(ctx, session.clone(), parts)?;
+            send_with_images(ctx, session.clone(), parts, images)?;
             if let (Some(core), Some((_, count))) = (&core, picks) {
                 crate::browser::sent(core, &session, count);
             }
@@ -379,8 +385,9 @@ pub(crate) struct NewSession {
     pub(crate) agent: AgentKind,
     pub(crate) mode: SessionMode,
     pub(crate) prompt: String,
-    /// Ovra's message after the prompt: the person's `@` context.
-    pub(crate) context: Option<String>,
+    /// Ovra's message after the prompt, the person's `@` context, and its
+    /// images.
+    pub(crate) context: Option<crate::context::Context>,
     /// Where it works; `None` for the project root.
     pub(crate) cwd: Option<PathBuf>,
     pub(crate) tools: Option<ToolRole>,
@@ -452,6 +459,14 @@ fn check_can(ctx: &Ctx<'_>, asked: Asked<'_>) -> Result<()> {
     Ok(())
 }
 
+/// Whether `agent`'s provider sees images sent with a message.
+pub(crate) fn sees_images(ctx: &Ctx<'_>, agent: AgentKind) -> bool {
+    ctx.runtime
+        .providers()
+        .iter()
+        .any(|p| p.id == agent && p.capabilities.images)
+}
+
 /// The program `agent` runs, as people type it.
 fn program(agent: AgentKind) -> &'static str {
     match agent {
@@ -495,7 +510,12 @@ pub(crate) async fn start(ctx: &Ctx<'_>, new: NewSession) -> Result<SessionInfo>
     let id = ctx.sessions.next_id();
     let base = baseline(ctx, &new.project, &id, new.mode, &launch).await?;
     let mut parts = vec![(new.prompt.clone(), new.from)];
-    parts.extend(new.context.map(|text| (text, MessageFrom::Ovra)));
+    let images = new
+        .context
+        .as_ref()
+        .map(|c| c.images.clone())
+        .unwrap_or_default();
+    parts.extend(new.context.map(|c| (c.text, MessageFrom::Ovra)));
     let waits = queued || new.preparing;
     let (status, first) = if new.preparing {
         (AgentStatus::Preparing, Some(parts.clone()))
@@ -525,7 +545,7 @@ pub(crate) async fn start(ctx: &Ctx<'_>, new: NewSession) -> Result<SessionInfo>
     };
     // With its folder and role from the start, so that it counts in its
     // role, and its first message if it waits.
-    ctx.sessions.insert(info, launch.clone(), first);
+    ctx.sessions.insert(info, launch.clone(), first, images);
     drop(place);
     if waits {
         // Told before anything can start it.
@@ -562,6 +582,16 @@ pub(crate) async fn start_queued(
     id: SessionId,
     parts: Parts,
 ) -> Result<SessionInfo> {
+    let started = start_waiting(ctx, &id, parts).await;
+    if started.is_err() {
+        // A session that did not start keeps no images for a later message.
+        let _ = ctx.sessions.find(&id, |s| drop(s.take_images()));
+    }
+    started
+}
+
+async fn start_waiting(ctx: &Ctx<'_>, id: &SessionId, parts: Parts) -> Result<SessionInfo> {
+    let id = id.clone();
     let (info, launch) = ctx.sessions.find(&id, |s| (s.info(), s.launch()))?;
     let host = AgentHost::new(
         id.clone(),
@@ -861,10 +891,11 @@ async fn run(
     let prompt = joined(&parts)?;
     let sessions = ctx.sessions;
     let project = target.project.id.clone();
-    let run = sessions.find(id, |s| {
+    // Its first message's images go with this run only, whatever happens to it.
+    let (run, images) = sessions.find(id, |s| {
         s.set_launch(launch.clone());
         s.set_trusted(target.trusted);
-        s.run()
+        (s.run(), s.take_images())
     })?;
     ctx.sink.emit(AgentsEvent::Status {
         session: id.clone(),
@@ -950,6 +981,7 @@ async fn run(
         resume,
         sandbox,
         no_web,
+        images,
     };
     match ctx.runtime.start(spec, host.clone()) {
         Ok(process) => {
@@ -1020,6 +1052,16 @@ pub(crate) async fn trust(
 /// Sends `parts` as the running session's next message; empty `parts`
 /// send only what waits for it on its task's board, if anything.
 pub(crate) fn send(ctx: &Ctx<'_>, session: SessionId, parts: Parts) -> Result<()> {
+    send_with_images(ctx, session, parts, Vec::new())
+}
+
+/// [`send`] with images, for an agent that sees them.
+fn send_with_images(
+    ctx: &Ctx<'_>,
+    session: SessionId,
+    parts: Parts,
+    images: Vec<AgentImage>,
+) -> Result<()> {
     let only_board = parts.is_empty();
     if !only_board {
         joined(&parts)?;
@@ -1059,7 +1101,7 @@ pub(crate) fn send(ctx: &Ctx<'_>, session: SessionId, parts: Parts) -> Result<()
     }
     turn_started(ctx, &session, &parts);
     host.set_status(AgentStatus::Working);
-    process.send(text)?;
+    process.send_with_images(text, images)?;
     delivered(ctx, &session, board);
     Ok(())
 }

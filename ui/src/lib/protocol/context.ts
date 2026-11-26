@@ -16,7 +16,9 @@ export type ContextWhat =
   /** A GitHub issue as `pr.issue` read it. */
   | { kind: "issue"; number: number; title: string; url: string; text: string }
   /** The end of a failed CI check's log as `pr.check_log` read it; `pr` is the pull request's number. */
-  | { kind: "check"; pr: number; name: string; url?: string | null; text: string };
+  | { kind: "check"; pr: number; name: string; url?: string | null; text: string }
+  /** A PNG, JPEG, GIF or WebP file of the project: an agent that sees images gets the image itself. */
+  | { kind: "image"; path: string };
 
 /** `confirmed`: the person chose Include on its warning. */
 export type ContextItem = ContextWhat & { confirmed?: boolean };

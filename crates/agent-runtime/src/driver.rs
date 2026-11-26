@@ -8,7 +8,7 @@ use std::time::Duration;
 
 use ovra_core::protocol::agents::{AgentMessage, AgentStatus, Billing};
 use ovra_core::protocol::permissions::{Decision, PermissionReason};
-use ovra_core::services::{AgentHost, BeforeTool, ToolRole};
+use ovra_core::services::{AgentHost, AgentImage, BeforeTool, ToolRole};
 use serde_json::Value;
 use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::sync::mpsc;
@@ -23,7 +23,7 @@ pub(crate) const STOP_GRACE: Duration = Duration::from_secs(5);
 /// What the core asks of a running session.
 #[derive(Debug)]
 pub(crate) enum Command {
-    Send(String),
+    Send(String, Vec<AgentImage>),
     Interrupt,
     /// Interrupts the turn and closes stdin, which ends the process.
     Stop,
@@ -62,7 +62,7 @@ struct Driver {
     ide: Option<ToolRole>,
     out: Option<mpsc::UnboundedSender<Value>>,
     /// Messages held back until the CLI has answered `initialize`.
-    queued: Option<Vec<String>>,
+    queued: Option<Vec<(String, Vec<AgentImage>)>>,
     /// Permission requests waiting for a person, by control request id.
     asking: HashMap<String, JoinHandle<()>>,
     interrupts: u32,
@@ -79,10 +79,10 @@ impl Driver {
         }
     }
 
-    fn send(&mut self, text: String) {
+    fn send(&mut self, text: String, images: Vec<AgentImage>) {
         match &mut self.queued {
-            Some(queued) => queued.push(text),
-            None => self.write(wire::user(&text)),
+            Some(queued) => queued.push((text, images)),
+            None => self.write(wire::user(&text, &images)),
         }
     }
 
@@ -93,7 +93,7 @@ impl Driver {
 
     fn command(&mut self, command: Option<Command>) {
         match command {
-            Some(Command::Send(text)) => self.send(text),
+            Some(Command::Send(text, images)) => self.send(text, images),
             Some(Command::Interrupt) => self.interrupt(),
             // A dropped handle means the core forgot the session.
             Some(Command::Stop) | None => {
@@ -190,8 +190,8 @@ impl Driver {
                 if let Some(error) = error {
                     return Err(format!("claude did not start the session: {error}"));
                 }
-                for text in self.queued.take().unwrap_or_default() {
-                    self.write(wire::user(&text));
+                for (text, images) in self.queued.take().unwrap_or_default() {
+                    self.write(wire::user(&text, &images));
                 }
             }
             Incoming::Cancel { request_id } => {
@@ -276,14 +276,14 @@ impl Driver {
 }
 
 /// Talks to the process until it closes stdout or ignores a stop. `prompt`
-/// is the first message.
+/// is the first message, with its images.
 pub(crate) async fn run(
     stdout: impl AsyncBufRead + Unpin,
     stdin: impl AsyncWrite + Unpin + Send + 'static,
     cwd: PathBuf,
     host: AgentHost,
     ide: Option<ToolRole>,
-    prompt: String,
+    prompt: (String, Vec<AgentImage>),
     mut commands: mpsc::UnboundedReceiver<Command>,
 ) -> Ended {
     let (out, lines) = mpsc::unbounded_channel();

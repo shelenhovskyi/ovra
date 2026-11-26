@@ -27,14 +27,14 @@ use crate::protocol::policy::{PolicyAction, PolicyRule};
 use crate::protocol::projects::ProjectId;
 use crate::protocol::{ErrorCode, ProtocolError};
 use crate::services::{
-    AgentRuntime, EventSink, IdeTools, NetProxy, ProfileNetwork, RunningAgent, SessionStore,
-    StoredSession, ToolCaller, ToolRole, Worktrees,
+    AgentImage, AgentRuntime, EventSink, IdeTools, NetProxy, ProfileNetwork, RunningAgent,
+    SessionStore, StoredSession, ToolCaller, ToolRole, Worktrees,
 };
 
 pub(crate) use permissions::Permissions;
 pub(crate) use requests::{
     Ctx, NewSession, Parts, agents as handle_agents, check_text, permissions as handle_permissions,
-    profile, resume, send, start, start_queued, stop, stop_project, trust,
+    profile, resume, sees_images, send, start, start_queued, stop, stop_project, trust,
 };
 pub(crate) use transcript::MAX_TEXT_BYTES;
 use transcript::Transcript;
@@ -81,6 +81,8 @@ struct Session {
     queued: Option<Parts>,
     /// The pid of this run's agent process, as the runtime reported it.
     pid: Option<u32>,
+    /// The images of its first message, until its agent starts.
+    images: Vec<AgentImage>,
 }
 
 /// A session that has not ended, as the resource monitor sees it.
@@ -170,6 +172,7 @@ impl Sessions {
                 network: None,
                 queued: None,
                 pid: None,
+                images: Vec::new(),
             };
             // What a go-back restored is kept with the checkpoints, if it
             // still can be undone.
@@ -212,8 +215,14 @@ impl Sessions {
     }
 
     /// Adds a session that works in `launch`; `queued`: the first message
-    /// of a session that waits for a place.
-    pub(crate) fn insert(&self, info: SessionInfo, launch: Launch, queued: Option<Parts>) {
+    /// of a session that waits for a place; `images`: its first message's.
+    pub(crate) fn insert(
+        &self,
+        info: SessionInfo,
+        launch: Launch,
+        queued: Option<Parts>,
+        images: Vec<AgentImage>,
+    ) {
         let mut list = lock(&self.list);
         let project = info.project.clone();
         let session = Session {
@@ -228,6 +237,7 @@ impl Sessions {
             network: None,
             queued,
             pid: None,
+            images,
         };
         let _ = self.store.save(&session.stored());
         list.push(session);
@@ -491,6 +501,9 @@ impl SessionView<'_> {
     }
     fn set_trusted(&mut self, trusted: bool) {
         self.session.trusted = trusted;
+    }
+    pub(crate) fn take_images(&mut self) -> Vec<AgentImage> {
+        std::mem::take(&mut self.session.images)
     }
     fn set_agent_session(&mut self, id: String) {
         if self.session.agent_session.as_ref() != Some(&id) {

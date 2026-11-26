@@ -70,6 +70,11 @@ pub enum ContextWhat {
         url: Option<String>,
         text: String,
     },
+    /// A PNG, JPEG, GIF or WebP file of the project, such as a pasted
+    /// screenshot: an agent that can see images gets the image itself.
+    Image {
+        path: String,
+    },
 }
 
 /// Why an item needs the person's Include before it is sent.
@@ -174,6 +179,7 @@ mod tests {
                         url: None,
                         text: "1 failed".into(),
                     }),
+                    item(ContextWhat::Image { path: ".ovra-attachments/shot.png".into() }),
                 ],
             }), Request::Context(ContextRequest::Attach {
                 project: ProjectId("p1".into()),

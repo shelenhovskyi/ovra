@@ -256,3 +256,38 @@ async fn stopping_while_its_copy_is_made_keeps_the_agent_from_starting() {
         .unwrap_or(false);
     assert!(stopped, "its session ended");
 }
+
+#[tokio::test]
+async fn an_agent_in_its_own_copy_gets_the_images_once_its_worktree_is_ready() {
+    let f = fx(say()).await;
+    let mut rx = f.core.subscribe();
+    f.fs.put_bytes(
+        std::path::Path::new(ROOT),
+        ".ovra-attachments/shot.png",
+        b"\x89PNG\r\n\x1a\nxy",
+    );
+    let start = json!({"method": "orchestration.start", "params": {
+        "project": "p1", "prompt": "what is wrong", "agent": "claude", "solo": true,
+        "context": [{"kind": "image", "path": ".ovra-attachments/shot.png"}]}});
+    let Response::Orchestration(OrchestrationResponse::Task(task)) = ok(&f.core, start).await
+    else {
+        panic!("no task");
+    };
+    until(&mut rx, &task.workers[0].session.0, AgentStatus::Idle).await;
+    let started = f
+        .agent
+        .started
+        .lock()
+        .map(|s| s.clone())
+        .unwrap_or_default();
+    assert_eq!(started.len(), 1);
+    assert_eq!(started[0].mode, SessionMode::Isolated);
+    assert_eq!(
+        started[0]
+            .images
+            .iter()
+            .map(|i| i.media_type)
+            .collect::<Vec<_>>(),
+        ["image/png"]
+    );
+}
