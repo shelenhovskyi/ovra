@@ -61,20 +61,29 @@ must do) and ADR 0011 (`ProviderLists`).
   session's netproxy socket, puts the port in the profile, and sets
   `HTTP_PROXY`, `HTTPS_PROXY` (both cases) and `NODE_USE_ENV_PROXY=1`; the
   profile lets the sandbox reach `localhost:<that port>` and nothing else.
-  No DNS lookups: the netproxy resolves names. `Open`: unrestricted. Unix
-  sockets only inside the session's temporary folder. The bridge stops
-  once the agent has ended.
-- **Processes.** The helper becomes `sandbox-exec` with `exec`, so the
-  process Ovra started and stops is the sandboxed agent. Signals and
+  The proxy URL holds a random per-session token
+  (`http://ovra:<token>@127.0.0.1:<port>`); the bridge relays a
+  connection only when its first request carries it as
+  `Proxy-Authorization: Basic`, strips that header, and answers anything
+  else with 407. No DNS lookups: the netproxy resolves names. `Open`: any
+  IP address, outbound only. Unix sockets only inside the session's
+  temporary folder, in every mode. The bridge stops once the agent has
+  ended.
+- **Processes.** The helper calls `setsid` and then becomes
+  `sandbox-exec` with `exec`, so the process Ovra started and stops is the
+  sandboxed agent, and it has no controlling terminal. Signals and
   process information reach only the sandbox's own processes.
 - **System services** (`mach-lookup`): user and group lookups,
   preferences (read only), logging, notifications, certificate checks and
   the keychain, which `claude` keeps its login in. No Launch Services and
   no `launchd` jobs, which would start programs outside the sandbox.
-  `git-credential-osxkeychain` may not run, and git's `credential.helper`
-  is emptied (`GIT_CONFIG_COUNT`), so git does not hand an agent the
-  person's GitHub login from the keychain. Terminals: `/dev/tty` and
-  ptys the sandbox opened itself, never the person's other terminals.
+  `git-credential-osxkeychain` (by name, anywhere, any case) may neither
+  run nor be read, so it cannot be copied and run from elsewhere, and
+  git's `credential.helper` is emptied (`GIT_CONFIG_COUNT`), so git does
+  not hand an agent the person's GitHub login from the keychain.
+  Terminals: only ptys the sandbox opened itself; no `/dev/tty` (there is
+  no controlling terminal anyway) and no `ioctl` on any other terminal, so
+  no `TIOCSTI` into the person's shell.
 - **Environment.** The same allowlist as on Linux; the helper starts
   `sandbox-exec` with only the kept names.
 - **Language servers** (`wrap_server`): the project read-only, the
@@ -94,13 +103,18 @@ Sessions report these (`GAPS` in `src/lib.rs`):
   whose access list trusts `/usr/bin/security`, among them the `gh` login
   (`gh:github.com`), and items can be added, changed and deleted. `claude`
   needs `security` for its own login, so a profile rule cannot close it;
-  the owner must accept this before the sandbox is turned on;
+  the owner must accept this before the sandbox is turned on. A copy of
+  `git-credential-osxkeychain` the agent downloads (through an allowed
+  host) is signed the same and still works, as `security` does;
 - other apps' preferences, read through `cfprefsd` (`defaults read`);
 - whether a file exists, and its size, anywhere on the Mac;
-- the session's proxy port, for other users of this Mac;
+- the session's proxy and its token, for the person's other programs that
+  can read the agent's environment (`ps -E`): through it they reach the
+  netproxy, which adds the secrets bound to the project, for as long as
+  the session runs. Other users of the Mac see the port, not the token;
 - processes an agent leaves running after its session (no PID namespace;
-  they stay sandboxed and may reach a later bridge that gets the same
-  port);
+  they stay sandboxed; a later bridge on the same port has another
+  token);
 - a dev build of Ovra inside a writable work dir (as on Linux);
 - git config values that name project files (as on Linux);
 - the agent's session folders in its settings (`todos`, `logs`, ...) are
@@ -127,7 +141,10 @@ must happen.
 2. `claude` starts, is signed in (keychain), answers, and a resume of the
    session works.
 3. `cat ~/.ssh/id_*`, `cat ~/.SSH/id_*`, `ls ~`, `ls ~/Documents`,
-   `cat ~/.aws/credentials`, `cat ~/.cargo/credentials.toml`: all refused.
+   `cat ~/.aws/credentials`, `cat ~/.cargo/credentials.toml`, and other
+   spellings of the same paths: `cat //Users/$USER/.ssh/id_*`,
+   `cat /Users/./$USER/.ssh/id_*`, `cat /.nofollow$HOME/.ssh/id_*`,
+   `cat /.resolve/1$HOME/.ssh/id_*`, and `ls /var/folders`: all refused.
 4. `ls "$(getconf DARWIN_USER_TEMP_DIR)"` and `ls /tmp`: refused; the
    netproxy's socket folder is not readable.
 5. `cat /System/Volumes/Data$HOME/.ssh/id_*`: refused.
@@ -153,16 +170,29 @@ must happen.
     `nc 1.1.1.1 443`, `nslookup example.com` and `curl
     http://127.0.0.1:<Ovra's port>` all fail.
 11. Another session's proxy: from session A, `curl -x
-    http://127.0.0.1:<session B's port>` fails.
+    http://127.0.0.1:<session B's port>` fails. Outside the sandbox, in
+    Terminal: `curl -x http://127.0.0.1:<port> https://example.com` and
+    the same with a wrong token (`-x http://ovra:x@127.0.0.1:<port>`) get
+    407; with the session's token (from `HTTPS_PROXY`) it works.
 12. `open -a Calculator`, `osascript -e 'tell app "Terminal" to do script
     "id"'`, `launchctl submit -l x -- /usr/bin/touch /tmp/x`: none starts
     anything.
 13. `defaults write com.apple.Terminal x 1`: refused.
 14. `printf 'protocol=https\nhost=github.com\n\n' | git credential fill`
-    and `.../git-credential-osxkeychain get` give no token; `security
+    and `.../git-credential-osxkeychain get` give no token; copying it
+    (`cp "$(git --exec-path)/git-credential-osxkeychain" x`, `cat ... > x`,
+    `cp -c`, `ln` into the work dir) and running the copy, and running it
+    as `GIT-Credential-OSXKeychain`, are all refused; a downloaded copy is
+    the known gap (write down whether it answers). `security
     find-generic-password -s gh:github.com -w` is the known gap (write
     down whether it answers). `cat /dev/ttys000` with another Terminal
     open is refused; `defaults read com.apple.Terminal` is the known gap.
+    With Ovra started from Terminal (`just dev-headless`): `ps -o
+    tty= -p $$` shows no terminal, `exec 3<>/dev/tty` fails, and `perl -e
+    'require "sys/ioctl.ph"; ioctl(STDERR, &TIOCSTI, "x")'` (and the same
+    on `/dev/tty`) fails: nothing appears in that Terminal's shell.
+    With `Open` network: `curl --unix-socket /var/run/docker.sock
+    http://x/version` fails.
 15. `env` shows none of `GITHUB_TOKEN`, `SSH_AUTH_SOCK`,
     `CLAUDE_CODE_OAUTH_TOKEN`; `HTTPS_PROXY` names the bridge.
 16. Builds work through the netproxy: `cargo build` of a crate with one
