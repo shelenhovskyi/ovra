@@ -13,11 +13,15 @@ ovra-transport.workspace = true
 axum.workspace = true
 base64 = "0.22"
 futures-util.workspace = true
+http-body-util = "0.1"
+hyper = { version = "1", default-features = false, features = ["client", "http1"] }
+hyper-util = { version = "0.1", default-features = false, features = ["tokio"] }
 if-addrs = "0.13"
 qrcode = { version = "0.14", default-features = false, features = ["svg"] }
 rand.workspace = true
 rcgen = "0.14"
 ring = "0.17"
+rustls-native-certs = "0.8"
 serde.workspace = true
 serde_json.workspace = true
 time = "0.3"

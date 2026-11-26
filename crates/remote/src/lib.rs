@@ -76,6 +76,7 @@ pub(crate) struct Shared {
     state: Mutex<State>,
     /// A device id (or `*` for all) whose connections must close now.
     kicks: broadcast::Sender<String>,
+    push: Arc<dyn push::PushSend>,
 }
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
@@ -153,10 +154,10 @@ impl RemoteServer {
     /// Keeps its CA, settings and devices in `dir` (e.g. `<data>/remote`,
     /// a protected path) and serves the mobile app from `assets`.
     pub fn new(dir: &Path, assets: Assets) -> Self {
-        Self::build(dir, assets, false)
+        Self::build(dir, assets, false, Arc::new(push::HttpPush::default()))
     }
 
-    fn build(dir: &Path, assets: Assets, loopback: bool) -> Self {
+    fn build(dir: &Path, assets: Assets, loopback: bool, push: Arc<dyn push::PushSend>) -> Self {
         let settings = std::fs::read(dir.join("settings.json"))
             .ok()
             .and_then(|b| serde_json::from_slice(&b).ok())
@@ -178,6 +179,7 @@ impl RemoteServer {
                     limits: server::Limits::default(),
                 }),
                 kicks,
+                push,
             }),
         }
     }
@@ -185,7 +187,18 @@ impl RemoteServer {
     /// For tests in this crate: may listen on 127.0.0.1.
     #[cfg(test)]
     pub(crate) fn for_tests(dir: &Path, assets: Assets) -> Self {
-        Self::build(dir, assets, true)
+        Self::build(
+            dir,
+            assets,
+            true,
+            Arc::new(push::tests::Recorder::default()),
+        )
+    }
+
+    /// For tests in this crate: pushes go to `push`.
+    #[cfg(test)]
+    pub(crate) fn with_push(dir: &Path, assets: Assets, push: Arc<dyn push::PushSend>) -> Self {
+        Self::build(dir, assets, true, push)
     }
 
     /// Starts listening again if the person left phone access on, unless
@@ -353,13 +366,19 @@ impl RemoteAccess for RemoteServer {
                 ip,
                 port,
                 ca,
-                vapid,
+                vapid: vapid.clone(),
                 stop: stop.clone(),
             });
         }
         self.set_enabled(true, address)
             .map_err(|e| err(ErrorCode::Internal, e))?;
         server::spawn(self.shared.clone(), listener, tls, stop.clone());
+        tokio::spawn(push::run(
+            self.shared.clone(),
+            core.subscribe(),
+            vapid,
+            stop.clone(),
+        ));
         tokio::spawn(maintain(self.shared.clone(), stop));
         tracing::info!(%ip, port, "phone access listening");
         self.status()
