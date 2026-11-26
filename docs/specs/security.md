@@ -110,6 +110,13 @@ its changes on approve.
     is the backstop until a platform can do better.
   - On macOS, keychain access cannot be scoped to one item (4.B notes how
     it limits this).
+  - Gemini and Codex (ACP, `crates/acp-client/src/agents.rs`) write lock,
+    temporary and database files right in `~/.gemini` and `~/.codex`, so
+    their lists are `layered`: on Linux the folder is a tmpfs with its
+    entries bound back read-only, their sign-in files writable, and their
+    private entries (Gemini's `projects.json`, Codex's databases),
+    secrets, links, sockets and pipes left out. What they add is lost with
+    the session.
   - A session of an account with its own configuration folder
     (`CLAUDE_CONFIG_DIR`, ADR 0006) gets that folder instead, with the same
     rules, and its state file `<folder>/.claude.json` instead of

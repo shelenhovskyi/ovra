@@ -74,8 +74,8 @@ pub(crate) const GEMINI_LISTS: ProviderLists = ProviderLists {
 };
 
 /// What `codex-acp` keeps in `~/.codex` (`CODEX_HOME`). Its settings stay
-/// read-only; its sessions and logs are private to the session; its login
-/// and its databases, which it rewrites, are writable in place.
+/// read-only; its sessions, logs and databases are private to the session;
+/// its login, which it rewrites, is writable in place.
 pub(crate) const CODEX_LISTS: ProviderLists = ProviderLists {
     name: "Codex",
     home_dir: ".codex",
@@ -83,11 +83,13 @@ pub(crate) const CODEX_LISTS: ProviderLists = ProviderLists {
     // account, which Codex has none of yet.
     state_file: ".codex.json",
     config_var: "CODEX_HOME",
-    private: &["sessions", "log", "tmp", "shell_snapshots"],
-    in_place: &["sessions", "log", "tmp"],
-    files: &[
-        "auth.json",
-        "history.jsonl",
+    // Its databases too: a session's own, so it never shares the person's
+    // with a write-ahead log of its own (which would corrupt them).
+    private: &[
+        "sessions",
+        "log",
+        "tmp",
+        "shell_snapshots",
         "state_5.sqlite",
         "state_5.sqlite-wal",
         "state_5.sqlite-shm",
@@ -95,6 +97,8 @@ pub(crate) const CODEX_LISTS: ProviderLists = ProviderLists {
         "logs_2.sqlite-wal",
         "logs_2.sqlite-shm",
     ],
+    in_place: &["sessions", "log", "tmp"],
+    files: &["auth.json", "history.jsonl"],
     layered: true,
     files_made: &["history.jsonl"],
     projects: "sessions",

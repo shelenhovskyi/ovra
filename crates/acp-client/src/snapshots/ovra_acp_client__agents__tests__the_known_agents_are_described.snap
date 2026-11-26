@@ -108,6 +108,12 @@ expression: described
                 "log",
                 "tmp",
                 "shell_snapshots",
+                "state_5.sqlite",
+                "state_5.sqlite-wal",
+                "state_5.sqlite-shm",
+                "logs_2.sqlite",
+                "logs_2.sqlite-wal",
+                "logs_2.sqlite-shm",
             ],
             in_place: [
                 "sessions",
@@ -117,12 +123,6 @@ expression: described
             files: [
                 "auth.json",
                 "history.jsonl",
-                "state_5.sqlite",
-                "state_5.sqlite-wal",
-                "state_5.sqlite-shm",
-                "logs_2.sqlite",
-                "logs_2.sqlite-wal",
-                "logs_2.sqlite-shm",
             ],
             layered: true,
             files_made: [

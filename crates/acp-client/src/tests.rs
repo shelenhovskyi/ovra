@@ -892,14 +892,24 @@ async fn setup_runs_the_check_and_remembers_a_missing_sign_in() {
 fn a_bare_name_is_found_in_an_absolute_path_folder_only() {
     use std::os::unix::fs::PermissionsExt;
 
+    // `find` reads the login shell's `PATH` first; no test here sets one.
     let dir = std::env::temp_dir().join(format!("ovra-acp-find-{}", std::process::id()));
-    std::fs::create_dir_all(&dir).expect("a folder");
-    let agent = dir.join("agent");
-    std::fs::write(&agent, "#!/bin/sh\n").expect("a script");
-    std::fs::set_permissions(&agent, std::fs::Permissions::from_mode(0o755)).expect("mode");
-    std::fs::write(dir.join("plain"), "").expect("a file");
-    let path = std::env::join_paths([PathBuf::from("."), PathBuf::from("rel"), dir.clone()]).ok();
-    assert_eq!(find(Path::new("agent"), path.clone()), Some(agent));
+    let executable = |path: &Path| {
+        std::fs::create_dir_all(path.parent().expect("a parent")).expect("a folder");
+        std::fs::write(path, "#!/bin/sh\n").expect("a script");
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).expect("mode");
+    };
+    // One reached by a relative entry, listed first, and one by an absolute.
+    let cwd = std::env::current_dir().expect("a working folder");
+    let relative = pathdiff(&dir.join("rel"), &cwd);
+    executable(&dir.join("rel/agent"));
+    executable(&dir.join("abs/agent"));
+    std::fs::write(dir.join("abs/plain"), "").expect("a file");
+    let path = std::env::join_paths([PathBuf::from("."), relative, dir.join("abs")]).ok();
+    assert_eq!(
+        find(Path::new("agent"), path.clone()),
+        Some(dir.join("abs/agent"))
+    );
     assert_eq!(find(Path::new("plain"), path.clone()), None);
     assert_eq!(find(Path::new("none"), path.clone()), None);
     assert_eq!(
@@ -907,4 +917,30 @@ fn a_bare_name_is_found_in_an_absolute_path_folder_only() {
         Some(PathBuf::from("./x/agent"))
     );
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// `to` relative to `from`, both absolute.
+fn pathdiff(to: &Path, from: &Path) -> PathBuf {
+    let ups = from.components().count() - 1;
+    let mut out: PathBuf = std::iter::repeat_n("..", ups).collect();
+    out.push(to.strip_prefix("/").expect("absolute"));
+    out
+}
+
+#[tokio::test]
+async fn an_agent_not_on_path_is_not_installed() {
+    let agents = AcpAgents::new(
+        vec![described("ovra-no-such-agent", &[])],
+        Arc::new(FakeSandbox::available()),
+    );
+    assert_eq!(
+        ended_in(agents, ROOT).await,
+        AgentStatus::Failed {
+            message: "Fake is not installed: Ovra did not find ovra-no-such-agent on PATH".into()
+        }
+    );
+    let setup = AcpAgents::new(vec![crate::gemini()], Arc::new(FakeSandbox::available()))
+        .setup(AgentKind::Gemini, Some("ovra-no-such-agent".into()), None)
+        .await;
+    assert_eq!(setup.state, SetupState::NotFound);
 }

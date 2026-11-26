@@ -847,13 +847,17 @@ fn git_status_leaves_out_exactly_the_files_made() {
     assert_eq!(super::FILES_MADE, ovra_core::protected::PLACEHOLDERS);
 }
 
+fn config_sock(root: &Root) -> PathBuf {
+    root.0.join("home/.layered/agent.sock")
+}
+
 /// An agent that writes lock files next to its state, as Gemini does.
 const LAYERED: ProviderLists = ProviderLists {
     name: "Layered",
     home_dir: ".layered",
     state_file: ".layered.json",
     config_var: "LAYERED_HOME",
-    private: &["tmp", "projects.json"],
+    private: &["tmp", "projects.json", "state.sqlite", "state.sqlite-wal"],
     in_place: &["tmp"],
     files: &["oauth_creds.json"],
     layered: true,
@@ -874,6 +878,9 @@ fn a_layered_config_folder_is_private_with_its_entries_bound_back() {
     root.file("home/.layered/oauth_creds.json");
     root.file("home/.layered/projects.json");
     root.file("home/.layered/credentials.json");
+    // A database whose write-ahead log is gone stays out as a whole.
+    root.file("home/.layered/state.sqlite");
+    std::os::unix::net::UnixListener::bind(config_sock(&root)).unwrap();
     root.file("home/.layered/tmp/old-chat.json");
     root.dir("home/.layered/extensions");
     std::os::unix::fs::symlink(root.dir("home/.ssh"), config.join("keys")).unwrap();

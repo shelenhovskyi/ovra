@@ -562,7 +562,8 @@ impl Plan {
     /// `config` as a private, writable layer: its entries bound back
     /// read-only, but for `private` and [`SECRETS`] (left out) and `files`
     /// (bound writable after). Lock and temporary files an agent writes next to them stay
-    /// in the layer. A link is left out: it may lead out of the folder.
+    /// in the layer. Links (which may lead out of the folder), sockets and
+    /// pipes are left out.
     fn layer(&mut self, lists: &ProviderLists, config: &Path) {
         self.writable.push(config.to_path_buf());
         self.mounts.push(Mount::Tmpfs(config.to_path_buf()));
@@ -571,7 +572,7 @@ impl Plan {
         };
         let mut shown: Vec<PathBuf> = entries
             .flatten()
-            .filter(|e| e.file_type().is_ok_and(|t| !t.is_symlink()))
+            .filter(|e| e.file_type().is_ok_and(|t| t.is_file() || t.is_dir()))
             .filter(|e| {
                 let name = e.file_name();
                 !lists
