@@ -18,6 +18,7 @@ use ovra_core::Core;
 use ovra_core::protocol::Event;
 use ovra_core::protocol::agents::{AgentStatus, AgentsEvent};
 use ovra_core::protocol::permissions::PermissionsEvent;
+use ovra_core::protocol::review::ReviewEvent;
 use serde::{Deserialize, Serialize};
 use tokio::sync::broadcast;
 use tokio::time::Instant;
@@ -100,6 +101,7 @@ impl Subscription {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum Kind {
     Approval,
+    Review,
     Failed,
 }
 
@@ -107,19 +109,20 @@ impl Kind {
     fn as_str(self) -> &'static str {
         match self {
             Self::Approval => "approval",
+            Self::Review => "review",
             Self::Failed => "failed",
         }
     }
 }
 
-/// What an event tells a phone, if anything: a permission request or an
-/// agent session that failed. Work ready for review does not push yet: the
-/// core says only that a review item changed (every file change, Keep and
-/// Discard too), not that an agent asked for review; that needs its own
-/// core event first.
+/// What an event tells a phone, if anything: a permission request, an
+/// agent asking for review of its work, or an agent session that failed.
+/// `review.changed` does not push: it comes for every file change, Keep and
+/// Discard too.
 fn kind_of(event: &Event) -> Option<Kind> {
     match event {
         Event::Permissions(PermissionsEvent::Requested(_)) => Some(Kind::Approval),
+        Event::Review(ReviewEvent::Requested { .. }) => Some(Kind::Review),
         Event::Agents(AgentsEvent::Status {
             status: AgentStatus::Failed { .. },
             ..

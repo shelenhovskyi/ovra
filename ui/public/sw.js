@@ -4,6 +4,7 @@
 
 const TEXT = {
   approval: "An agent needs your approval.",
+  review: "An agent's work is ready for your review.",
   failed: "An agent stopped with an error.",
 };
 

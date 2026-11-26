@@ -272,6 +272,16 @@ fn throttle_allows_30_pushes_an_hour() {
 }
 
 #[test]
+fn a_review_request_pushes_its_own_kind() {
+    let requested = Event::Review(ReviewEvent::Requested {
+        project: ProjectId("p".into()),
+        id: ReviewId("r1".into()),
+    });
+    assert_eq!(kind_of(&requested), Some(Kind::Review));
+    assert_eq!(Kind::Review.as_str(), "review");
+}
+
+#[test]
 fn review_changes_do_not_push() {
     // Changed comes for every file change, Keep and Discard: not a signal
     // that work waits for the person.
