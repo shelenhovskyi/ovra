@@ -515,7 +515,7 @@ test("keep the computer awake while an agent works", async ({ page }) => {
 
 test("Focus shows only the agents' work and answers approvals there", async ({ page }) => {
   await openProject(page, "ovra-agents-focus-");
-  await page.getByRole("textbox", { name: "Give Claude a task" }).fill("Fix the typo");
+  await page.getByRole("textbox", { name: "Describe a task" }).fill("Fix the typo");
   await page.keyboard.press("ControlOrMeta+Enter");
   const approvals = page.getByTestId("approvals");
   const run = approvals.getByRole("group", { name: "Run ls -la" });
