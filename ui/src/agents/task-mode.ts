@@ -61,10 +61,12 @@ export function rememberAgent(project: ProjectId, agent: AgentKind, store = stor
 /**
  * The modes an agent with `can` may run in (ADR 0011): in this folder only
  * with an enforced policy, Plan and split only as a coordinator with IDE
- * tools, research only Claude's for now. Its own copy always.
+ * tools, research only Claude's for now. Its own copy always, and only
+ * that while another agent's capabilities are not known yet.
  */
 export function modesFor(agent: AgentKind, can: Capabilities | undefined): TaskMode[] {
-  if (agent === "claude" || !can) return MODES;
+  if (agent === "claude") return MODES;
+  if (!can) return ["own"];
   return MODES.filter(
     (m) =>
       m === "own" || (m === "here" && can.enforced_policy) || (m === "split" && can.ide_tools && can.read_only_role),

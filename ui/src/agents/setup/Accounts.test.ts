@@ -298,4 +298,35 @@ describe("accounts in the agents panel", () => {
       "Work · API key, at API prices",
     );
   });
+
+  it("does not start a signed-out Plan-and-split worker again as a task of its own", async () => {
+    const core = new FakeAgentCore();
+    const [own] = core.accounts;
+    if (own) own.setup = { ...own.setup, state: { state: "signed_out" } };
+    core.accounts = [...core.accounts, work()];
+    core.addSession("p1", "Write the notes", { state: "idle" });
+    const worker = core.addSession("p1", "Write the docs notes", { state: "idle" });
+    worker.mode = "isolated";
+    core.tasks.push({
+      id: "t1",
+      project: "p1",
+      coordinator: "s1",
+      workers: [{ session: worker.id, name: "docs", branch: "ovra/t1/docs", worktree: "/wt/t1/docs", kept: null }],
+      limits: { max_workers: 3, budget_micro_usd: null },
+      spent_micro_usd: 0,
+    });
+    const AUTH = "Failed to authenticate: OAuth session expired and could not be refreshed";
+    core.transcripts.set(worker.id, [
+      { kind: "user_text", text: "Write the docs notes", from: "person" },
+      { kind: "error", message: AUTH },
+    ]);
+    await show(core);
+    const row = [...target.querySelectorAll<HTMLButtonElement>(".sessions .row-button")].find((b) =>
+      b.textContent?.includes("Write the docs notes"),
+    );
+    row?.click();
+    await settle();
+    expect(target.querySelector("[data-testid=agent-signed-out]")).not.toBeNull();
+    expect(button("Use Work")).toBeUndefined();
+  });
 });

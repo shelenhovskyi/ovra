@@ -112,8 +112,10 @@ let launched = $state<SessionId | null>(null);
 let launchedPrompt = "";
 /** How the next task runs; the last choice is kept per project. */
 let mode = $state<TaskMode>("here");
-/** Which agent runs the next task; the last choice is kept per project. */
-let agent = $state<AgentKind>("claude");
+/** Which agent the person picked for the next task; the last choice is kept per project. */
+let picked = $state<AgentKind>("claude");
+/** The agent that runs the next task: the picked one while it can start, Claude otherwise (the pick comes back once it can). */
+const agent = $derived(names.startable.includes(picked) ? picked : "claude");
 /** The modes the chosen agent can run in. */
 const offered = $derived(modesFor(agent, names.info(agent)?.capabilities));
 /** The chosen mode, or the agent's first when it cannot run in that one. */
@@ -243,6 +245,10 @@ const noGit = $derived((how === "split" || how === "own") && project !== null &&
 const signedOut = $derived(current ? signedOutError(current.status, messages) : null);
 /** A signed-in account to start over with, other than the one that failed. */
 const fallback = $derived.by((): AccountState | undefined => {
+  // A Plan-and-split worker is not started again on its own: that would make
+  // it a new solo task outside its coordinator's. Its task is retried from the coordinator.
+  const role = current ? sessions.roles.get(current.id) : undefined;
+  if (role?.kind === "worker" && role.coordinator !== null) return undefined;
   const ready = accounts.signedIn;
   return ready && ready.account.id !== (current?.account ?? DEFAULT_ACCOUNT) ? ready : undefined;
 });
@@ -493,7 +499,7 @@ $effect(() => {
   untrack(() => {
     selected = null;
     mode = rememberedMode(id);
-    agent = rememberedAgent(id);
+    picked = rememberedAgent(id);
     error = null;
     startError = null;
     launched = null;
@@ -775,7 +781,7 @@ async function run(action: () => Promise<void>): Promise<void> {
 
 /** Picks the agent for the next task in this project. */
 function pickAgent(id: AgentKind): void {
-  agent = id;
+  picked = id;
   if (project) rememberAgent(project.id, id);
 }
 
@@ -794,10 +800,10 @@ async function begin(
   if (use && use !== accounts.projectAccount) await accounts.setProject(id, use);
   const started =
     how === "split"
-      ? await sessions.startTask(id, body, context)
+      ? await sessions.startTask(id, body, context, who)
       : how === "own"
         ? await sessions.startSolo(id, body, who, context)
-        : (await sessions.start(id, body, use, how === "research" ? "research" : "direct", context)).id;
+        : (await sessions.start(id, body, use, how === "research" ? "research" : "direct", context, who)).id;
   selected = started;
   await tick();
   replyField?.focus();

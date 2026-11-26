@@ -437,10 +437,16 @@ export class AgentSessions {
 
   /** Starts a task: a coordinator that splits the work among workers in
    * their own worktrees. Resolves with the coordinator's session. */
-  async startTask(project: ProjectId, prompt: string, context: ContextItem[] = []): Promise<SessionId> {
+  async startTask(
+    project: ProjectId,
+    prompt: string,
+    context: ContextItem[] = [],
+    agent: AgentKind = "claude",
+  ): Promise<SessionId> {
     const { data } = await this.transport.call({
       method: "orchestration.start",
-      params: { project, prompt, ...(context.length > 0 ? { context } : {}) },
+      // Left out, the core runs Claude.
+      params: { project, prompt, ...(agent === "claude" ? {} : { agent }), ...(context.length > 0 ? { context } : {}) },
     });
     await this.load(project);
     return data.coordinator ?? data.workers[0]?.session ?? "";
@@ -478,11 +484,12 @@ export class AgentSessions {
     account: string | null = null,
     mode: "direct" | "research" = "direct",
     context: ContextItem[] = [],
+    agent: AgentKind = "claude",
   ): Promise<SessionInfo> {
     // Messages may arrive before the reply: collect them from the start.
     const { data } = await this.transport.call({
       method: "agents.start",
-      params: { project, agent: "claude", mode, prompt, account, ...(context.length > 0 ? { context } : {}) },
+      params: { project, agent, mode, prompt, account, ...(context.length > 0 ? { context } : {}) },
     });
     const known = this.byId.get(data.id);
     // agents.sandbox may also have come before the reply: keep what it said.

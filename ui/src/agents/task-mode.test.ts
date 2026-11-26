@@ -57,6 +57,8 @@ describe("task mode", () => {
     };
     expect(modesFor("claude", undefined)).toEqual(["here", "own", "split", "research"]);
     expect(modesFor("gemini", none)).toEqual(["own"]);
+    // Until its capabilities are known another agent gets only its own copy.
+    expect(modesFor("gemini", undefined)).toEqual(["own"]);
     expect(modesFor("codex", { ...none, enforced_policy: true })).toEqual(["here", "own"]);
   });
 });

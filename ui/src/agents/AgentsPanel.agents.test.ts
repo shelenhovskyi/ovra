@@ -106,3 +106,41 @@ it("starts Gemini only on its own copy, as one agent without a coordinator", asy
   // The choice stays for the project.
   expect(localStorage.getItem("ovra.task-agent.p1")).toBe("gemini");
 });
+
+async function submit(prompt: string) {
+  const field = target.querySelector<HTMLTextAreaElement>("#agent-prompt");
+  if (!field) throw new Error("no field");
+  field.value = prompt;
+  field.dispatchEvent(new Event("input", { bubbles: true }));
+  await settle();
+  target.querySelector<HTMLFormElement>("form")?.requestSubmit();
+  await settle();
+}
+
+it("starts Claude when the remembered agent cannot start now, and keeps the pick", async () => {
+  localStorage.setItem("ovra.task-agent.p1", "gemini");
+  const core = new FakeAgentCore();
+  core.providers = [...core.providers, GEMINI];
+  core.setups.gemini = { ...core.setup, state: { state: "not_found" }, executable: null, version: null };
+  await open(core);
+  expect(picker()).toBeNull();
+  expect(await modes()).toEqual(["One agent, here", "One agent, own copy", "Plan and split", "Research"]);
+  expect(target.querySelector("[data-testid=agents-footer]")?.textContent).not.toContain("Gemini");
+  await submit("Fix the typo");
+  expect(core.sent("agents.start").map((c) => c.params.agent)).toEqual(["claude"]);
+  expect(core.sent("orchestration.start")).toEqual([]);
+  // Gemini comes back once it can start again.
+  expect(localStorage.getItem("ovra.task-agent.p1")).toBe("gemini");
+});
+
+it("starts the picked agent in this folder when it can run there", async () => {
+  localStorage.setItem("ovra.task-agent.p1", "gemini");
+  const core = new FakeAgentCore();
+  core.providers = [...core.providers, { ...GEMINI, capabilities: { ...GEMINI.capabilities, enforced_policy: true } }];
+  core.setups.gemini = { ...core.setup, executable: "/usr/bin/gemini", version: "0.71.1", billing: null };
+  await open(core);
+  expect(picker()?.value).toBe("gemini");
+  expect(await modes()).toEqual(["One agent, here", "One agent, own copy"]);
+  await submit("Fix the typo");
+  expect(core.sent("agents.start").map((c) => [c.params.agent, c.params.mode])).toEqual([["gemini", "direct"]]);
+});
