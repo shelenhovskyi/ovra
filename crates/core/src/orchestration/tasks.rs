@@ -404,11 +404,17 @@ fn dollars(micro: u64) -> String {
     format!("{}.{:02}", micro / 1_000_000, micro % 1_000_000 / 10_000)
 }
 
-/// Whether `name` fits a branch name and the UI: `^[a-z0-9][a-z0-9-]{0,39}$`.
+/// Whether `name` fits a branch name and the UI (`^[a-z0-9][a-z0-9-]{0,39}$`)
+/// and the board can address it.
 fn valid_name(name: &str) -> bool {
     let mut chars = name.chars();
     let lower = |c: char| c.is_ascii_lowercase() || c.is_ascii_digit();
-    name.len() <= 40 && chars.next().is_some_and(lower) && chars.all(|c| lower(c) || c == '-')
+    // The board's `ask` names the person and the coordinator so.
+    let reserved = matches!(name, "person" | "coordinator");
+    !reserved
+        && name.len() <= 40
+        && chars.next().is_some_and(lower)
+        && chars.all(|c| lower(c) || c == '-')
 }
 
 /// Starts a worker of `coordinator`'s task in a new worktree of the main
@@ -427,7 +433,7 @@ pub(super) async fn spawn(
     if !valid_name(&name) {
         return Err(ProtocolError::new(
             ErrorCode::BadRequest,
-            "a worker's name is 1 to 40 lowercase letters, digits and dashes, starting with a letter or digit",
+            "a worker's name is 1 to 40 lowercase letters, digits and dashes, starting with a letter or digit, and not person or coordinator",
         ));
     }
     agents::check_text(&prompt)?;

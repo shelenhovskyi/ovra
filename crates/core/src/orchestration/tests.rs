@@ -3172,6 +3172,8 @@ async fn a_question_wakes_the_coordinator_and_talk_has_limits() {
             .unwrap_or_else(|e| panic!("round {round}: {e}"));
         let answered = f.core.board_answer(&docs, &q.id, "yes");
         assert!(answered.is_ok(), "{answered:?}");
+        // Notes between their questions do not start the count again.
+        assert!(f.core.board_post(&lint, "still on it").is_ok());
         last = Some(q.id);
     }
     assert!(last.is_some());
@@ -3179,9 +3181,95 @@ async fn a_question_wakes_the_coordinator_and_talk_has_limits() {
         code(f.core.board_ask(&lint, "docs", "again?")),
         ErrorCode::Conflict
     );
-    // And one agent writes at most ten entries a minute: docs wrote three.
-    for _ in 0..7 {
+    // The person stepping in does.
+    let note = json!({"method": "board.post", "params": {"task": "t1", "text": "Go on"}});
+    ok(&f.core, note).await;
+    assert!(f.core.board_ask(&docs, "lint", "again?").is_ok());
+    // And one agent writes at most ten entries a minute: docs wrote four.
+    for _ in 0..6 {
         assert!(f.core.board_post(&docs, "note").is_ok());
     }
     assert_eq!(code(f.core.board_post(&docs, "note")), ErrorCode::Conflict);
+}
+
+#[tokio::test]
+async fn what_waits_comes_with_the_next_turn_and_only_some_entries_wake_the_coordinator() {
+    let (f, mut rx) = board_fx().await;
+    let lint = caller("s2", ToolRole::Worker);
+    let docs = caller("s3", ToolRole::Worker);
+    let boss = caller("s1", ToolRole::Coordinator);
+    let (asked, _) = f
+        .core
+        .board_ask(&lint, "docs", "Do you touch README?")
+        .unwrap_or_else(|e| panic!("{e}"));
+    // B1: none of these wake the idle coordinator.
+    assert!(f.core.board_post(&lint, "halfway").is_ok());
+    let (to_person, _) = f
+        .core
+        .board_ask(&lint, "person", "Keep the flag?")
+        .unwrap_or_else(|e| panic!("{e}"));
+    let answer = json!({"method": "board.answer", "params": {"task": "t1", "question": to_person.id, "text": "No"}});
+    ok(&f.core, answer).await;
+    assert!(
+        f.core
+            .board_claim(&lint, None, &["lib/".into()], "")
+            .is_ok()
+    );
+    assert!(f.core.board_release(&lint, None, &["lib/".into()]).is_ok());
+    assert!(board_notes(transcript(&f.core, "s1").await).is_empty());
+    assert!(board_notes(transcript(&f.core, "s3").await).is_empty());
+    // docs gets lint's question with its next turn, and answers it.
+    assert!(f.core.send_message(&boss, &sid("s3"), "go on").is_ok());
+    until(&mut rx, "s3", AgentStatus::Idle).await;
+    let notes = board_notes(transcript(&f.core, "s3").await);
+    assert_eq!(notes.len(), 1, "{notes:?}");
+    assert!(notes[0].contains(&format!(
+        "id=\"{}\" author=\"worker:lint\" kind=\"question\"",
+        asked.id.0
+    )));
+    assert!(f.core.board_answer(&docs, &asked.id, "No").is_ok());
+    // The coordinator gets everything with its next turn.
+    let send =
+        json!({"method": "agents.send", "params": {"session": "s1", "text": "how is it going?"}});
+    ok(&f.core, send).await;
+    until(&mut rx, "s1", AgentStatus::Idle).await;
+    let notes = board_notes(transcript(&f.core, "s1").await);
+    assert_eq!(notes.len(), 1, "{notes:?}");
+    for kind in ["question", "note", "answer", "claim", "release"] {
+        assert!(
+            notes[0].contains(&format!("kind=\"{kind}\"")),
+            "{kind}: {notes:?}"
+        );
+    }
+    // A folder claim meets a file in it.
+    assert!(
+        f.core
+            .board_claim(&lint, None, &["docs/".into()], "")
+            .is_ok()
+    );
+    let met = f.core.board_claim(&docs, None, &["docs/a.md".into()], "");
+    assert_eq!(
+        met.map(|c| c.overlaps).ok(),
+        Some(vec![("lint".to_owned(), "docs/".to_owned())])
+    );
+}
+
+#[tokio::test]
+async fn read_board_returns_a_page_at_a_time() {
+    let (f, _rx) = board_fx().await;
+    let lint = caller("s2", ToolRole::Worker);
+    for _ in 0..9 {
+        assert!(f.core.board_post(&lint, &"x".repeat(2000)).is_ok());
+    }
+    let (page, next) = f
+        .core
+        .board_read(&lint, 0)
+        .unwrap_or_else(|e| panic!("{e}"));
+    assert!((1..9).contains(&page.len()), "{}", page.len());
+    assert_eq!(next, page.len());
+    let (rest, end) = f
+        .core
+        .board_read(&lint, next)
+        .unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!((rest.len() + page.len(), end), (9, 9));
 }

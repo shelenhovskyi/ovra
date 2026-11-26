@@ -202,6 +202,10 @@ pub(crate) fn on_status(core: &Core, session: &SessionId, status: &AgentStatus) 
         }
         _ => {}
     }
+    if *status == AgentStatus::Working {
+        // What waited on the board comes with the turn.
+        board::turn_started(core, session);
+    }
     if !(status.is_ended() || *status == AgentStatus::Idle) {
         return;
     }

@@ -108,6 +108,28 @@ question and the answer.
   `<untrusted>` marks.
 - Entries go into the audit log and persist with the task.
 
+## Built so far, and what is left
+
+The first cut (2026-11-26) has the entries, the six tools, delivery, the
+limits, persistence and the Board tab. Decisions made while building it:
+
+- What waits for an agent is sent as one Ovra message when its next turn
+  starts (its status turns working), not merged into the message that
+  starts it; what cannot be sent (a queued or stopping session) waits on.
+- An answer to the coordinator's question waits for its next turn (B1).
+- The chain limit counts questions and answers between the same two
+  agents since the person or the coordinator last wrote; other entries do
+  not end the run, and talk with the person is not limited.
+- `read_board` returns at most 20 entries or 16 KB a call, with `next`.
+- A claim path is at most 256 bytes with at most 8 runs of `*`; matching
+  is row by row with a step budget per search.
+
+Left for later: entries in the audit log; a time on each entry; the watch
+tick comparing a new change with other workers' claims (it compares
+changes only); saving boards apart from the rest of the orchestration
+state; approval cards that name a preceding entry; the task row's "who
+changes what" view; the e2e test.
+
 ## Protocol (`board.*`)
 
 - `board.list {task, since}` → entries and `next`.

@@ -73,6 +73,8 @@ pub(crate) fn restore(core: &Core) {
     let mut state = orchestration.lock();
     state.reviews.retain(|r| kept(&r.session));
     state.tasks.retain(|t| kept(&t.coordinator));
+    let tasks: Vec<_> = state.tasks.iter().map(|t| t.id.clone()).collect();
+    state.boards.retain(|task, _| tasks.contains(task));
     for task in &mut state.tasks {
         task.workers.retain(|w| kept(&w.session));
     }
