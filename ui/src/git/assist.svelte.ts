@@ -171,6 +171,8 @@ export class Assist {
           mode: "research",
           prompt: fitPrompt(prompt),
           account: null,
+          // Prompts carry other people's text (pulled commits, diffs): no web search to send anything out.
+          no_web: true,
         },
       });
       session = reply.data.id;

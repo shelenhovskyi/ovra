@@ -113,11 +113,9 @@ no `ORIG_HEAD`. Implemented in `GitRepo` with `git log` and
   the old name of a rename), and diffs holding a string that looks like a
   token (the audit log's list in `docs/specs/security.md`), are named in
   the prompt without their contents.
-- Pulled commits and diffs can hold other people's text, which now reaches
-  an agent that has web search (research mode). A prompt injection there
-  could try to read a file and leak it in a search query. The research
-  sandbox's protected and hidden paths are the boundary; turning web
-  search off for these sessions is an open question for the owner.
+- Pulled commits and diffs can hold other people's text, so these research
+  sessions start with `no_web`: read tools only, no web search through
+  which a prompt injection could send a file out.
 
 ## Steps
 
