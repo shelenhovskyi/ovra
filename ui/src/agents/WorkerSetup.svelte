@@ -1,0 +1,118 @@
+<script lang="ts">
+// A preparing worker's setup under its row (docs/specs/worktree-setup.md):
+// the end of the current step's output on request, and after a failed step
+// the reason with Retry and Start anyway.
+
+import type { SessionId, SetupProgress } from "../lib/protocol";
+import { CoreError } from "../lib/transport";
+import { useOvra } from "../shell/context";
+import { agentSessions } from "./sessions.svelte";
+import { stepLine } from "./worktrees";
+
+const { session, setup }: { session: SessionId; setup: SetupProgress } = $props();
+
+const sessions = agentSessions(useOvra().transport);
+let open = $state(false);
+let busy = $state(false);
+let error = $state<string | null>(null);
+const failed = $derived(setup.failed !== null);
+const logId = $derived(`setup-log-${session}`);
+
+async function retry(skip: boolean): Promise<void> {
+  busy = true;
+  error = null;
+  try {
+    await sessions.retrySetup(session, skip);
+  } catch (e) {
+    error = e instanceof CoreError ? e.message : String(e);
+  } finally {
+    busy = false;
+  }
+}
+</script>
+
+<div class="setup" data-testid="worker-setup" role="group" aria-label="Worktree setup">
+  {#if failed}
+    <p class="why" data-testid="worker-setup-failed">Step {stepLine(setup)} {setup.failed}</p>
+  {/if}
+  <div class="actions">
+    {#if setup.log.length > 0}
+      <button type="button" class="quiet" aria-expanded={open} aria-controls={logId} onclick={() => (open = !open)}
+        >{open ? "Hide output" : "Show output"}</button
+      >
+    {/if}
+    {#if failed}
+      <span class="end">
+        <button
+          type="button"
+          class="quiet"
+          disabled={busy}
+          title="Start the agent without a ready worktree"
+          onclick={() => void retry(true)}>Start anyway</button
+        >
+        <button type="button" class="quiet strong" disabled={busy} onclick={() => void retry(false)}>Retry</button>
+      </span>
+    {/if}
+  </div>
+  {#if open}
+    <pre id={logId} class="log" data-testid="worker-setup-log">{setup.log.join("\n")}</pre>
+  {/if}
+  {#if error}<p class="error" role="alert">{error}</p>{/if}
+</div>
+
+<style>
+  .setup {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 0 8px 6px 28px;
+  }
+  .why {
+    margin: 0;
+    font-size: 13px;
+    color: var(--danger);
+    overflow-wrap: anywhere;
+  }
+  .actions {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .quiet {
+    height: var(--control-h-sm);
+    padding: 0 8px;
+    font-size: 13px;
+    color: var(--text-2);
+  }
+  .quiet:hover:not(:disabled) {
+    color: var(--text);
+    background: var(--s3);
+  }
+  .strong {
+    color: var(--text);
+    font-weight: 500;
+  }
+  .end {
+    display: flex;
+    gap: 4px;
+    margin-left: auto;
+  }
+  .log {
+    margin: 0;
+    max-height: 160px;
+    overflow: auto;
+    padding: 6px 8px;
+    border-radius: var(--radius-sm);
+    background: var(--s3);
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--text-2);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+  .error {
+    margin: 0;
+    font-size: 13px;
+    color: var(--danger);
+  }
+</style>

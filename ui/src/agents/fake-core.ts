@@ -12,6 +12,7 @@ import type {
   Checkpoint,
   ContextWarning,
   CoreEvent,
+  Leftover,
   PermissionRequest,
   Project,
   ProjectAgentConfig,
@@ -34,6 +35,8 @@ export class FakeAgentCore implements Transport {
   pending: PermissionRequest[] = [];
   /** Tasks `orchestration.start` made; a test adds their workers. */
   tasks: Task[] = [];
+  /** What `orchestration.leftovers` answers; `orchestration.remove_leftover` takes one out. */
+  leftovers: Leftover[] = [];
   /** Each task's board; `board.post` and `board.answer` add the person's entries. */
   boards = new Map<string, BoardEntry[]>();
   /** What `review.list` answers, newest first. */
@@ -317,6 +320,13 @@ export class FakeAgentCore implements Transport {
         this.emit({ type: "permissions.resolved", data: { id, decision } });
         return { type: "ok" };
       }
+      case "orchestration.leftovers":
+        return { type: "orchestration.leftovers", data: [...this.leftovers] };
+      case "orchestration.remove_leftover":
+        this.leftovers = this.leftovers.filter((l) => l.path !== request.params.path);
+        return { type: "ok" };
+      case "orchestration.retry_setup":
+        return { type: "ok" };
       default:
         throw new CoreError({ code: "unavailable", message: `${request.method} is not faked` });
     }

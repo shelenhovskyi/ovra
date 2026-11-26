@@ -23,10 +23,9 @@ describe("resources", () => {
     ]);
   });
 
-  it("adds the parts up in one quiet line, with a worker's worktree", () => {
+  it("adds the parts up in one quiet line", () => {
     const all = r({ servers: { memory_bytes: 400 * MB, cpu_percent: 5, processes: 2 } });
     expect(resourcesLine(all)).toBe("1.2 GB · 35% CPU");
-    expect(resourcesLine(all, { bytes: 2.4 * GB, complete: false })).toBe("1.2 GB · 35% CPU · over 2.4 GB on disk");
     expect(resourcesLine(r({ agent: null }))).toBe("");
     expect(resourcesLine(undefined)).toBe("");
   });
@@ -40,7 +39,7 @@ describe("resources", () => {
       "About 900 MB of memory and 30% CPU (100% is one core)",
       "Agent and its commands: 800 MB, 30% CPU, 6 processes",
       "Browser: 100 MB, 0% CPU, 1 process",
-      "Worktree: 2.0 GB on disk",
+      "Worktree: up to 2.0 GB on disk",
     ]);
   });
 

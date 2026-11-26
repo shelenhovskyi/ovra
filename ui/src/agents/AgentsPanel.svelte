@@ -38,7 +38,7 @@ import { signedOutError } from "./errors";
 import FirstSteps from "./FirstSteps.svelte";
 import { hints } from "./hints.svelte";
 import { agentPrefs } from "./prefs.svelte";
-import { pressureNote, resourcesLine, resourcesTip } from "./resources";
+import { diskLabel, pressureNote, resourcesLine, resourcesTip } from "./resources";
 import { listWarning, sandboxGaps, sandboxLine, sandboxState } from "./sandbox";
 import { agentSessions, openReviews, usageText } from "./sessions.svelte";
 import AccountPicker from "./setup/AccountPicker.svelte";
@@ -51,6 +51,7 @@ import { isBusy, isEnded } from "./status";
 import { providers } from "./providers.svelte";
 import { inFolder } from "./steps";
 import Transcript from "./Transcript.svelte";
+import WorkerSetup from "./WorkerSetup.svelte";
 import { REPORT_DIR, reportFile, reportOf, reportPath, taskPrompt } from "./report";
 import { rememberedMode, rememberMode, type TaskMode } from "./task-mode";
 
@@ -109,6 +110,8 @@ const list = $derived(project ? sessions.shown(project.id) : []);
 const capacity = $derived(project ? sessions.capacity.get(project.id) : undefined);
 /** Why queued workers wait although a place may be free. */
 const pressure = $derived(project ? sessions.pressure.get(project.id) : undefined);
+/** The disk the project's worktrees use, once counted. */
+const projectDisk = $derived(project ? sessions.disk.get(project.id) : undefined);
 /** "No sandbox" for the whole list, once under the header. */
 const unsandboxed = $derived(listWarning(list));
 const current = $derived(list.find((s) => s.id === selected) ?? null);
@@ -985,6 +988,11 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
         {#each { length: capacity.limit } as _, n (n)}<i class:on={n < capacity.working}></i>{/each}
       </span>
     {/if}
+    {#if projectDisk}
+      <span class="capacity" data-testid="agents-disk" title="Disk used by this project's worktrees"
+        >{diskLabel(projectDisk)}</span
+      >
+    {/if}
     <span class="end">
       <KeepAwakeButton />
       {#if current}
@@ -1333,7 +1341,12 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
                   {#if taken && resourcesLine(taken)}
                     <!-- Only when asked for (Settings): what it takes of the computer; the split on hover. -->
                     <span class="taken" data-testid="agent-resources" title={resourcesTip(taken, disk)}
-                      >{resourcesLine(taken, disk)}</span
+                      >{resourcesLine(taken)}</span
+                    >
+                  {/if}
+                  {#if disk}
+                    <span class="taken" data-testid="agent-disk" title="Cloned files count in full: the real use may be less"
+                      >{diskLabel(disk)}</span
                     >
                   {/if}
                   {#if parts}
@@ -1368,6 +1381,9 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
               {/if}
             </li>
             {#if confirming === session.id}<li class="confirm-row">{@render confirmClose(session.id)}</li>{/if}
+            {#if role?.kind === "worker" && role.setup && session.status.state === "preparing"}
+              <li class="setup-row"><WorkerSetup session={session.id} setup={role.setup} /></li>
+            {/if}
             {#each role?.kind === "coordinator" ? (sessions.failedStarts.get(session.id) ?? []) : [] as missed (missed.name)}
               <!-- A worker that never started has no conversation: its row says why. -->
               <li class="worker" data-testid="agent-failed-start">
@@ -1718,6 +1734,14 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
   }
   .sessions li.worker {
     margin-left: 20px;
+  }
+  /* A preparing worker's setup sits under its row, indented like it. */
+  .sessions li.setup-row {
+    display: block;
+    margin: -2px 0 0 20px;
+  }
+  .sessions li.setup-row:hover {
+    background: none;
   }
   .row-button {
     flex: 1;

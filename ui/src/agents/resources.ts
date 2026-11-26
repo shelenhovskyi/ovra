@@ -22,16 +22,16 @@ function sum(r: SessionResources): Usage | null {
   }));
 }
 
-function disk(d: DiskUsage): string {
-  return `${d.complete ? "" : "over "}${bytes(d.bytes)} on disk`;
+/** `up to 1.2 GB on disk`: cloned files count in full, so a worktree's size is an upper bound. */
+export function diskLabel(d: DiskUsage): string {
+  return `${d.complete ? "up to" : "more than"} ${bytes(d.bytes)} on disk`;
 }
 
-/** `1.2 GB · 35% CPU`, plus the worktree's size for a worker; empty while nothing runs. */
-export function resourcesLine(r: SessionResources | undefined, worktree?: DiskUsage | null): string {
+/** `1.2 GB · 35% CPU`; empty while nothing runs. A worker's disk use has its own line. */
+export function resourcesLine(r: SessionResources | undefined): string {
   const total = r && sum(r);
   if (!total) return "";
-  const line = `${bytes(total.memory_bytes)} · ${total.cpu_percent}% CPU`;
-  return worktree ? `${line} · ${disk(worktree)}` : line;
+  return `${bytes(total.memory_bytes)} · ${total.cpu_percent}% CPU`;
 }
 
 /** The split behind `resourcesLine`, one part per line. */
@@ -49,7 +49,7 @@ export function resourcesTip(r: SessionResources, worktree?: DiskUsage | null): 
     ...part("Agent and its commands", r.agent),
     ...part("Dev servers", r.servers),
     ...part("Browser", r.browser),
-    ...(worktree ? [`Worktree: ${disk(worktree)}`] : []),
+    ...(worktree ? [`Worktree: ${diskLabel(worktree)}`] : []),
   ].join("\n");
 }
 

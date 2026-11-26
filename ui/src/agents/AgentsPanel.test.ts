@@ -320,12 +320,12 @@ describe("AgentsPanel", () => {
     agentPrefs.showResources = true;
     await settle();
     const taken = row("docs")?.querySelector("[data-testid=agent-resources]");
-    expect(taken?.textContent).toBe("1.2 GB · 35% CPU · 2.4 GB on disk");
+    expect(taken?.textContent).toBe("1.2 GB · 35% CPU");
     expect(taken?.getAttribute("title")?.split("\n")).toEqual([
       "About 1.2 GB of memory and 35% CPU (100% is one core)",
       "Agent and its commands: 900 MB, 30% CPU, 5 processes",
       "Dev servers: 300 MB, 5% CPU, 2 processes",
-      "Worktree: 2.4 GB on disk",
+      "Worktree: up to 2.4 GB on disk",
     ]);
     // A queued worker runs nothing yet, and says why it waits with a place free.
     expect(row("tests")?.querySelector("[data-testid=agent-resources]")).toBeNull();

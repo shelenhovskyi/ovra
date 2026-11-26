@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Page } from "@playwright/test";
@@ -35,12 +35,16 @@ function readIfThere(path: string): string | null {
   return existsSync(path) ? readFileSync(path, "utf8") : null;
 }
 
-/** Opens a new git repository with README.md committed; returns its folder. */
-async function openGitProject(page: Page, prefix: string): Promise<string> {
+/** Opens a new git repository with README.md and `files` committed; returns its folder. */
+async function openGitProject(page: Page, prefix: string, files: Record<string, string> = {}): Promise<string> {
   const url = process.env.OVRA_URL;
   if (!url) throw new Error("OVRA_URL is not set; globalSetup did not run");
   const dir = mkdtempSync(join(tmpdir(), prefix));
   writeFileSync(join(dir, "README.md"), "teh readme\n");
+  for (const [path, text] of Object.entries(files)) {
+    mkdirSync(join(dir, path, ".."), { recursive: true });
+    writeFileSync(join(dir, path), text);
+  }
   const git = (...args: string[]) =>
     execFileSync("git", ["-c", "user.name=e2e", "-c", "user.email=e2e@example.invalid", ...args], { cwd: dir });
   git("init", "-q", "-b", "main");
@@ -637,4 +641,43 @@ test("go back to a message: its file is gone, the message is back in the box, an
   await expect(result).toContainText("Put back: two.txt.");
   expect(readIfThere(join(dir, "two.txt"))).toBe("two.txt from the agent\n");
   await expect(session.getByTestId("set-back-divider")).toBeHidden();
+});
+
+// Worktree setup (docs/specs/worktree-setup.md): the fake dev servers run a
+// setup step named `fail` as a failure, so each worker stays preparing with
+// the failed step until the person starts it anyway.
+test("a worker is prepared, its setup fails, and Start anyway starts it", async ({ page }) => {
+  const setup = { setup: [{ command: ["pnpm", "install"] }, { command: ["fail"] }] };
+  await openGitProject(page, "ovra-agents-setup-", { ".ovra/worktree.json": JSON.stringify(setup) });
+  await page.getByRole("textbox", { name: "Describe a task" }).fill("Write the notes");
+  await page.getByTestId("agent-mode").click();
+  await page.getByRole("menuitemradio", { name: /^Plan and split/ }).click();
+  await page.getByRole("button", { name: "Start", exact: true }).click();
+
+  // The task opens on its conversation; its workers are in the list.
+  const agents = page.getByTestId("agents");
+  await agents.getByRole("button", { name: "Tasks" }).click();
+  const docs = agents.locator(".row-button", { hasText: "docs" });
+  await expect(docs.locator(".state")).toHaveText("Setup failed at 2 of 2: fail");
+  const prepared = agents.getByTestId("worker-setup").first();
+  await expect(prepared.getByTestId("worker-setup-failed")).toHaveText("Step 2 of 2: fail exited with code 1");
+  await prepared.getByRole("button", { name: "Show output" }).click();
+  await expect(prepared.getByTestId("worker-setup-log")).toHaveText("fake fail");
+  await expect(prepared.getByRole("button", { name: "Retry" })).toBeVisible();
+
+  await prepared.getByRole("button", { name: "Start anyway" }).click();
+  await expect(agents.getByTestId("worker-setup")).toHaveCount(2);
+  // The worker's agent starts in its worktree and asks to write its notes.
+  const card = page.getByTestId("approvals").getByRole("group", { name: "Write NOTES.md" });
+  await expect(card).toBeVisible();
+  await arm(page);
+  await card.getByRole("button", { name: "Allow" }).click();
+  await expect(docs.locator(".state")).not.toHaveText(/Setup failed/);
+
+  // Stopping the task stops the workers still waiting on their setup.
+  await agents.locator(".row-button", { hasText: "Write the notes" }).first().click();
+  await page.getByTestId("agent-session").getByRole("button", { name: "Stop" }).click();
+  await agents.getByRole("button", { name: "Tasks" }).click();
+  await expect(docs).toBeVisible();
+  await expect(agents.getByTestId("worker-setup")).toHaveCount(0);
 });

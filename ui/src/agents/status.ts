@@ -32,7 +32,12 @@ export function isEnded(status: AgentStatus): boolean {
   return status.state === "stopped" || status.state === "failed";
 }
 
-/** Whether the session is starting or in a turn. */
+/** Whether the session is being prepared, starting or in a turn. */
 export function isBusy(status: AgentStatus | null): boolean {
-  return status?.state === "starting" || status?.state === "working" || status?.state === "waiting_for_approval";
+  return (
+    status?.state === "preparing" ||
+    status?.state === "starting" ||
+    status?.state === "working" ||
+    status?.state === "waiting_for_approval"
+  );
 }

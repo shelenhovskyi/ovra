@@ -14,12 +14,14 @@ import type {
   DiskUsage,
   FailedWorker,
   FileChange,
+  Leftover,
   Pressure,
   ProjectId,
   ReviewItem,
   SessionId,
   SessionInfo,
   SessionResources,
+  SetupProgress,
   TaskId,
   TurnUsage,
 } from "../lib/protocol";
@@ -28,6 +30,7 @@ import { failedLabel } from "./errors";
 import { hints } from "./hints.svelte";
 import { pressureNote, waitingLabel } from "./resources";
 import { isBusy, isEnded, statusLabel } from "./status";
+import { diskTotal, preparingLabel, waitingReason } from "./worktrees";
 
 /** A session's part in a task, if it has one. */
 export type SessionRole =
@@ -43,6 +46,10 @@ export type SessionRole =
       kept: string | null;
       /** Its worktree's size on disk, once counted. */
       disk: DiskUsage | null;
+      /** Its worktree's setup while it runs and after it failed. */
+      setup: SetupProgress | null;
+      /** Why it waits queued although a place may be free (low disk space). */
+      waiting: string | null;
       coordinator: SessionId;
     };
 
@@ -51,6 +58,10 @@ export class AgentSessions {
   readonly roles = new SvelteMap<SessionId, SessionRole>();
   /** Workers each task's coordinator asked for that could not start, by coordinator. */
   readonly failedStarts = new SvelteMap<SessionId, FailedWorker[]>();
+  /** The disk the workers' worktrees of each project use, once any was counted. */
+  readonly disk = new SvelteMap<ProjectId, DiskUsage>();
+  /** Folders in each project's worktrees folder that no task knows, until the person removes them. */
+  readonly leftovers = new SvelteMap<ProjectId, Leftover[]>();
   /** Every known session by id, in the order they became known. */
   readonly byId = new SvelteMap<SessionId, SessionInfo>();
   /** Transcripts of sessions watched since they started or since `loadTranscript`. */
@@ -101,7 +112,12 @@ export class AgentSessions {
     this.loaded.add(project);
     for (const id of readClosed(project)) this.closed.add(id);
     for (const info of data) this.byId.set(info.id, info);
-    await Promise.all([this.loadTasks(project), this.loadReviews(project), this.loadCapacity(project)]);
+    await Promise.all([
+      this.loadTasks(project),
+      this.loadReviews(project),
+      this.loadCapacity(project),
+      this.loadLeftovers(project),
+    ]);
   }
 
   /** Each session's newest review item. Front ends without reviews have none. */
@@ -180,6 +196,9 @@ export class AgentSessions {
   private async loadTasks(project: ProjectId): Promise<void> {
     try {
       const { data } = await this.transport.call({ method: "orchestration.list", params: { project } });
+      const total = diskTotal(data.flatMap((task) => task.workers.map((w) => w.disk)));
+      if (total) this.disk.set(project, total);
+      else this.disk.delete(project);
       for (const task of data) {
         this.roles.set(task.coordinator, { kind: "coordinator", task: task.id });
         this.failedStarts.set(task.coordinator, task.failed ?? []);
@@ -192,12 +211,35 @@ export class AgentSessions {
             worktree: w.worktree,
             kept: w.kept,
             disk: w.disk ?? null,
+            setup: w.setup ?? null,
+            waiting: w.waiting ?? null,
             coordinator: task.coordinator,
           });
       }
     } catch {
       // No tasks to show.
     }
+  }
+
+  /** Front ends without leftovers list none. */
+  private async loadLeftovers(project: ProjectId): Promise<void> {
+    try {
+      const { data } = await this.transport.call({ method: "orchestration.leftovers", params: { project } });
+      this.leftovers.set(project, data);
+    } catch {
+      // None to show.
+    }
+  }
+
+  /** Removes a leftover worktree: only ever when the person asked, after a confirmation. */
+  async removeLeftover(project: ProjectId, path: string): Promise<void> {
+    await this.transport.call({ method: "orchestration.remove_leftover", params: { project, path } });
+    await this.loadLeftovers(project);
+  }
+
+  /** Runs a worker's failed setup again, or with `skip` starts it without (Start anyway). */
+  async retrySetup(session: SessionId, skip: boolean): Promise<void> {
+    await this.transport.call({ method: "orchestration.retry_setup", params: { session, skip_setup: skip } });
   }
 
   /**
@@ -239,6 +281,7 @@ export class AgentSessions {
       const workers = [...this.roles]
         .filter(([, r]) => r.kind === "worker" && r.coordinator === id)
         .map(([session]) => this.byId.get(session)?.status ?? null);
+      if (this.workers(id).some((w) => this.setupFailed(w))) return "A worker's setup failed";
       if (workers.some(isBusy)) return "Workers are on it";
       if (workers.some((s) => s?.state === "queued")) {
         const pressure = this.pressure.get(info.project);
@@ -260,6 +303,9 @@ export class AgentSessions {
       if (workers.length > 0 && missed === 0 && workers.every((w) => this.status(w) === "Done"))
         return failedLabel(info.status, transcript) ?? "Done";
     }
+    if (info.status.state === "preparing" && role?.kind === "worker") return preparingLabel(role.setup);
+    // A worker waits for disk space for its worktree.
+    if (info.status.state === "queued" && role?.kind === "worker" && role.waiting) return waitingReason(role.waiting);
     // A free place does not start it while the computer is short of memory or CPU.
     const pressure = this.pressure.get(info.project);
     if (info.status.state === "queued" && pressure) return waitingLabel(pressure);
@@ -268,6 +314,12 @@ export class AgentSessions {
       if (place >= 0) return `Waiting, ${ordinal(place + 1)} in line`;
     }
     return failedLabel(info.status, transcript) ?? statusLabel(info.status);
+  }
+
+  /** Whether `id` is a worker whose setup failed: it waits for Retry or Start anyway. */
+  setupFailed(id: SessionId): boolean {
+    const role = this.roles.get(id);
+    return role?.kind === "worker" && this.byId.get(id)?.status.state === "preparing" && !!role.setup?.failed;
   }
 
   /** `grouped` without the sessions the person closed. */
