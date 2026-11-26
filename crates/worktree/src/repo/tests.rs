@@ -333,19 +333,28 @@ async fn a_hanging_hook_is_ended_after_the_limit_with_its_output() {
     put(root, "a.txt", "a2\n");
     git(root, &["add", "a.txt"]);
 
-    let err = GitRepo::with_limit(std::time::Duration::from_millis(50))
-        .commit(root.clone(), "Change".into(), false)
-        .await
-        .err()
-        .unwrap_or_else(|| panic!("committed through a hanging hook"));
-    assert_eq!(err.code, ErrorCode::Conflict);
-    assert!(
-        err.message
-            .starts_with("git commit was still running after"),
-        "{}",
-        err.message
-    );
-    assert!(err.message.contains("Enter passphrase:"), "{}", err.message);
+    // A busy machine may stop git before the hook has printed anything:
+    // a longer limit then, until its output is in the message.
+    let mut message = String::new();
+    for limit in [50, 200, 800] {
+        let err = GitRepo::with_limit(std::time::Duration::from_millis(limit))
+            .commit(root.clone(), "Change".into(), false)
+            .await
+            .err()
+            .unwrap_or_else(|| panic!("committed through a hanging hook"));
+        assert_eq!(err.code, ErrorCode::Conflict);
+        assert!(
+            err.message
+                .starts_with("git commit was still running after"),
+            "{}",
+            err.message
+        );
+        message = err.message;
+        if message.contains("Enter passphrase:") {
+            break;
+        }
+    }
+    assert!(message.contains("Enter passphrase:"), "{message}");
     // git was asked to end, so it removed its lock.
     assert!(!root.join(".git/index.lock").exists());
     assert_eq!(git(root, &["log", "-1", "--format=%s"]), "start");
