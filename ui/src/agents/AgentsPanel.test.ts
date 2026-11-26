@@ -1174,6 +1174,14 @@ describe("@ context", () => {
     await settle();
     expect(chips()).toEqual(["Terminal"]);
     expect(document.activeElement).toBe(field());
+    // Chips belong to their project's box.
+    workspace.project = { id: "p2", name: "other", root: "/other", last_opened_ms: null, trusted: false };
+    await settle();
+    expect(chips()).toEqual([]);
+    workspace.project = { id: "p1", name: "demo", root: "/demo", last_opened_ms: null, trusted: false };
+    await settle();
+    expect(chips()).toEqual(["Terminal"]);
+    field()?.focus();
     // Backspace in the empty box takes it out again.
     key("Backspace");
     await settle();

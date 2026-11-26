@@ -97,6 +97,8 @@ let account = $state<string | null>(null);
 const asked = new Set<SessionId>();
 
 const project = $derived(workspace.project);
+/** The new-task box's chips are the project's own. */
+const newBox = $derived(`new:${workspace.project?.id ?? ""}`);
 const list = $derived(project ? sessions.shown(project.id) : []);
 /** How many of the project's agents work, of how many may. */
 const capacity = $derived(project ? sessions.capacity.get(project.id) : undefined);
@@ -151,7 +153,7 @@ const foldStart = $derived(
     !modeMenu &&
     !prompt.trim() &&
     !startError &&
-    drafts.of("new").length === 0,
+    drafts.of(newBox).length === 0,
 );
 let modeList = $state<HTMLElement>();
 /** Projects known not to be git repositories: Plan and split cannot run there. */
@@ -452,7 +454,6 @@ async function askSetup(what: "path" | "account"): Promise<void> {
   await openSetup();
 }
 
-/** From a folded Agents column, New task unfolds it first, through the shell's own command. */
 // Ask agent (the editor, a problem, the terminal): the item goes to the
 // open box, the reply of the shown task or else a new task.
 $effect(() => {
@@ -462,13 +463,13 @@ $effect(() => {
   untrack(() => {
     agentAsks.waiting = [];
     const replying = current !== null && !isEnded(current.status) && !signedOut;
-    const target = replying && current ? current.id : "new";
+    const target = replying && current ? current.id : newBox;
     if (!replying) selected = null;
     for (const what of waiting)
       drafts.add(id, target, what).catch((err: unknown) => {
         error = `Could not add it: ${text(err)}`;
       });
-    void showBox(target === "new" ? () => promptField : () => replyField);
+    void showBox(target === newBox ? () => promptField : () => replyField);
   });
 });
 
@@ -482,14 +483,10 @@ async function showBox(field: () => HTMLTextAreaElement | undefined): Promise<vo
   field()?.focus();
 }
 
+/** From a folded Agents column, New task unfolds it first, through the shell's own command. */
 async function newTask(): Promise<void> {
-  if (document.querySelector("[data-testid=agents] .strip"))
-    await listCommands()
-      .find((c) => c.id === "layout.toggle_agents")
-      ?.run();
   selected = null;
-  await tick();
-  promptField?.focus();
+  await showBox(() => promptField);
 }
 
 function open(id: SessionId | null): void {
@@ -650,18 +647,18 @@ async function begin(body: string, how: TaskMode, use: string | null, context: C
 async function start(): Promise<void> {
   const body = prompt.trim();
   if (!project || !body || busy || blocked) return;
-  if (drafts.unconfirmed("new").length > 0) {
+  if (drafts.unconfirmed(newBox).length > 0) {
     startError = { text: "Choose Include or remove the marked item first.", setup: false };
     return;
   }
   busy = true;
   startError = null;
   try {
-    launched = await begin(body, mode, account, drafts.items("new"));
+    launched = await begin(body, mode, account, drafts.items(newBox));
     hints.mark("started");
     launchedPrompt = body;
     prompt = "";
-    drafts.clear("new");
+    drafts.clear(newBox);
   } catch (err) {
     // A conflict (another agent already works here) is not a setup problem.
     const setup = !(err instanceof CoreError && err.error.code === "conflict");
@@ -1291,7 +1288,7 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
         field={promptField}
         bind:value={prompt}
         project={project.id}
-        target="new"
+        target={newBox}
         id="agent-prompt-context"
       />
       {#if !foldStart}

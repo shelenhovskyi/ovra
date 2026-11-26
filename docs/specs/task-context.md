@@ -51,16 +51,22 @@ when it is sent (`agents.start`, `agents.send`, `orchestration.start`):
   ("May hold a secret") and is not sent until the person chooses **Include**
   on it; the core refuses a sensitive item without that confirmation.
 - Text items (selection, problem, terminal) are cut to 16 KiB each and 48
-  KiB together. Terminal output reaches the agent inside `<untrusted>`: a
-  command printed it.
-- The screenshot item names a page of the same session; the agent takes the
-  image with `browser_screenshot` (Ovra's messages to the agent are text).
+  KiB together, names and titles included. Everything the person, the
+  project or a program wrote reaches the agent either escaped (paths,
+  titles, a problem's source) or inside `<untrusted>` (selected lines, a
+  problem's message, terminal output), so nothing can close Ovra's note.
+  Paths with control characters are refused.
+- When the project's secret values cannot be read (a locked keychain),
+  every text item counts as sensitive.
+- The screenshot item names a page of the task the reply goes to; a new
+  task has no browser, so it is refused there. The agent takes the image
+  with `browser_screenshot` (Ovra's messages to the agent are text).
 
 ## Protocol
 
 `protocol/context.rs`: `ContextItem` (`file`, `folder`, `selection`,
 `problem`, `terminal`, `page`, each with `confirmed`), `context.check
-{ project, items }` answering `context.checked { notes }` (one `null` or a
+{ project, session?, items }` answering `context.checked { notes }` (one `null` or a
 warning per item). `agents.start`, `agents.send` and `orchestration.start`
 take an optional `context: ContextItem[]`.
 

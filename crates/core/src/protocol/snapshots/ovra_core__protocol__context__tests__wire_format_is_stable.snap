@@ -1,7 +1,7 @@
 ---
 source: crates/core/src/protocol/context.rs
-assertion_line: 102
-expression: "serde_json::json!({\n    \"requests\":\n    [Request::Context(ContextRequest::Check\n    {\n        project: ProjectId(\"p1\".into()), items:\n        vec![item(ContextWhat::File { path: \"src/lib.rs\".into() }),\n        item(ContextWhat::Folder { path: \"src\".into() }), ContextItem\n        {\n            what: ContextWhat::Selection\n            {\n                path: \".env\".into(), from_line: 1, to_line: 2, text:\n                \"A=1\".into(),\n            }, confirmed: true,\n        },\n        item(ContextWhat::Problem\n        {\n            path: \"src/lib.rs\".into(), line: 3, severity: \"error\".into(),\n            message: \"unused\".into(), source: Some(\"rustc\".into()),\n        }),\n        item(ContextWhat::Terminal\n        { title: \"zsh\".into(), text: \"ok\".into() }),\n        item(ContextWhat::Page { page: PageId(\"g1\".into()) }),],\n    })], \"responses\":\n    [Response::Context(ContextResponse::Checked\n    { notes: vec![None, Some(ContextWarning::SecretFile)], })],\n})"
+assertion_line: 106
+expression: "serde_json::json!({\n    \"requests\":\n    [Request::Context(ContextRequest::Check\n    {\n        project: ProjectId(\"p1\".into()), session:\n        Some(SessionId(\"s1\".into())), items:\n        vec![item(ContextWhat::File { path: \"src/lib.rs\".into() }),\n        item(ContextWhat::Folder { path: \"src\".into() }), ContextItem\n        {\n            what: ContextWhat::Selection\n            {\n                path: \".env\".into(), from_line: 1, to_line: 2, text:\n                \"A=1\".into(),\n            }, confirmed: true,\n        },\n        item(ContextWhat::Problem\n        {\n            path: \"src/lib.rs\".into(), line: 3, severity: \"error\".into(),\n            message: \"unused\".into(), source: Some(\"rustc\".into()),\n        }),\n        item(ContextWhat::Terminal\n        { title: \"zsh\".into(), text: \"ok\".into() }),\n        item(ContextWhat::Page { page: PageId(\"g1\".into()) }),],\n    })], \"responses\":\n    [Response::Context(ContextResponse::Checked\n    { notes: vec![None, Some(ContextWarning::SecretFile)], })],\n})"
 ---
 {
   "requests": [
@@ -48,7 +48,8 @@ expression: "serde_json::json!({\n    \"requests\":\n    [Request::Context(Conte
             "page": "g1"
           }
         ],
-        "project": "p1"
+        "project": "p1",
+        "session": "s1"
       }
     }
   ],

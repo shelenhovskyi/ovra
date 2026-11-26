@@ -4,6 +4,7 @@
 
 use serde::{Deserialize, Serialize};
 
+use super::agents::SessionId;
 use super::browser::PageId;
 use super::projects::ProjectId;
 
@@ -76,6 +77,9 @@ pub enum ContextRequest {
     #[serde(rename = "context.check")]
     Check {
         project: ProjectId,
+        /// The task a reply goes to; a page item needs it.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        session: Option<SessionId>,
         items: Vec<ContextItem>,
     },
 }
@@ -102,6 +106,7 @@ mod tests {
         insta::assert_json_snapshot!(serde_json::json!({
             "requests": [Request::Context(ContextRequest::Check {
                 project: ProjectId("p1".into()),
+                session: Some(SessionId("s1".into())),
                 items: vec![
                     item(ContextWhat::File { path: "src/lib.rs".into() }),
                     item(ContextWhat::Folder { path: "src".into() }),

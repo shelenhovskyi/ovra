@@ -25,8 +25,8 @@ export type Chip = {
   confirmed: boolean;
 };
 
-/** The box a chip belongs to: the new-task box, or a session's reply box. */
-export type Target = "new" | string;
+/** The box a chip belongs to: a project's new-task box (`new:<project>`), or a session's reply box. */
+export type Target = string;
 
 const sources = new Map<string, () => Suggestion[]>();
 
@@ -110,7 +110,11 @@ export class ContextDrafts {
   /** Adds `what` once the core checked it; rejects with the core's reason (a path outside the project). */
   async add(project: ProjectId, target: Target, what: ContextWhat): Promise<void> {
     if (this.of(target).some((chip) => same(chip.what, what))) return;
-    const answer = await this.transport.call({ method: "context.check", params: { project, items: [what] } });
+    const session = target.startsWith("new:") ? undefined : target;
+    const answer = await this.transport.call({
+      method: "context.check",
+      params: { project, items: [what], ...(session ? { session } : {}) },
+    });
     if (this.of(target).some((chip) => same(chip.what, what))) return;
     made += 1;
     const chip: Chip = {

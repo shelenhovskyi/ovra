@@ -35,15 +35,15 @@ describe("chips", () => {
       onEvent: () => () => {},
     } as unknown as Transport;
     const drafts = new ContextDrafts(transport);
-    await drafts.add("p1", "new", { kind: "file", path: ".env" });
-    await drafts.add("p1", "new", { kind: "file", path: ".env" });
-    expect(drafts.of("new")).toHaveLength(1);
+    await drafts.add("p1", "new:p1", { kind: "file", path: ".env" });
+    await drafts.add("p1", "new:p1", { kind: "file", path: ".env" });
+    expect(drafts.of("new:p1")).toHaveLength(1);
     expect(calls).toHaveLength(1);
-    const key = drafts.of("new")[0]?.key ?? "";
-    expect(drafts.unconfirmed("new")).toHaveLength(1);
-    drafts.confirm("new", key);
-    expect(drafts.items("new")).toEqual([{ kind: "file", path: ".env", confirmed: true }]);
-    drafts.remove("new", key);
-    expect(drafts.of("new")).toEqual([]);
+    const key = drafts.of("new:p1")[0]?.key ?? "";
+    expect(drafts.unconfirmed("new:p1")).toHaveLength(1);
+    drafts.confirm("new:p1", key);
+    expect(drafts.items("new:p1")).toEqual([{ kind: "file", path: ".env", confirmed: true }]);
+    drafts.remove("new:p1", key);
+    expect(drafts.of("new:p1")).toEqual([]);
   });
 });

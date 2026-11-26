@@ -1,6 +1,7 @@
 // Mirrors crates/core/src/protocol/context.rs: what the person adds to a
 // task or reply with `@` (docs/specs/task-context.md).
 
+import type { SessionId } from "./agents";
 import type { PageId } from "./browser";
 import type { ProjectId } from "./projects";
 
@@ -22,7 +23,8 @@ export type ContextWarning = "protected" | "secret_file" | "secret_text";
 export type ContextRequest = {
   /** `forbidden` for a path outside the project, `bad_request` for one too large. */
   method: "context.check";
-  params: { project: ProjectId; items: ContextItem[] };
+  /** `session`: the task a reply goes to; a page item needs it. */
+  params: { project: ProjectId; session?: SessionId; items: ContextItem[] };
 };
 
 /** One note per item, in order: null when it can go as it is. */
