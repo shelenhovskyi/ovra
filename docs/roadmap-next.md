@@ -122,6 +122,15 @@ Why: the owner wants a fast suite, and budgets fail under parallel load
 
 Done when: `just test` passes twice in a row with another suite running.
 
+Follow-up (not started): the UI suite's CPU time goes mostly to mounting
+whole panels. Move the logic of `AgentsPanel.svelte` (mode choice, hints,
+workers under their coordinator, who wrote what) and `Inbox.svelte`
+(protected files: which diffs were shown, what can be kept) into
+`*.svelte.ts` models, test it there, and keep two or three component tests
+per panel for the wiring. Expected saving: about 0.5 s CPU. One task per
+area (agents, inbox); keep every check that Keep changes stays blocked until
+each protected file's diff was shown.
+
 ## 7. Specs: worktree setup, checkpoints, PR flow
 
 Why: three features from `research/improvement-report.md` (1.4, 1.5) and
