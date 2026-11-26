@@ -78,7 +78,7 @@ impl GhForge {
         Self { fixed: None }
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, unix))]
     fn with(programs: Programs) -> Self {
         Self {
             fixed: Some(programs),

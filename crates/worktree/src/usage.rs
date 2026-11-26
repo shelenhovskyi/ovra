@@ -6,6 +6,7 @@ use std::path::Path;
 use std::time::{Duration, Instant};
 
 use ovra_core::protocol::orchestration::DiskUsage;
+#[cfg(unix)]
 use ovra_core::services::Result;
 
 /// Adds up what the files under `dir` take on disk, never following a
@@ -66,7 +67,7 @@ fn on_disk(meta: &Metadata) -> u64 {
 mod tests {
     use std::time::Duration;
 
-    use super::{free_space, usage};
+    use super::usage;
     use crate::tests::put;
 
     #[test]
@@ -93,9 +94,9 @@ mod tests {
     #[test]
     fn free_space_is_known_for_a_folder_and_an_error_for_none() {
         let tmp = tempfile::tempdir().unwrap_or_else(|e| panic!("{e}"));
-        let free = free_space(tmp.path()).unwrap_or_else(|e| panic!("{e}"));
+        let free = super::free_space(tmp.path()).unwrap_or_else(|e| panic!("{e}"));
         assert!(free > 0);
-        let missing = free_space(&tmp.path().join("gone"));
+        let missing = super::free_space(&tmp.path().join("gone"));
         assert!(missing.is_err());
     }
 }
