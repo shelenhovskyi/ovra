@@ -822,6 +822,24 @@ describe("AgentsPanel", () => {
     expect(line()).toBe("Sandbox: starting…");
   });
 
+  it("leaves focus where the person moved it while the session was starting", async () => {
+    const core = new FakeAgentCore();
+    await setup(core);
+    const elsewhere = document.body.appendChild(document.createElement("button"));
+    const call = core.call.bind(core);
+    core.call = (async (request: Parameters<typeof call>[0]) => {
+      // The person moves on (to an approval, Reviews) before the start answers.
+      if (request.method === "agents.start") elsewhere.focus();
+      return call(request);
+    }) as typeof core.call;
+    type(target.querySelector("#agent-prompt"), "Fix the typo");
+    modEnter();
+    await settle();
+    expect(core.sent("agents.start")).toHaveLength(1);
+    expect(document.activeElement).toBe(elsewhere);
+    elsewhere.remove();
+  });
+
   it("keeps a sandbox report that came before the reply to agents.start", async () => {
     const core = new FakeAgentCore();
     await setup(core);

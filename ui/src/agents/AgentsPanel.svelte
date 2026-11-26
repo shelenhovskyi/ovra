@@ -869,6 +869,9 @@ async function begin(
   // A task's coordinator and workers use the project's account: make it
   // the picked one before the task starts.
   if (use && use !== accounts.projectAccount) await accounts.setProject(id, use);
+  // Starting can take a while (a worker's copy is made first): the person may
+  // have moved on, to an approval or Reviews, by the time it answers.
+  const before = document.activeElement;
   const started =
     how === "split"
       ? await sessions.startTask(id, body, context, who)
@@ -877,7 +880,8 @@ async function begin(
         : (await sessions.start(id, body, use, how === "research" ? "research" : "direct", context, who)).id;
   selected = started;
   await tick();
-  replyField?.focus();
+  const moved = document.activeElement !== before && document.activeElement !== document.body;
+  if (!moved) replyField?.focus();
   return started;
 }
 
