@@ -30,6 +30,8 @@ export const SLOW_MS = 1500;
 export const FETCH_EVERY_MS = 3 * 60_000;
 /** Coming back to the window fetches again only once this long has passed. */
 export const FETCH_AGAIN_MS = 60_000;
+/** After a failed fetch (no network, a sign-in it could not ask for), the next waits this long. */
+export const FETCH_AFTER_FAILURE_MS = 30 * 60_000;
 
 export const CHANGE_LETTER: Record<GitChange, string> = {
   added: "A",
@@ -164,7 +166,9 @@ export class GitModel {
   private again = false;
   /** When the last `git.fetch` started; 0 before the first. */
   private fetchedAt = 0;
-  private fetching = false;
+  /** The fetch under way: "Get commits" and "Send commits" wait for it, so their refs win. */
+  private fetching: Promise<void> | null = null;
+  private fetchFailed = false;
   private disposed = false;
   private readonly offs: (() => void)[];
 
@@ -220,17 +224,21 @@ export class GitModel {
   async fetch(gap = 0): Promise<void> {
     const status = this.state.kind === "ready" ? this.state.status : null;
     if (!status?.upstream || this.fetching || this.busy || this.disposed) return;
-    if (this.fetchedAt > 0 && Date.now() - this.fetchedAt < gap) return;
-    this.fetching = true;
+    const wait = this.fetchFailed ? Math.max(gap, FETCH_AFTER_FAILURE_MS) : gap;
+    if (this.fetchedAt > 0 && Date.now() - this.fetchedAt < wait) return;
     this.fetchedAt = Date.now();
-    try {
-      await this.call({ method: "git.fetch", params: { project: this.project } });
-    } catch {
-      return;
-    } finally {
-      this.fetching = false;
-    }
-    if (!this.disposed) await this.refresh();
+    const run = async () => {
+      try {
+        await this.call({ method: "git.fetch", params: { project: this.project } });
+        this.fetchFailed = false;
+      } catch {
+        this.fetchFailed = true;
+      }
+    };
+    this.fetching = run();
+    await this.fetching;
+    this.fetching = null;
+    if (!this.fetchFailed && !this.disposed) await this.refresh();
   }
 
   dispose(): void {
@@ -411,6 +419,7 @@ export class GitModel {
   async publish(branch: string, remote: string): Promise<boolean> {
     if (this.busy) return false;
     this.syncing = "publish";
+    await this.fetching;
     this.got = null;
     const done = await this.act(
       "sync",
@@ -425,6 +434,8 @@ export class GitModel {
   private async sync(what: "pull" | "push", count: number): Promise<boolean> {
     if (this.busy) return false;
     this.syncing = what;
+    // A fetch recording the upstream after this would put it back where it was.
+    await this.fetching;
     this.got = null;
     const commits = `${count} ${count === 1 ? "commit" : "commits"}`;
     const done = await this.act(
@@ -434,6 +445,8 @@ export class GitModel {
       (err) => ({ message: `Could not ${what === "pull" ? "get" : "send"} the commits. ${sentence(message(err))}` }),
     );
     this.syncing = null;
+    // The remote answered: fetching on its own may go on.
+    if (done) this.fetchFailed = false;
     if (done && what === "pull") this.got = count;
     return done;
   }

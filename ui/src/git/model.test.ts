@@ -3,6 +3,7 @@ import { CoreError } from "../lib/transport";
 import { changed, FakeGitCore, repo } from "./fake-git";
 import {
   branchNameProblem,
+  FETCH_AFTER_FAILURE_MS,
   FETCH_AGAIN_MS,
   FETCH_EVERY_MS,
   fileLists,
@@ -58,14 +59,34 @@ describe("GitModel", () => {
       window.dispatchEvent(new Event("focus"));
       await vi.advanceTimersByTimeAsync(0);
       expect(fetches()).toBe(2);
-      // A failed fetch says nothing; the next one runs on time.
+      // A failed fetch says nothing, and the next waits longer (a sign-in it could not ask for).
       core.failNext.set("git.fetch", new CoreError({ code: "unavailable", message: "no network" }));
       await vi.advanceTimersByTimeAsync(FETCH_EVERY_MS);
       expect(fetches()).toBe(3);
       expect(model.error).toBeNull();
+      await vi.advanceTimersByTimeAsync(FETCH_EVERY_MS);
+      window.dispatchEvent(new Event("focus"));
+      await vi.advanceTimersByTimeAsync(0);
+      expect(fetches()).toBe(3);
+      await vi.advanceTimersByTimeAsync(FETCH_AFTER_FAILURE_MS - FETCH_EVERY_MS);
+      expect(fetches()).toBe(4);
+
+      // "Get commits" waits for a fetch under way, so the fetch cannot undo what it records.
+      let release = () => {};
+      core.holdNext.set("git.fetch", (r) => {
+        release = r;
+      });
+      await vi.advanceTimersByTimeAsync(FETCH_EVERY_MS);
+      expect(fetches()).toBe(5);
+      const pulled = model.pull(2);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(core.methods()).not.toContain("git.pull");
+      release();
+      expect(await pulled).toBe(true);
+      expect(core.methods()).toContain("git.pull");
       model.dispose();
       await vi.advanceTimersByTimeAsync(FETCH_EVERY_MS);
-      expect(fetches()).toBe(3);
+      expect(fetches()).toBe(5);
 
       // No upstream: nothing to ask.
       const local = await loaded();

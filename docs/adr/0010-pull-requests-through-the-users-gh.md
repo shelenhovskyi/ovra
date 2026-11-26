@@ -16,7 +16,11 @@ installed and signed in to, as ADR 0006 does for `claude`.
 - Ovra runs the person's installed `gh` and `git` unmodified, outside the
   sandbox, only after a person's click in a dialog that shows what is sent.
   It never bundles, downloads or installs `gh`, and has no GitHub sign-in
-  UI.
+  UI. Amended 2026-11-26 on the owner's request ("git checks the server
+  itself"): while the git panel is open, Ovra fetches the current branch's
+  upstream without a click (`git.fetch`: nothing is sent, only the
+  tracking ref moves), and stops trying for a while after a failure, so a
+  sign-in prompt does not come back every few minutes.
 - Ovra never reads, copies or passes on GitHub credentials (`gh`'s hosts
   file, the keychain, `GH_TOKEN`, `GITHUB_TOKEN`, git credential stores),
   never calls GitHub's API itself and never passes `--show-token`. The

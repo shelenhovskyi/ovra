@@ -319,12 +319,16 @@ u UU N... 100644 100644 100644 100644 e1 e2 e3 merge.txt\0\
         write(".mcp.json", "{}");
         write("sub/.envrc", "");
         write(".envrc", "");
+        // A link to an empty file is no placeholder: it stays.
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(".envrc", root.path().join("AGENTS.md"))
+            .unwrap_or_else(|e| panic!("{e}"));
         let out = b"? CLAUDE.md\0? .mcp.json\0? sub/.envrc\0? AGENTS.md\0\
 1 .M N... 100644 100644 100644 a a .envrc\0";
         let mut statuses = Statuses::parse(out, "");
         statuses.drop_placeholders(root.path());
         let left: Vec<_> = statuses.paths.keys().map(String::as_str).collect();
-        // Missing (AGENTS.md), written, below the top or tracked: all stay.
+        // A link (or missing), written, below the top or tracked: all stay.
         assert_eq!(left, [".envrc", ".mcp.json", "AGENTS.md", "sub/.envrc"]);
     }
 

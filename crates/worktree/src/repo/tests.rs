@@ -82,6 +82,9 @@ async fn a_project_inside_a_repository_sees_only_its_folder() {
     put(&root, ".envrc", "");
     put(&root, "AGENTS.md", "rules\n");
     put(&root, "sub/.mcp.json", "");
+    // Staged by the person: theirs to see.
+    put(&root, "CLAUDE.local.md", "");
+    git(&root, &["add", "CLAUDE.local.md"]);
     let g = GitRepo::new();
 
     let status = ok(g.status(root.clone()).await).unwrap_or_default();
@@ -93,11 +96,24 @@ async fn a_project_inside_a_repository_sees_only_its_folder() {
     assert_eq!(
         paths,
         [
+            ("CLAUDE.local.md", None),
             ("a.txt", Some(GitChange::Modified)),
             ("AGENTS.md", Some(GitChange::Untracked)),
             ("sub/.mcp.json", Some(GitChange::Untracked)),
         ]
     );
+    // A link to an empty file is no placeholder.
+    #[cfg(unix)]
+    {
+        std::os::unix::fs::symlink("AGENTS.md", root.join(".worktreeinclude"))
+            .unwrap_or_else(|e| panic!("{e}"));
+        put(&root, "AGENTS.md", "");
+        let linked = ok(g.status(root.clone()).await).unwrap_or_default();
+        let paths: Vec<_> = linked.files.iter().map(|f| f.path.as_str()).collect();
+        assert!(paths.contains(&".worktreeinclude"), "{paths:?}");
+        fs::remove_file(root.join(".worktreeinclude")).unwrap_or_else(|e| panic!("{e}"));
+        put(&root, "AGENTS.md", "rules\n");
+    }
 
     // Two hunks; staging the first leaves the second unstaged.
     let diff = ok(g.diff(root.clone(), rel("a.txt"), false).await);
