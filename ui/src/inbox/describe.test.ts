@@ -258,5 +258,8 @@ describe("checkText and plainLog", () => {
       ),
     ).toEqual(["Check running", "Check passed", "Check failed: timed out after 600 s", "Check not run: no sandbox"]);
     expect(plainLog(["\u001b[1;32mok\u001b[0m", "\u001b]8;;https://x\u0007link\u001b]8;;\u0007"])).toBe("ok\nlink");
+    expect(plainLog(["test result: FAILED\rtest result: ok", "\u202Eko\u0007\ttab"])).toBe(
+      "test result: FAILEDtest result: ok\nko\ttab",
+    );
   });
 });

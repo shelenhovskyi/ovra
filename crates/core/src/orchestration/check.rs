@@ -60,10 +60,17 @@ pub(super) struct Run {
     state: ReviewCheckState,
     detail: Option<String>,
     log: VecDeque<String>,
-    /// The worker's turn ended since the run started: when it works again,
-    /// its files are no longer what the check judged.
-    idle_seen: bool,
+    /// Asked for during the worker's turn: it runs once the turn ends, so
+    /// it judges the files the worker finished with.
+    pending: Option<(Def, Entry)>,
     task: Option<tokio::task::AbortHandle>,
+}
+
+impl Run {
+    /// Waiting for its turn to end, or running.
+    fn unfinished(&self) -> bool {
+        self.state == ReviewCheckState::Running
+    }
 }
 
 impl Drop for Run {
@@ -133,36 +140,48 @@ pub(super) async fn start(core: &Core, entry: &Entry) {
         .find(&session, |s| *s.status() == AgentStatus::Idle)
         .unwrap_or(false);
     let state = core.orchestration_state();
-    let generation = {
+    let launch_now = {
         let mut guard = state.lock();
         guard.checks_made += 1;
         let generation = guard.checks_made;
-        let run = |command: String, state, detail, log| Run {
+        let run = |command: String, state, detail, log, pending| Run {
             review: entry.id.clone(),
             generation,
             command,
             state,
             detail,
             log,
-            idle_seen: idle,
+            pending,
             task: None,
         };
-        let new = match &def {
-            Ok(None) => None,
-            Ok(Some(def)) => Some(run(
-                def.command.join(" "),
-                ReviewCheckState::Running,
+        let (new, launch_now) = match def {
+            Ok(None) => (None, None),
+            Ok(Some(def)) => {
+                let command = def.command.join(" ");
+                let (pending, now) = if idle {
+                    (None, Some((def, generation)))
+                } else {
+                    (Some((def, entry.clone())), None)
+                };
+                let running = ReviewCheckState::Running;
+                (
+                    Some(run(command, running, None, VecDeque::new(), pending)),
+                    now,
+                )
+            }
+            Err(why) => (
+                Some(run(
+                    FILE.to_owned(),
+                    ReviewCheckState::Failed,
+                    Some("the check file is broken".to_owned()),
+                    VecDeque::from([why]),
+                    None,
+                )),
                 None,
-                VecDeque::new(),
-            )),
-            Err(why) => Some(run(
-                FILE.to_owned(),
-                ReviewCheckState::Failed,
-                Some("the check file is broken".to_owned()),
-                VecDeque::from([why.clone()]),
-            )),
+            ),
         };
         let shown = new.is_some();
+        // The earlier run, if any, is killed as it drops.
         let had = match new {
             Some(new) => guard.checks.insert(session.clone(), new).is_some(),
             None => guard.checks.remove(&session).is_some(),
@@ -170,10 +189,16 @@ pub(super) async fn start(core: &Core, entry: &Entry) {
         if !shown && !had {
             return;
         }
-        generation
+        launch_now
     };
     changed(core, entry);
-    let Ok(Some(def)) = def else { return };
+    if let Some((def, generation)) = launch_now {
+        launch(core, entry, def, generation);
+    }
+}
+
+/// Runs `def` for `entry` in the background as run `generation`.
+fn launch(core: &Core, entry: &Entry, def: Def, generation: u64) {
     let Ok(runtime) = tokio::runtime::Handle::try_current() else {
         return;
     };
@@ -188,7 +213,7 @@ pub(super) async fn start(core: &Core, entry: &Entry) {
     };
     let sink: Arc<dyn SetupSink> = Arc::new(Sink {
         core: core.downgrade(),
-        session: session.clone(),
+        session: entry.session.clone(),
         generation,
     });
     let (core2, entry2) = (core.clone(), entry.clone());
@@ -204,9 +229,10 @@ pub(super) async fn start(core: &Core, entry: &Entry) {
         .await;
         finish(&core2, &entry2, generation, end, def.timeout);
     });
+    let state = core.orchestration_state();
     let mut guard = state.lock();
-    match guard.checks.get_mut(&session) {
-        Some(run) if run.generation == generation && run.state == ReviewCheckState::Running => {
+    match guard.checks.get_mut(&entry.session) {
+        Some(run) if run.generation == generation && run.unfinished() => {
             run.task = Some(task.abort_handle());
         }
         // Dropped or replaced while it was spawned.
@@ -303,29 +329,57 @@ pub(super) fn log(
         .ok_or_else(|| super::not_found(format!("a check of review {}", review.0)))
 }
 
-/// A worker's turn ended, or it works again: once it works after its turn
-/// ended, its check judged files that are gone, and goes.
-pub(super) fn on_status(core: &Core, session: &SessionId, status: &AgentStatus) {
+/// Kills the worker's check if it has not finished (its review was
+/// decided, or the worker ended); a finished result stays.
+pub(super) fn forget(core: &Core, session: &SessionId) {
     let state = core.orchestration_state();
     let dropped = {
+        let mut guard = state.lock();
+        match guard.checks.get(session) {
+            Some(run) if run.unfinished() => guard.checks.remove(session),
+            _ => None,
+        }
+    };
+    if let Some(run) = dropped {
+        tell(core, session, &run);
+    }
+}
+
+/// A waiting check starts when the worker's turn ends. Once the worker
+/// works again after that, the check judged files that are gone, and goes;
+/// once the worker ends, an unfinished check goes with it.
+pub(super) fn on_status(core: &Core, session: &SessionId, status: &AgentStatus) {
+    if status.is_ended() {
+        forget(core, session);
+        return;
+    }
+    let state = core.orchestration_state();
+    let (launch_now, dropped) = {
         let mut guard = state.lock();
         let Some(run) = guard.checks.get_mut(session) else {
             return;
         };
         match status {
             AgentStatus::Idle => {
-                run.idle_seen = true;
-                None
+                let generation = run.generation;
+                (run.pending.take().map(|p| (p, generation)), None)
             }
-            AgentStatus::Working | AgentStatus::Starting if run.idle_seen => {
-                guard.checks.remove(session)
+            AgentStatus::Working | AgentStatus::Starting if run.pending.is_none() => {
+                (None, guard.checks.remove(session))
             }
-            _ => None,
+            _ => (None, None),
         }
     };
-    let Some(run) = dropped else { return };
-    let project = core.sessions().find(session, |s| s.info().project);
-    if let Ok(project) = project {
+    if let Some(((def, entry), generation)) = launch_now {
+        launch(core, &entry, def, generation);
+    }
+    if let Some(run) = dropped {
+        tell(core, session, &run);
+    }
+}
+
+fn tell(core: &Core, session: &SessionId, run: &Run) {
+    if let Ok(project) = core.sessions().find(session, |s| s.info().project) {
         core.emit(ReviewEvent::Changed {
             project,
             id: run.review.clone(),

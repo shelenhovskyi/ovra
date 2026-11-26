@@ -17,6 +17,10 @@ struct Checked {
 /// A core with project `p1` and fake pods; `check` is the text of
 /// `.ovra/check.json` in the main checkout, if any.
 async fn checked(check: Option<&str>) -> Checked {
+    checked_with(check, ScriptedAgent::new(say())).await
+}
+
+async fn checked_with(check: Option<&str>, agent: ScriptedAgent) -> Checked {
     let wt = Arc::new(MemoryWorktrees::default());
     let fs = Arc::new(MemoryFs::default());
     let dev = Arc::new(FakeDevServers::default());
@@ -27,7 +31,7 @@ async fn checked(check: Option<&str>) -> Checked {
     let core = Core::builder("test")
         .projects(Arc::new(MemoryProjects::default()))
         .fs(fs.clone())
-        .agents(Arc::new(ScriptedAgent::new(say())))
+        .agents(Arc::new(agent))
         .worktrees(wt.clone())
         .worktrees_dir(PathBuf::from(WORKTREES))
         .dev_servers(dev.clone())
@@ -214,4 +218,77 @@ async fn the_check_goes_once_the_worker_works_again() {
     // The finish of the killed run changes nothing.
     f.dev.finish_setup();
     assert_eq!(check(&f.core).await, None);
+}
+
+/// Waits until the fake pod got `n` runs.
+async fn setups(f: &Checked, n: usize) -> usize {
+    let count = || f.dev.setups.lock().map(|s| s.len()).unwrap_or(0);
+    for _ in 0..100 {
+        if count() >= n {
+            break;
+        }
+        tokio::task::yield_now().await;
+    }
+    count()
+}
+
+#[tokio::test]
+async fn a_new_request_replaces_the_running_check_and_a_stop_ends_it() {
+    let f = checked(Some(r#"{"command": ["just", "check"]}"#)).await;
+    let mut rx = f.core.subscribe();
+    let me = worker(&f, &mut rx).await;
+    f.dev.hold_setup.store(true, Ordering::SeqCst);
+    assert!(f.core.request_review(&me, None, "done").await.is_ok());
+    assert_eq!(setups(&f, 1).await, 1);
+    assert!(
+        f.core
+            .request_review(&me, None, "done, really")
+            .await
+            .is_ok()
+    );
+    assert_eq!(setups(&f, 2).await, 2);
+    let running = check(&f.core).await.map(|c| c.state);
+    assert_eq!(running, Some(ReviewCheckState::Running));
+
+    // An unfinished check ends with its worker, and its end changes nothing.
+    let boss = caller("s1", ToolRole::Coordinator);
+    assert!(f.core.stop_agent(&boss, &sid("s2")).is_ok());
+    until(&mut rx, "s2", AgentStatus::Stopped).await;
+    assert_eq!(check(&f.core).await, None);
+    f.dev.finish_setup();
+    assert_eq!(check(&f.core).await, None);
+}
+
+#[tokio::test]
+async fn a_request_during_the_turn_runs_once_the_turn_ends() {
+    let bash = Step::Use {
+        tool: "Bash",
+        input: json!({"command": "make"}),
+    };
+    let agent = ScriptedAgent::new(vec![vec![Step::Say("on it")], vec![bash]]);
+    let f = checked_with(Some(r#"{"command": ["just", "check"]}"#), agent).await;
+    let mut rx = f.core.subscribe();
+    let me = worker(&f, &mut rx).await;
+    // Its next turn waits for the person, mid-turn, when it asks for review.
+    let boss = caller("s1", ToolRole::Coordinator);
+    assert!(f.core.send_message(&boss, &sid("s2"), "build it").is_ok());
+    let asked = loop {
+        match Core::next_event(&mut rx).await {
+            Some(Event::Permissions(PermissionsEvent::Requested(r))) => break r.id.clone(),
+            Some(_) => {}
+            None => panic!("core closed"),
+        }
+    };
+    assert!(f.core.request_review(&me, None, "done").await.is_ok());
+    assert_eq!(setups(&f, 1).await, 0, "not during the turn");
+    let running = check(&f.core).await.map(|c| c.state);
+    assert_eq!(running, Some(ReviewCheckState::Running));
+
+    let answer =
+        json!({"method": "permissions.answer", "params": {"id": asked, "decision": "allow"}});
+    ok(&f.core, answer).await;
+    until(&mut rx, "s2", AgentStatus::Idle).await;
+    let done = settled(&f.core, &mut rx).await.map(|c| c.state);
+    assert_eq!(done, Some(ReviewCheckState::Passed));
+    assert_eq!(setups(&f, 1).await, 1);
 }

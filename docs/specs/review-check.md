@@ -27,8 +27,11 @@ finds out only after Keep.
   worker's worktree. Without the file nothing runs and nothing shows. A
   broken file shows as a failed check whose log says what is wrong.
 - When a worker asks for review (`request_review`, its own or its
-  coordinator's), Ovra runs the check once in the worker's worktree. A
-  new request starts it again; the earlier run is killed.
+  coordinator's), Ovra runs the check once in the worker's worktree, as
+  soon as the worker's turn ends, so it judges the files the worker
+  finished with. A new request starts it again; the earlier run is
+  killed. An unfinished run is also killed when the review is decided
+  (before Keep or Discard touches files) or the worker ends.
 - **Where it runs.** Exactly where worktree setup runs: the pod of the
   worktree (`servers::run_steps`, `DevServers::setup` with one step), the
   agent's sandbox without the agent's state, with the project's package
@@ -39,7 +42,10 @@ finds out only after Keep.
   its check is dropped (a running one is killed): the files it judged are
   gone. The next request runs it again.
 - The run does not take one of the agent places: it is short, and the
-  worker it belongs to is idle by then.
+  worker it belongs to is idle while it runs.
+- Its output comes from code an agent wrote: it is shown as plain text
+  with terminal escapes, control characters and direction overrides
+  removed, and never sent to an agent.
 - Results are kept in memory with the review item, not across restarts.
   The log keeps the last 2000 lines (each cut at 2000 characters).
 

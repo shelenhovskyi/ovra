@@ -282,9 +282,25 @@ pub(crate) async fn run_steps(
         let _one = servers.starting.lock().await;
         pods::pod(core, &place, &[]).await?
     };
-    let end = servers.dev.setup(&pod, steps, sink).await;
-    pods::end_pod_if_idle(servers, &mut servers.lock(), &place);
-    end
+    // Also when the caller drops this future, which kills the step.
+    let _end = EndPod {
+        core: core.clone(),
+        place,
+    };
+    servers.dev.setup(&pod, steps, sink).await
+}
+
+/// Ends the pod's netproxy unless a server of the pod runs, when dropped.
+struct EndPod {
+    core: Core,
+    place: Place,
+}
+
+impl Drop for EndPod {
+    fn drop(&mut self) {
+        let servers = self.core.dev_servers();
+        pods::end_pod_if_idle(servers, &mut servers.lock(), &self.place);
+    }
 }
 
 /// Starts the defined server `name` in `place`, which must not run.

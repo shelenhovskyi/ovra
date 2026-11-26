@@ -372,10 +372,17 @@ export function checkText(check: ReviewCheck): string {
   }
 }
 
-/** A check's output as plain text: colours and cursor moves are dropped. */
+/**
+ * A check's output as plain text. It comes from code an agent wrote, so
+ * nothing in it may change how other lines look: colours and cursor moves,
+ * other control characters (a carriage return could hide a line) and
+ * direction overrides are dropped.
+ */
 export function plainLog(lines: string[]): string {
   // ESC [ ... final byte (CSI), and ESC ] ... BEL or ESC \ (OSC).
   // biome-ignore lint/suspicious/noControlCharactersInRegex: escapes are what it removes
   const escapes = /\u001b\[[0-?]*[ -/]*[@-~]|\u001b\][^\u0007\u001b]*(?:\u0007|\u001b\\)?/g;
-  return lines.map((line) => line.replace(escapes, "")).join("\n");
+  // biome-ignore lint/suspicious/noControlCharactersInRegex: control characters are what it removes
+  const controls = /[\u0000-\u0008\u000b-\u001f\u007f-\u009f\u200e\u200f\u202a-\u202e\u2066-\u2069]/g;
+  return lines.map((line) => line.replace(escapes, "").replace(controls, "")).join("\n");
 }

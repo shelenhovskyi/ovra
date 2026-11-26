@@ -246,6 +246,8 @@ pub(super) async fn handle(core: &Core, request: ReviewRequest) -> Result<Respon
             fingerprint,
             include_protected,
         } => {
+            // A check still running must not touch files being applied.
+            super::check::forget(core, &find(core, &id)?.session);
             let choice = Approval {
                 commit,
                 reviewed: fingerprint,
@@ -271,6 +273,7 @@ pub(super) async fn handle(core: &Core, request: ReviewRequest) -> Result<Respon
             Ok(done((item, conflicts, Vec::new())))
         }
         ReviewRequest::Reject { id } => {
+            super::check::forget(core, &find(core, &id)?.session);
             let outcome = reject(core, &id).await?;
             audit(core, &outcome.0, ReviewAction::Rejected);
             prune(core, &outcome.0.project).await;

@@ -722,3 +722,44 @@ async fn steps_run_once_in_the_work_dirs_pod_and_its_proxy_ends_after() {
             .unwrap_or_default()
     );
 }
+
+#[tokio::test]
+async fn a_dropped_run_of_steps_ends_its_pods_proxy_too() {
+    let f = fx().await;
+    let dir = PathBuf::from(WORKTREES).join("p1").join("t1").join("w");
+    let step = crate::services::SetupStep {
+        line: crate::services::CommandLine {
+            program: "true".into(),
+            args: Vec::new(),
+            env: Vec::new(),
+            cwd: dir.clone(),
+        },
+        timeout: std::time::Duration::from_secs(600),
+    };
+    #[derive(Debug)]
+    struct Quiet;
+    impl crate::services::SetupSink for Quiet {
+        fn step(&self, _: usize) {}
+        fn output(&self, _: usize, _: Vec<String>) {}
+    }
+    f.dev
+        .hold_setup
+        .store(true, std::sync::atomic::Ordering::SeqCst);
+    let core = f.core.clone();
+    let run = tokio::spawn(async move {
+        let (project, session) = (ProjectId("p1".into()), SessionId("s9".into()));
+        super::run_steps(&core, &project, &session, dir, vec![step], Arc::new(Quiet)).await
+    });
+    let proxies = || f.net.running.lock().map(|r| r.len()).unwrap_or_default();
+    for _ in 0..100 {
+        if proxies() == 1 {
+            break;
+        }
+        tokio::task::yield_now().await;
+    }
+    assert_eq!(proxies(), 1);
+    // Aborted while the step runs, as a replaced check is.
+    run.abort();
+    assert!(run.await.is_err_and(|e| e.is_cancelled()));
+    assert_eq!(proxies(), 0);
+}
