@@ -153,8 +153,8 @@ pub struct PushPlan {
     pub message: String,
     /// The files the commit changes on top of `onto`.
     pub files: Vec<PushedFile>,
-    /// A shared branch such as `main`: only a rule naming it exactly
-    /// pushes to it without asking.
+    /// A shared branch such as `main`, or the branch of the item's pull
+    /// request: only a rule naming it exactly pushes to it without asking.
     pub protected_branch: bool,
     /// The worker's own branch, `ovra/<task>/<name>`. Any other branch is
     /// pushed to without asking only by a rule naming it exactly.

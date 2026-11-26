@@ -50,6 +50,11 @@ fn allow_ovra_branches() -> serde_json::Value {
         "policy": {"rules": [{"tool": "Push", "match": "origin ovra/*", "action": "auto"}]}}})
 }
 
+fn allow_exactly(branch: &str) -> serde_json::Value {
+    json!({"method": "policy.set", "params": {"project": "p1",
+        "policy": {"rules": [{"tool": "Push", "match": format!("origin {branch}"), "action": "auto"}]}}})
+}
+
 /// The next push the person is asked about.
 async fn asked(rx: &mut broadcast::Receiver<Event>) -> PermissionRequest {
     loop {
@@ -318,7 +323,7 @@ async fn a_push_to_the_items_pull_request_moves_its_lease_but_not_what_was_revie
     };
     let (before, _) = reviewed(&f.core).unwrap_or_default();
     f.wt.put(dir(), "c.rs", "three\n");
-    ok(&f.core, allow_ovra_branches()).await;
+    ok(&f.core, allow_exactly(&pr.branch)).await;
     let pushed = f
         .core
         .push_work(&caller(ToolRole::Worker), args(Some(&pr.branch)))
@@ -364,7 +369,11 @@ async fn review_trailers_hidden_text_and_remotes_without_a_host_are_refused() {
     for message in [
         "Add b\n\nReviewed-by: someone <a@b>",
         "Add b\n\nSigned-off-by: someone <a@b>",
+        "Add b\n\nReviewed-by : someone <a@b>",
+        "Add b\n\nreviewed-BY\t: someone <a@b>",
         "Add \u{202e}b",
+        "Add \u{2028}b",
+        "Add \u{feff}b",
         "Add \u{1b}[31mb",
     ] {
         let bad = PushArgs {
@@ -388,7 +397,7 @@ async fn review_trailers_hidden_text_and_remotes_without_a_host_are_refused() {
 async fn a_file_changed_again_after_a_push_goes_out_in_the_next_push_and_update() {
     let f = fx().await;
     let (_, pr) = opened(&f).await;
-    ok(&f.core, allow_ovra_branches()).await;
+    ok(&f.core, allow_exactly(&pr.branch)).await;
     let worker = caller(ToolRole::Worker);
     for text in ["two v2\n", "two v3\n"] {
         f.wt.put(dir(), "b.rs", text);
@@ -424,4 +433,24 @@ async fn a_file_changed_again_after_a_push_goes_out_in_the_next_push_and_update(
         files.contains(&("b.rs".to_owned(), "two v4\n".to_owned())),
         "{files:?}"
     );
+}
+
+#[tokio::test]
+async fn a_wide_rule_does_not_push_into_the_items_pull_request() {
+    let f = fx().await;
+    let (_, pr) = opened(&f).await;
+    ok(&f.core, allow_ovra_branches()).await;
+    f.wt.put(dir(), "c.rs", "three\n");
+    let before = lock(&f.forge.pushed).len();
+    let mut rx = f.core.subscribe();
+    let core = f.core.clone();
+    let branch = pr.branch.clone();
+    let push = tokio::spawn(async move {
+        core.push_work(&caller(ToolRole::Worker), args(Some(&branch)))
+            .await
+    });
+    let request = asked(&mut rx).await;
+    assert_eq!(request.input["protected_branch"], json!(true));
+    push.abort();
+    assert_eq!(lock(&f.forge.pushed).len(), before);
 }

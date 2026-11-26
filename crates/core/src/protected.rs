@@ -56,9 +56,9 @@ pub const PROTECTED_IN_WORK_DIR: [&str; 19] = [
 /// instruction files (a rules file is often a link to `AGENTS.md`, which
 /// the sandbox cannot keep read-only, so it would refuse the session),
 /// the configuration of agents Ovra does not know well yet, and GitHub
-/// workflows and actions, which run with the repository's secrets as soon
-/// as a pull request's branch is pushed.
-const MARKED_IN_REVIEW: [&str; 39] = [
+/// workflows and actions and other CI services' configuration, which run
+/// with the repository's secrets as soon as a branch is pushed.
+const MARKED_IN_REVIEW: [&str; 61] = [
     "**/.envrc",
     "**/.claude",
     "**/.codex",
@@ -98,6 +98,28 @@ const MARKED_IN_REVIEW: [&str; 39] = [
     "crush.json",
     ".factory",
     ".junie",
+    ".gitlab-ci.yml",
+    ".gitlab",
+    ".circleci",
+    ".gitea/workflows",
+    ".gitea/actions",
+    ".forgejo/workflows",
+    ".forgejo/actions",
+    ".buildkite",
+    ".travis.yml",
+    ".drone.yml",
+    ".woodpecker",
+    ".woodpecker.yml",
+    ".woodpecker.yaml",
+    "bitbucket-pipelines.yml",
+    "azure-pipelines.yml",
+    ".azure-pipelines",
+    ".cirrus.yml",
+    "Jenkinsfile",
+    ".semaphore",
+    "appveyor.yml",
+    ".appveyor.yml",
+    "cloudbuild.yaml",
 ];
 
 /// Whether `path` (relative, `/`-separated, as in a review) is a protected
@@ -178,6 +200,23 @@ fn prefix(pattern: &[String], path: &[String]) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn other_ci_services_configuration_is_marked() {
+        for path in [
+            ".gitlab-ci.yml",
+            ".circleci/config.yml",
+            ".forgejo/workflows/x.yml",
+            ".gitea/workflows/x.yaml",
+            ".buildkite/pipeline.yml",
+            "Jenkinsfile",
+            "bitbucket-pipelines.yml",
+        ] {
+            assert!(changes(path, None), "{path}");
+        }
+        assert!(changes("src/ci.rs", Some(".travis.yml")));
+        assert!(!changes("docs/gitlab-ci.md", None));
+    }
 
     #[test]
     fn only_an_added_empty_top_level_placeholder_is_left_out() {

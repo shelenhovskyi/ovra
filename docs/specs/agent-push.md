@@ -96,6 +96,9 @@ network is limited (every worker on Linux and macOS).
   Another live worker's branch, or the branch of another item's pull
   request, is refused outright. "Always allow" is never offered for them; only the person can
   write such a rule, in Settings.
+- **The item's own pull request branch** counts as protected too: people
+  may have read or approved the pull request, or turned on auto-merge, so
+  a wide rule never pushes new code into it without a card.
 - **What "Always allow" offers**: `Push(<remote> ovra/*)`, which lets
   each worker push to its own branch. Never for a protected branch or
   another branch. The card says it in words: "Always allow pushes to ovra/… on
