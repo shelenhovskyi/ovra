@@ -6,7 +6,7 @@ use super::{Result, forbidden, not_found, review, tasks};
 use crate::Core;
 use crate::agents;
 use crate::path::RelPath;
-use crate::protocol::agents::{AgentMessage, AgentStatus, MessageFrom, SessionId};
+use crate::protocol::agents::{AgentMessage, AgentStatus, MessageFrom, SessionId, SessionMode};
 use crate::protocol::orchestration::{OrchestrationEvent, ShowTarget, Worker};
 use crate::protocol::review::{ReviewId, ReviewItem, ReviewState};
 use crate::protocol::{ErrorCode, ProtocolError};
@@ -165,6 +165,9 @@ impl Core {
             ));
         }
         let entry = review::request(self, &session, summary.to_owned())?;
+        if entry.mode == SessionMode::Isolated {
+            super::check::start(self, &entry).await;
+        }
         // An idle worker that asks for review makes room.
         super::slots::start_queued(self, &caller.project);
         if caller.role == ToolRole::Worker {

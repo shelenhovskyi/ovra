@@ -325,9 +325,9 @@ pub(super) async fn handle(core: &Core, request: ReviewRequest) -> Result<Respon
             Ok(Response::Ok(OkResponse::Ok))
         }
         ReviewRequest::CheckLog { id } => {
-            find(core, &id)?;
-            // Checks run once `.ovra/check.json` is read (docs/specs/review-check.md).
-            Err(not_found(format!("a check of review {}", id.0)))
+            let entry = find(core, &id)?;
+            let lines = super::check::log(core, &entry.session, &id)?;
+            Ok(Response::Review(ReviewResponse::CheckLog { lines }))
         }
     }
 }
@@ -445,7 +445,7 @@ async fn current(core: &Core, entry: &Entry) -> Result<(ReviewItem, Option<Strin
         git_changes: git.changes,
         git_unchecked: git.unchecked,
         pull_request: entry.pull_request.clone().map(Box::new),
-        check: None,
+        check: super::check::view(core, &entry.session, &entry.id),
     };
     Ok((item, tree))
 }

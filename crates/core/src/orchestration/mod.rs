@@ -9,6 +9,7 @@
 //! holding theirs.
 
 mod board;
+mod check;
 pub(crate) mod direct;
 mod ide;
 mod overlap;
@@ -97,6 +98,9 @@ struct State {
     /// Pull requests whose checks are polled ([`publish`]).
     polls: BTreeMap<crate::protocol::review::ReviewId, publish::Poll>,
     polls_made: u64,
+    /// Each worker's latest check before review ([`check`]); not saved.
+    checks: BTreeMap<SessionId, check::Run>,
+    checks_made: u64,
 }
 
 impl Orchestration {
@@ -164,6 +168,7 @@ pub(crate) fn on_status(core: &Core, session: &SessionId, status: &AgentStatus) 
     let Ok(project) = core.sessions().find(session, |s| s.info().project) else {
         return;
     };
+    check::on_status(core, session, status);
     let state = core.orchestration_state();
     if *status == AgentStatus::Starting {
         tasks::set_ended(core, session, false);

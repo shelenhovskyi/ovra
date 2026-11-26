@@ -3362,6 +3362,8 @@ async fn a_message_too_long_to_carry_the_board_goes_alone_and_the_entries_wait()
             .boards
             .values()
             .all(|b| !b.pending.contains_key(&sid("s3")))
+    );
+}
 
 #[tokio::test]
 async fn a_persons_start_past_the_cap_waits_in_line_and_can_be_cancelled() {
@@ -3386,7 +3388,7 @@ async fn a_persons_start_past_the_cap_waits_in_line_and_can_be_cancelled() {
     };
     let cancelled = start(f.core.clone(), direct.clone()).await;
     assert_eq!(cancelled.status, AgentStatus::Queued);
-    assert_eq!(capacity(&f.core).await.waiting, [cancelled.id.clone()]);
+    assert_eq!(capacity(&f.core).await.waiting, vec![cancelled.id.clone()]);
     // Cancel: stopped while it waits, it never starts.
     let stop = json!({"method": "agents.stop", "params": {"session": cancelled.id.0}});
     ok(&f.core, stop).await;
@@ -3408,3 +3410,5 @@ async fn a_persons_start_past_the_cap_waits_in_line_and_can_be_cancelled() {
         })
     );
 }
+
+mod check;

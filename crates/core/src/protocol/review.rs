@@ -116,7 +116,7 @@ pub struct ReviewItem {
     /// when it asked for review (`docs/specs/review-check.md`); `None`
     /// without a check, or once the worker worked again.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub check: Option<ReviewCheck>,
+    pub check: Option<Box<ReviewCheck>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -125,6 +125,9 @@ pub enum ReviewCheckState {
     Running,
     Passed,
     Failed,
+    /// It could not run here (no sandbox for it, for example); `detail`
+    /// says why.
+    NotRun,
 }
 
 /// One run of the project's check, its output in `review.check_log`.
