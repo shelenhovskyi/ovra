@@ -12,8 +12,8 @@ import {
   SLOW_MS,
 } from "./model.svelte";
 
-async function loaded(core = new FakeGitCore()) {
-  const model = new GitModel(core, "p1");
+async function loaded(core = new FakeGitCore(), project = "p1") {
+  const model = new GitModel(core, project);
   // The first status call is the constructor's.
   for (let i = 0; i < 4; i++) await Promise.resolve();
   return { core, model };
@@ -93,6 +93,74 @@ describe("GitModel", () => {
       await vi.advanceTimersByTimeAsync(FETCH_EVERY_MS);
       expect(local.core.methods()).not.toContain("git.fetch");
       local.model.dispose();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("holds other actions while a sync waits for a fetch, and counts what the fetch found", async () => {
+    vi.useFakeTimers();
+    try {
+      const core = new FakeGitCore();
+      core.status = repo({
+        upstream: "origin/main",
+        behind: 2,
+        files: [changed("a.ts", { staged: "modified", unstaged: null })],
+      });
+      let release = () => {};
+      core.holdNext.set("git.fetch", (r) => {
+        release = r;
+      });
+      const { model } = await loaded(core, "sync-wait");
+      await vi.advanceTimersByTimeAsync(0);
+      expect(core.methods()).toContain("git.fetch");
+      core.fetchFinds = 3;
+      const first = model.pull(2);
+      const second = model.pull(2);
+      expect(model.busy).toBe(true);
+      expect(await second).toBe(false);
+      expect(await model.commit("Fix", false)).toBe(false);
+      expect(model.syncing).toBe("pull");
+      release();
+      expect(await first).toBe(true);
+      expect(core.methods().filter((m) => m === "git.pull")).toHaveLength(1);
+      expect(core.methods()).not.toContain("git.commit");
+      expect(model.got).toBe(3);
+      expect(model.notice).toBe("Got 3 commits.");
+      model.dispose();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("backs off fetching only when the remote is out of reach, also across a new model", async () => {
+    vi.useFakeTimers();
+    try {
+      const core = new FakeGitCore();
+      core.status = repo({ upstream: "origin/main" });
+      const fetched = () => core.methods().filter((m) => m === "git.fetch").length;
+      // The branch changed meanwhile: the next fetch need not wait.
+      core.failNext.set("git.fetch", new CoreError({ code: "conflict", message: "the branch changed meanwhile" }));
+      const { model } = await loaded(core, "backoff");
+      await vi.advanceTimersByTimeAsync(0);
+      expect(fetched()).toBe(1);
+      await vi.advanceTimersByTimeAsync(FETCH_EVERY_MS);
+      expect(fetched()).toBe(2);
+
+      core.failNext.set("git.fetch", new CoreError({ code: "unavailable", message: "no network" }));
+      await vi.advanceTimersByTimeAsync(FETCH_EVERY_MS);
+      expect(fetched()).toBe(3);
+      model.dispose();
+      // Another project shown and this one again: no fetch at once.
+      const again = await loaded(core, "backoff");
+      await vi.advanceTimersByTimeAsync(FETCH_EVERY_MS);
+      expect(fetched()).toBe(3);
+      // On another branch the remote may answer.
+      core.status = repo({ branch: "dev", upstream: "origin/dev" });
+      again.model.changed();
+      await vi.advanceTimersByTimeAsync(FETCH_EVERY_MS);
+      expect(fetched()).toBe(4);
+      again.model.dispose();
     } finally {
       vi.useRealTimers();
     }

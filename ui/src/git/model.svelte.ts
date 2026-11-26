@@ -124,6 +124,25 @@ export function changedFiles(files: readonly StatusFile[]): StatusFile[] {
 
 const live = new SvelteMap<ProjectId, GitModel>();
 
+/**
+ * Each project's auto fetches, kept while the app runs: the panel's model is made anew for
+ * each project shown, and switching back must not fetch (or ask for a sign-in) again at once.
+ */
+type FetchState = {
+  /** When the last `git.fetch` started; 0 before the first. */
+  at: number;
+  /** It failed for want of the network or a sign-in: the next waits `FETCH_AFTER_FAILURE_MS`. */
+  failed: boolean;
+  /** The branch and upstream it was for; another one may well work. */
+  on: string;
+};
+const fetches = new Map<ProjectId, FetchState>();
+
+/** A fetch that failed this way will likely fail again soon: git could not reach or sign in to the remote. */
+function remoteFailure(err: unknown): boolean {
+  return err instanceof CoreError && (err.code === "unavailable" || err.code === "internal");
+}
+
 /** The panel's model of `project`, while the panel is mounted. */
 export function gitModel(project: ProjectId): GitModel | undefined {
   return live.get(project);
@@ -164,11 +183,9 @@ export class GitModel {
 
   private loading: Promise<void> | null = null;
   private again = false;
-  /** When the last `git.fetch` started; 0 before the first. */
-  private fetchedAt = 0;
-  /** The fetch under way: "Get commits" and "Send commits" wait for it, so their refs win. */
+  /** The fetch under way, with its status reload: "Get commits" and "Send commits" wait for it, so their refs win. */
   private fetching: Promise<void> | null = null;
-  private fetchFailed = false;
+  private readonly fetches: FetchState;
   private disposed = false;
   private readonly offs: (() => void)[];
 
@@ -177,6 +194,8 @@ export class GitModel {
     readonly project: ProjectId,
   ) {
     let wasOpen = true;
+    this.fetches = fetches.get(project) ?? { at: 0, failed: false, on: "" };
+    fetches.set(project, this.fetches);
     this.offs = [
       transport.onEvent((event) => {
         // `fs.git_changed` only fires when the tree's badges change; staging
@@ -224,21 +243,37 @@ export class GitModel {
   async fetch(gap = 0): Promise<void> {
     const status = this.state.kind === "ready" ? this.state.status : null;
     if (!status?.upstream || this.fetching || this.busy || this.disposed) return;
-    const wait = this.fetchFailed ? Math.max(gap, FETCH_AFTER_FAILURE_MS) : gap;
-    if (this.fetchedAt > 0 && Date.now() - this.fetchedAt < wait) return;
-    this.fetchedAt = Date.now();
+    const state = this.fetches;
+    const wait = state.failed ? Math.max(gap, FETCH_AFTER_FAILURE_MS) : gap;
+    if (state.at > 0 && Date.now() - state.at < wait) return;
+    state.at = Date.now();
     const run = async () => {
       try {
         await this.call({ method: "git.fetch", params: { project: this.project } });
-        this.fetchFailed = false;
-      } catch {
-        this.fetchFailed = true;
+        state.failed = false;
+      } catch (err) {
+        // Not after a branch switch meanwhile, say: the next fetch may well work.
+        state.failed = remoteFailure(err);
+        return;
       }
+      if (!this.disposed) await this.refresh();
     };
     this.fetching = run();
     await this.fetching;
     this.fetching = null;
-    if (!this.fetchFailed && !this.disposed) await this.refresh();
+  }
+
+  /**
+   * Waits for the fetch under way, holding `busy` so that no other action (nor a second
+   * sync) starts meanwhile; the caller starts its `act` right after, before anything else runs.
+   */
+  private async afterFetch(): Promise<void> {
+    this.busy = true;
+    try {
+      await this.fetching;
+    } finally {
+      this.busy = false;
+    }
   }
 
   dispose(): void {
@@ -419,7 +454,7 @@ export class GitModel {
   async publish(branch: string, remote: string): Promise<boolean> {
     if (this.busy) return false;
     this.syncing = "publish";
-    await this.fetching;
+    await this.afterFetch();
     this.got = null;
     const done = await this.act(
       "sync",
@@ -435,9 +470,12 @@ export class GitModel {
     if (this.busy) return false;
     this.syncing = what;
     // A fetch recording the upstream after this would put it back where it was.
-    await this.fetching;
+    await this.afterFetch();
     this.got = null;
-    const commits = `${count} ${count === 1 ? "commit" : "commits"}`;
+    // The fetch may have found more.
+    const status = this.state.kind === "ready" ? this.state.status : null;
+    const n = status ? (what === "pull" ? status.behind : status.ahead) : count;
+    const commits = `${n} ${n === 1 ? "commit" : "commits"}`;
     const done = await this.act(
       "sync",
       () => this.call({ method: what === "pull" ? "git.pull" : "git.push", params: { project: this.project } }),
@@ -446,8 +484,8 @@ export class GitModel {
     );
     this.syncing = null;
     // The remote answered: fetching on its own may go on.
-    if (done) this.fetchFailed = false;
-    if (done && what === "pull") this.got = count;
+    if (done) this.fetches.failed = false;
+    if (done && what === "pull") this.got = n;
     return done;
   }
 
@@ -507,6 +545,11 @@ export class GitModel {
       const reply = await this.transport.call({ method: "git.status", params: { project: this.project } });
       if (this.disposed) return;
       this.state = reply.type === "git.status" ? { kind: "ready", status: reply.data } : { kind: "no_repo" };
+      if (reply.type === "git.status") {
+        const on = `${reply.data.branch ?? ""}\n${reply.data.upstream ?? ""}`;
+        if (on !== this.fetches.on) this.fetches.failed = false;
+        this.fetches.on = on;
+      }
     } catch (err) {
       if (this.disposed) return;
       this.state = { kind: "error", message: statusError(err) };
