@@ -106,6 +106,11 @@ async fn serve() -> anyhow::Result<()> {
     let secrets: Arc<dyn Secrets> = Arc::new(KeychainSecrets::new(&args.data_dir));
     // Dropped last, after the core and its pods.
     let (dev_servers, _servers_dir) = dev_servers(&args)?;
+    // Phone access (ADR 0014) serves the mobile app from the same build.
+    let remote = Arc::new(ovra_remote::RemoteServer::new(
+        &args.data_dir.join("remote"),
+        ovra_remote::assets_from_dir(args.ui_dir.clone()),
+    ));
     let core = Core::builder("headless")
         .secrets(secrets.clone())
         .projects(store.clone())
@@ -126,7 +131,9 @@ async fn serve() -> anyhow::Result<()> {
         .forge(forge(&args))
         .resources(resources(&args))
         .keep_awake(keep_awake(&args))
+        .remote(remote.clone())
         .build();
+    remote.restore(core.clone());
     let app = ws::router(
         core,
         Access {

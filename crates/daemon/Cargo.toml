@@ -22,6 +22,7 @@ ovra-fs-index.workspace = true
 ovra-opener.workspace = true
 ovra-power.workspace = true
 ovra-pty.workspace = true
+ovra-remote.workspace = true
 ovra-agent-runtime.workspace = true
 ovra-worktree.workspace = true
 ovra-mcp-server.workspace = true

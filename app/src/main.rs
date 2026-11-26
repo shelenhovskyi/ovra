@@ -212,6 +212,16 @@ fn main() {
             let secrets: Arc<dyn Secrets> = Arc::new(KeychainSecrets::new(&data_dir));
             let servers_dir = ovra_servers::servers_dir()?;
             let fs = Arc::new(FsIndex::new());
+            // Phone access (ADR 0014) serves the mobile app from the
+            // app's own embedded files.
+            let resolver = app.handle().clone();
+            let remote = Arc::new(ovra_remote::RemoteServer::new(
+                &data_dir.join("remote"),
+                Arc::new(move |path: &str| {
+                    let asset = resolver.asset_resolver().get(path.to_owned())?;
+                    Some(ovra_remote::Asset::new(path, asset.bytes))
+                }),
+            ));
             let core = Core::builder("tauri")
                 .secrets(secrets.clone())
                 .projects(store.clone())
@@ -244,7 +254,10 @@ fn main() {
                     ovra_sandbox::for_this_os(&data_dir),
                     None,
                 )))
+                .remote(remote.clone())
                 .build();
+            let restored = core.clone();
+            tauri::async_runtime::spawn(async move { remote.restore(restored) });
             app.manage(ServersDir(servers_dir));
             app.manage(Importer {
                 fs: fs.clone(),
