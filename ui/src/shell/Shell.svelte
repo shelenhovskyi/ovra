@@ -6,6 +6,7 @@
 // clips, and the panels inside scroll on their own.
 import { tick, untrack } from "svelte";
 import AgentsPanel from "../agents/AgentsPanel.svelte";
+import { reveal } from "../agents/reveal.svelte";
 import { agentSessions } from "../agents/sessions.svelte";
 import Approvals from "../approvals/Approvals.svelte";
 import { approvalQueue } from "../approvals/queue.svelte";
@@ -22,12 +23,13 @@ import { FOCUS_KEYS } from "../focus/keys";
 import { focusMode } from "../focus/mode.svelte";
 import Git from "../git/Git.svelte";
 import GitDiff from "../git/GitDiff.svelte";
+import History from "../history/History.svelte";
 import Inbox from "../inbox/Inbox.svelte";
 import { ReviewInbox } from "../inbox/reviews.svelte";
 import { listCommands, registerCommand } from "../keys/commands";
 import { registerContextKeys } from "../keys/context-keys";
 import Keybindings from "../keys/Keybindings.svelte";
-import type { CoreInfo } from "../lib/protocol";
+import type { CoreInfo, HistoryEntry } from "../lib/protocol";
 import type { ConnectionStatus, Transport } from "../lib/transport";
 import LanguageServers from "../lsp/LanguageServers.svelte";
 import ContextMenu from "../menu/ContextMenu.svelte";
@@ -208,6 +210,17 @@ $effect(() => {
       keywords: ["skills", "subagents", "slash commands", "hooks", "mcp", "tools", "rules", "claude.md", "agents.md"],
       run: () => mainView.toggle("catalog"),
     }),
+    registerCommand({
+      id: "agents.history",
+      title: "Agent history",
+      category: "Agents",
+      keywords: ["past tasks", "sessions", "search", "resume", "continue"],
+      run: () => {
+        // Focus hides the main area: History needs it.
+        if (focusMode.on) focusMode.toggle();
+        mainView.toggle("history");
+      },
+    }),
     // The keys of its main-area views; each panel declares its own.
     registerContextKeys([
       { keys: "Escape", title: "Close Settings, Reviews, the Audit log or Skills and instructions", where: "Views" },
@@ -330,6 +343,24 @@ function edge(panel: Panel): "left" | "right" {
  * Folds or unfolds `panel`. Focus inside a panel that folds goes to what
  * unfolds it: the rail's button for the rail's panel, the Agents strip.
  */
+/** History's row: its session in the Agents panel, in its own project, which opens first. */
+async function openFromHistory(entry: HistoryEntry): Promise<void> {
+  const { session } = entry;
+  if (workspace.project?.id !== session.project) {
+    try {
+      const opened = (await transport.call({ method: "projects.open", params: { id: session.project } })).data;
+      workspace.openPath = null;
+      workspace.mode = "view";
+      workspace.project = opened;
+    } catch {
+      return;
+    }
+  }
+  reveal.session = session.id;
+  mainView.close(false);
+  layout.setCollapsed("agents", false);
+}
+
 async function toggle(panel: Panel): Promise<void> {
   const fold = !folded[panel];
   const area = document.querySelector(panel === "side" ? "[data-testid=sidebar]" : "[data-testid=agents]");
@@ -491,7 +522,9 @@ async function showApprovals(): Promise<void> {
     </div>
     </div>
     {#if mainView.current === "settings"}<Settings />{:else if mainView.current === "audit"}<AuditLog
-      />{:else if mainView.current === "catalog"}<Catalog />{/if}
+      />{:else if mainView.current === "catalog"}<Catalog />{:else if mainView.current === "history"}<History
+        onopen={openFromHistory}
+      />{/if}
     <!-- Reviews stays mounted while closed: it keeps the choice and drafts, and agents' asks. -->
     <Inbox inbox={reviews} />
     <BrowserPane />

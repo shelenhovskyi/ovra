@@ -11,8 +11,8 @@ searched.
 ## Behaviour
 
 - **History** is a view in the main area, like Reviews and the Audit log.
-  It opens from the Agents panel's header (a clock button, "History"), the
-  More menu and the palette ("Agent history").
+  It opens from the Agents panel's header (a clock button, "History") and
+  the palette ("Agent history").
 - It lists the agent sessions of **every project**, newest activity first,
   grouped by day: Today, Yesterday, then the date. A row shows the task's
   title, the project's name, its status in words and the time.

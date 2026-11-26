@@ -1,16 +1,17 @@
 // What the main area shows instead of the open file: Settings, the audit log,
-// Reviews or Skills and instructions (docs/design/patterns.md: logs, lists and setup open as views,
+// Reviews, Skills and instructions or History (docs/design/patterns.md: logs, lists and setup open as views,
 // never as modals). One view at a time; closing it gives focus back to where
 // it was, and opening a file closes it. Kept here rather than in the
 // workspace state: only the shell and the views care.
 
-export type MainViewName = "settings" | "audit" | "reviews" | "catalog";
+export type MainViewName = "settings" | "audit" | "reviews" | "catalog" | "history";
 
 export const VIEW_TITLES: Record<MainViewName, string> = {
   settings: "Settings",
   audit: "Audit log",
   reviews: "Reviews",
   catalog: "Skills and instructions",
+  history: "History",
 };
 
 export class MainView {
