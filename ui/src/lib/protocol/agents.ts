@@ -1,3 +1,4 @@
+import type { ContextItem } from "./context";
 import type { ProjectId } from "./projects";
 
 export type SessionId = string;
@@ -241,9 +242,11 @@ export type AgentsRequest =
         mode: SessionMode;
         prompt: string;
         account?: string | null;
+        /** What the person added with `@`; it follows the prompt as Ovra's message. */
+        context?: ContextItem[];
       };
     }
-  | { method: "agents.send"; params: { session: SessionId; text: string } }
+  | { method: "agents.send"; params: { session: SessionId; text: string; context?: ContextItem[] } }
   | { method: "agents.resume"; params: { session: SessionId; prompt: string } }
   | { method: "agents.interrupt"; params: { session: SessionId } }
   | { method: "agents.stop"; params: { session: SessionId } }

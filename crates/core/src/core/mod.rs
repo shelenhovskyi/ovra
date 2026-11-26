@@ -421,6 +421,7 @@ impl Core {
             Request::Browser(r) => crate::browser::handle(self, r).await,
             Request::Pr(r) => crate::pr::handle(self, r).await,
             Request::Power(r) => crate::power::handle(self, r),
+            Request::Context(r) => crate::context::handle(self, r).await,
         }
     }
 

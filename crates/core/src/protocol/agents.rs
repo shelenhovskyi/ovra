@@ -2,6 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 
+use super::context::ContextItem;
 use super::projects::ProjectId;
 
 /// Assigned by the core when a session starts.
@@ -576,10 +577,18 @@ pub enum AgentsRequest {
         /// The Claude account; `None` uses the project's.
         #[serde(default)]
         account: Option<String>,
+        /// What the person added with `@`; it follows the prompt as Ovra's.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        context: Vec<ContextItem>,
     },
     /// Sends the next message. Answers `ok`.
     #[serde(rename = "agents.send")]
-    Send { session: SessionId, text: String },
+    Send {
+        session: SessionId,
+        text: String,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        context: Vec<ContextItem>,
+    },
     /// Continues an ended session, also one from before a restart, with a
     /// new prompt. Answers `agents.session`.
     #[serde(rename = "agents.resume")]

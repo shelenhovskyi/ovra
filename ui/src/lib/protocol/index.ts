@@ -3,6 +3,7 @@
 import type { AgentsEvent, AgentsRequest, AgentsResponse, CheckpointMethod, CheckpointResponseFor } from "./agents";
 import type { AuditLogEvent, AuditRequest, AuditResponse } from "./audit";
 import type { BrowserEvent, BrowserRequest, BrowserResponse, BrowserResponseFor } from "./browser";
+import type { ContextRequest, ContextResponse } from "./context";
 import type { FsEvent, FsRequest, FsResponse } from "./fs";
 import type { GitRequest, GitResponse, GitResponseFor } from "./git";
 import type { InfoEvent, InfoRequest, InfoResponse } from "./info";
@@ -25,6 +26,7 @@ import type { TerminalsEvent, TerminalsRequest, TerminalsResponse } from "./term
 export type * from "./agents";
 export type * from "./audit";
 export type * from "./browser";
+export type * from "./context";
 export type * from "./fs";
 export type * from "./git";
 // `review.ts` has its own `GitChange` (a review item's changed git file); the
@@ -71,7 +73,8 @@ export type Request =
   | ServersRequest
   | BrowserRequest
   | PrRequest
-  | PowerRequest;
+  | PowerRequest
+  | ContextRequest;
 
 export type Response =
   | InfoResponse
@@ -93,6 +96,7 @@ export type Response =
   | BrowserResponse
   | PrResponse
   | PowerResponse
+  | ContextResponse
   | { type: "ok" };
 
 export type CoreEvent =
@@ -253,4 +257,6 @@ type PhaseThreeResponseFor<R extends Request> = R extends { method: "review.list
                                         ? PrResponseFor<R["method"]>
                                         : R extends PowerRequest
                                           ? PowerResponse
-                                          : never;
+                                          : R extends ContextRequest
+                                            ? ContextResponse
+                                            : never;

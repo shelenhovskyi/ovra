@@ -116,6 +116,7 @@ pub(crate) async fn agents(ctx: &Ctx<'_>, request: AgentsRequest) -> Result<Resp
             mode,
             prompt,
             account,
+            context,
         } => {
             if mode == SessionMode::Isolated {
                 return Err(ProtocolError::new(
@@ -123,11 +124,17 @@ pub(crate) async fn agents(ctx: &Ctx<'_>, request: AgentsRequest) -> Result<Resp
                     "isolated sessions are started by a coordinator (orchestration.start)",
                 ));
             }
+            let context = match sessions.core() {
+                Some(core) => crate::context::message(&core, &project, None, &context).await?,
+                None if context.is_empty() => None,
+                None => return Err(shutting_down()),
+            };
             let new = NewSession {
                 project,
                 agent,
                 mode,
                 prompt,
+                context,
                 cwd: None,
                 tools: None,
                 from: MessageFrom::Person,
@@ -142,13 +149,27 @@ pub(crate) async fn agents(ctx: &Ctx<'_>, request: AgentsRequest) -> Result<Resp
             let info = resume(ctx, session, vec![(prompt, MessageFrom::Person)]).await?;
             Ok(Response::Agents(AgentsResponse::Session(info)))
         }
-        AgentsRequest::Send { session, text } => {
-            // The person's picks go with their next message, in Ovra's words.
+        AgentsRequest::Send {
+            session,
+            text,
+            context,
+        } => {
+            // The person's context and picks go with their next message, in
+            // Ovra's words.
             let core = sessions.core();
+            let added = match &core {
+                Some(core) => {
+                    let project = sessions.find(&session, |s| s.info().project)?;
+                    crate::context::message(core, &project, Some(&session), &context).await?
+                }
+                None if context.is_empty() => None,
+                None => return Err(shutting_down()),
+            };
             let picks = core
                 .as_ref()
                 .and_then(|c| crate::browser::pending(c, &session));
             let mut parts = vec![(text, MessageFrom::Person)];
+            parts.extend(added.map(|t| (t, MessageFrom::Ovra)));
             parts.extend(picks.as_ref().map(|(t, _)| (t.clone(), MessageFrom::Ovra)));
             send(ctx, session.clone(), parts)?;
             if let (Some(core), Some((_, count))) = (&core, picks) {
@@ -292,6 +313,8 @@ pub(crate) struct NewSession {
     pub(crate) agent: AgentKind,
     pub(crate) mode: SessionMode,
     pub(crate) prompt: String,
+    /// Ovra's message after the prompt: the person's `@` context.
+    pub(crate) context: Option<String>,
     /// Where it works; `None` for the project root.
     pub(crate) cwd: Option<PathBuf>,
     pub(crate) tools: Option<ToolRole>,
@@ -332,7 +355,8 @@ pub(crate) async fn start(ctx: &Ctx<'_>, new: NewSession) -> Result<SessionInfo>
     };
     let id = ctx.sessions.next_id();
     let base = baseline(ctx, &new.project, &id, new.mode, &launch).await?;
-    let parts = vec![(new.prompt.clone(), new.from)];
+    let mut parts = vec![(new.prompt.clone(), new.from)];
+    parts.extend(new.context.map(|text| (text, MessageFrom::Ovra)));
     let waits = new.queued || new.preparing;
     let (status, queued) = if new.preparing {
         (AgentStatus::Preparing, Some(parts.clone()))
@@ -901,4 +925,8 @@ fn title(prompt: &str) -> String {
         Some((cut, _)) => format!("{}…", &line[..cut]),
         None => line.to_owned(),
     }
+}
+
+fn shutting_down() -> ProtocolError {
+    ProtocolError::new(ErrorCode::Unavailable, "Ovra is shutting down")
 }

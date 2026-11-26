@@ -4,6 +4,7 @@
 use serde::{Deserialize, Serialize};
 
 use super::agents::SessionId;
+use super::context::ContextItem;
 use super::projects::ProjectId;
 use super::review::ReviewId;
 
@@ -131,6 +132,9 @@ pub enum OrchestrationRequest {
         prompt: String,
         #[serde(default)]
         limits: TaskLimits,
+        /// What the person added with `@`; it follows the prompt as Ovra's.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        context: Vec<ContextItem>,
     },
     /// Tasks of a project, oldest first.
     #[serde(rename = "orchestration.list")]

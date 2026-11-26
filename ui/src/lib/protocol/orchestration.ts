@@ -1,4 +1,5 @@
 import type { SessionId } from "./agents";
+import type { ContextItem } from "./context";
 import type { ProjectId } from "./projects";
 import type { ReviewId } from "./review";
 
@@ -81,7 +82,10 @@ export type ShowTarget =
   | { kind: "review"; id: ReviewId };
 
 export type OrchestrationRequest =
-  | { method: "orchestration.start"; params: { project: ProjectId; prompt: string; limits?: TaskLimits } }
+  | {
+      method: "orchestration.start";
+      params: { project: ProjectId; prompt: string; limits?: TaskLimits; context?: ContextItem[] };
+    }
   | { method: "orchestration.list"; params: { project: ProjectId } }
   | { method: "orchestration.stop"; params: { task: TaskId } }
   /** Retry, or with `skip_setup` Start anyway, a worker whose setup failed. */

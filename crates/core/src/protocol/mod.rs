@@ -8,6 +8,7 @@
 pub mod agents;
 pub mod audit;
 pub mod browser;
+pub mod context;
 pub mod fs;
 pub mod git;
 pub mod info;
@@ -53,6 +54,7 @@ pub enum Request {
     Browser(browser::BrowserRequest),
     Pr(pr::PrRequest),
     Power(power::PowerRequest),
+    Context(context::ContextRequest),
 }
 
 /// The core's answer to a [`Request`]. Wire form: `{"type": "<domain>.<name>", "data": ...}`.
@@ -78,6 +80,7 @@ pub enum Response {
     Browser(browser::BrowserResponse),
     Pr(pr::PrResponse),
     Power(power::PowerResponse),
+    Context(context::ContextResponse),
     /// The request succeeded and has nothing to return.
     Ok(OkResponse),
 }

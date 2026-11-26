@@ -86,8 +86,10 @@ pub(super) async fn handle(core: &Core, request: OrchestrationRequest) -> Result
             project,
             prompt,
             limits,
+            context,
         } => {
-            let task = start(core, project, prompt, limits).await?;
+            let context = crate::context::message(core, &project, None, &context).await?;
+            let task = start(core, project, prompt, context, limits).await?;
             Ok(Response::Orchestration(OrchestrationResponse::Task(task)))
         }
         OrchestrationRequest::List { project } => {
@@ -150,6 +152,7 @@ async fn start(
     core: &Core,
     project: ProjectId,
     prompt: String,
+    context: Option<String>,
     limits: TaskLimits,
 ) -> Result<Task> {
     if limits.max_workers == 0 || limits.max_workers > MAX_WORKERS_CAP {
@@ -176,6 +179,7 @@ async fn start(
         agent: AgentKind::Claude,
         mode: SessionMode::Direct,
         prompt,
+        context,
         cwd: None,
         tools: Some(ToolRole::Coordinator),
         from: MessageFrom::Person,
@@ -645,6 +649,7 @@ async fn create_worker(
         agent: AgentKind::Claude,
         mode: SessionMode::Isolated,
         prompt,
+        context: None,
         cwd: Some(path.clone()),
         tools: Some(ToolRole::Worker),
         from: MessageFrom::Coordinator,

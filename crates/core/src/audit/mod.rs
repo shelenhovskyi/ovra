@@ -246,6 +246,14 @@ fn drain(core: Core, project: ProjectId) -> impl Future<Output = ()> + Send + 's
     }
 }
 
+pub(crate) use input::holds_secret;
+
+/// The values of the project's secrets for checking text the person adds
+/// to a message; `None` if they cannot be read now.
+pub(crate) async fn secret_values(core: &Core, project: &ProjectId) -> Outcome {
+    known_secrets(core, project).await
+}
+
 /// The values of the project's secrets, or `None` if they cannot be read
 /// now: from the cache, or from the project's read in flight (started here
 /// if there is none) on a blocking thread as every keychain call. A
