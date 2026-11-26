@@ -9,7 +9,8 @@ import { useOvra } from "../shell/context";
 import { taskBoards } from "./boards.svelte";
 import { authorName, entryHead, entryText, summary } from "./describe";
 
-let { task }: { task: TaskId } = $props();
+/** `id` and `labelledby`: the tab panel's own id and its tab's. */
+let { task, id, labelledby }: { task: TaskId; id?: string; labelledby?: string } = $props();
 
 const { transport } = useOvra();
 const boards = taskBoards(transport);
@@ -58,7 +59,14 @@ function onEnter(event: KeyboardEvent, send: () => void): void {
 }
 </script>
 
-<section class="board" aria-label="Board" data-testid="task-board">
+<section
+  class="board"
+  role={labelledby ? "tabpanel" : undefined}
+  {id}
+  aria-label={labelledby ? undefined : "Board"}
+  aria-labelledby={labelledby}
+  data-testid="task-board"
+>
   <p class="summary" data-testid="board-summary">{summary(entries, open.length)}</p>
   {#each open as question (question.id)}
     <form

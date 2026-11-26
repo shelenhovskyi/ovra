@@ -49,8 +49,13 @@ export class TaskBoards {
   private async load(task: TaskId): Promise<void> {
     try {
       const { data } = await this.transport.call({ method: "board.list", params: { task } });
-      // Entries that came as events while it loaded are in the list too.
-      this.entries.set(task, data.entries);
+      // Events may come while it loads: keep any entry the list lacks.
+      const listed = new Set(data.entries.map((e) => e.id));
+      const extra = (this.entries.get(task) ?? []).filter((e) => !listed.has(e.id));
+      this.entries.set(
+        task,
+        [...data.entries, ...extra].sort((a, b) => order(a.id) - order(b.id)),
+      );
     } catch {
       // A core without boards, or a task that is gone: no board to show.
       this.watched.delete(task);
@@ -67,12 +72,23 @@ export class TaskBoards {
       this.add(event.data.task, event.data.entry);
   }
 
-  /** Adds `entry` unless it is there already (the reply to the person's own write and its event both bring it). */
+  /**
+   * Adds `entry` unless it is there already (the reply to the person's own
+   * write and its event both bring it), also while the board still loads.
+   */
   private add(task: TaskId, entry: BoardEntry): void {
-    const entries = this.entries.get(task);
-    if (!entries) return;
-    if (!entries.some((e) => e.id === entry.id)) this.entries.set(task, [...entries, entry]);
+    const entries = this.entries.get(task) ?? [];
+    if (!entries.some((e) => e.id === entry.id))
+      this.entries.set(
+        task,
+        [...entries, entry].sort((a, b) => order(a.id) - order(b.id)),
+      );
   }
+}
+
+/** An entry's place on its board: `b12` is the twelfth. */
+function order(id: EntryId): number {
+  return Number(id.slice(1)) || 0;
 }
 
 const instances = new WeakMap<Transport, TaskBoards>();

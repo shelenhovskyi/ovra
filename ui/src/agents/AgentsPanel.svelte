@@ -118,10 +118,20 @@ const currentTask = $derived.by(() => {
 });
 /** A task shows its conversation or its board; a task opens on its conversation. */
 let tab = $state<"talk" | "board">("talk");
+/** The open session's id: unlike `current`, it changes only when another session opens. */
+const currentId = $derived(current?.id ?? null);
 $effect.pre(() => {
-  void current?.id;
+  void currentId;
   tab = "talk";
 });
+
+/** Left and Right move between a task's tabs, as in any tab list. */
+function tabKeys(event: KeyboardEvent): void {
+  if (event.code !== "ArrowLeft" && event.code !== "ArrowRight") return;
+  event.preventDefault();
+  tab = tab === "talk" ? "board" : "talk";
+  void tick().then(() => document.getElementById(`task-tab-${tab}`)?.focus());
+}
 // Every listed task's board is watched, so a question for the person shows on its row.
 $effect(() => {
   for (const s of list) {
@@ -1095,27 +1105,39 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
       </div>
       {#if currentTask}
         {@const questions = boards.openForPerson(currentTask).length}
-        <div class="tabs" role="tablist" aria-label="Task">
+        <div class="tabs" role="tablist" aria-label="Task" tabindex="-1" onkeydown={tabKeys}>
           <button
             type="button"
             role="tab"
+            id="task-tab-talk"
             class="quiet"
             aria-selected={tab === "talk"}
+            aria-controls="task-panel-talk"
+            tabindex={tab === "talk" ? 0 : -1}
             onclick={() => (tab = "talk")}>Conversation</button
           >
           <button
             type="button"
             role="tab"
+            id="task-tab-board"
             class="quiet"
             aria-selected={tab === "board"}
+            aria-controls="task-panel-board"
+            tabindex={tab === "board" ? 0 : -1}
             data-testid="agent-board-tab"
             onclick={() => (tab = "board")}>Board{questions > 0 ? ` (${questions})` : ""}</button
           >
         </div>
       {/if}
       {#if currentTask && tab === "board"}
-        <Board task={currentTask} />
+        <Board task={currentTask} id="task-panel-board" labelledby="task-tab-board" />
       {:else}
+      <div
+        class="talk"
+        role={currentTask ? "tabpanel" : undefined}
+        id={currentTask ? "task-panel-talk" : undefined}
+        aria-labelledby={currentTask ? "task-tab-talk" : undefined}
+      >
       <Transcript
         messages={messages ?? []}
         billing={current.billing}
@@ -1198,6 +1220,7 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
           </div>
         </form>
       {/if}
+      </div>
       {/if}
     </div>
   {:else}
@@ -1581,6 +1604,10 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
     display: flex;
     gap: 4px;
     padding: 0 16px 8px;
+  }
+  /* The conversation keeps the detail's own layout. */
+  .talk {
+    display: contents;
   }
   .tabs [aria-selected="true"] {
     color: var(--text);

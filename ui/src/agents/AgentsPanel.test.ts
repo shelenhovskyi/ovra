@@ -499,6 +499,21 @@ describe("AgentsPanel", () => {
     target.querySelector<HTMLButtonElement>("[data-testid=agent-board-tab]")?.click();
     await settle();
     expect(target.querySelector("[data-testid=agent-board-tab]")?.textContent).toBe("Board (1)");
+    // The task working again keeps the Board open.
+    core.status("s1", { state: "working" });
+    await settle();
+    expect(target.querySelector("[data-testid=task-board]")).not.toBeNull();
+    // Left and Right move between the tabs.
+    target
+      .querySelector<HTMLElement>("[role=tablist]")
+      ?.dispatchEvent(
+        new KeyboardEvent("keydown", { code: "ArrowLeft", key: "ArrowLeft", bubbles: true, cancelable: true }),
+      );
+    await settle();
+    expect(target.querySelector("[data-testid=task-board]")).toBeNull();
+    expect(document.activeElement?.id).toBe("task-tab-talk");
+    target.querySelector<HTMLButtonElement>("[data-testid=agent-board-tab]")?.click();
+    await settle();
     expect(target.querySelector("[data-testid=board-summary]")?.textContent).toBe(
       "lint holds 1 path · 1 question for you",
     );
