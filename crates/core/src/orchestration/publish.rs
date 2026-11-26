@@ -229,7 +229,8 @@ async fn reviewed(
     Ok(snapshot)
 }
 
-/// The worker's changes from `start` to `snapshot` committed on `onto`.
+/// The worker's changes from `start` to `snapshot` committed on `onto`;
+/// refused when that leaves nothing to push (an empty commit).
 async fn pick(
     core: &Core,
     root: PathBuf,
@@ -239,12 +240,17 @@ async fn pick(
     message: String,
     against: &str,
 ) -> Result<String> {
-    match core
-        .worktrees()
-        .pick(root, onto, start, snapshot, message, None)
-        .await?
-    {
-        Picked::Commit(commit) => Ok(commit),
+    let worktrees = core.worktrees();
+    let picked = worktrees.pick(root.clone(), onto.clone(), start, snapshot, message, None);
+    match picked.await? {
+        Picked::Commit(commit) => {
+            if worktrees.diff(root, onto, commit.clone()).await?.is_empty() {
+                return Err(conflict(format!(
+                    "nothing left to publish: {against} already has these changes"
+                )));
+            }
+            Ok(commit)
+        }
         Picked::Conflicts(files) => Err(conflict(format!(
             "the worker's changes conflict with {against} in {}; ask the worker to update",
             files.join(", ")

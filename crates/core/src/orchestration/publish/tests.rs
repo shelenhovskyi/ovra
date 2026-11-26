@@ -281,6 +281,24 @@ async fn a_retry_after_gh_failed_goes_on_from_the_push_it_made() {
 }
 
 #[tokio::test]
+async fn nothing_is_published_when_the_base_already_has_the_changes() {
+    let f = fx().await;
+    f.wt.put("/remote", "a.rs", "one\n");
+    f.wt.put("/remote", "b.rs", "two\n");
+    let theirs = f.wt.snapshot("/remote".into()).await.unwrap_or_default();
+    lock(&f.forge.branches).insert(("origin".into(), "main".into()), theirs);
+    let id = item(&f.core).await.id.0;
+    let prepared = prepare(&f.core, &id).await;
+    let refused = call(&f.core, create(&prepared, &id)).await;
+    let message = refused.err().map(|e| e.message).unwrap_or_default();
+    assert_eq!(
+        message,
+        "nothing left to publish: origin/main already has these changes"
+    );
+    assert!(lock(&f.forge.pushed).is_empty() && lock(&f.forge.created).is_empty());
+}
+
+#[tokio::test]
 async fn a_placeholder_the_review_left_out_is_never_committed() {
     let f = fx().await;
     f.wt.put(dir(), "CLAUDE.md", "");
