@@ -13,6 +13,9 @@ ovra-core.workspace = true
 [target.'cfg(target_os = "linux")'.dependencies]
 ovra-sandbox-linux.workspace = true
 
+[target.'cfg(target_os = "macos")'.dependencies]
+ovra-sandbox-macos.workspace = true
+
 [target.'cfg(windows)'.dependencies]
 ovra-sandbox-windows.workspace = true
 

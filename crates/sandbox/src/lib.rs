@@ -45,8 +45,9 @@ pub const PROTECTED_IN_GIT_DIR: [&str; 7] = [
 pub const PROTECTED_IN_WORKTREE_GIT_DIR: [&str; 3] = ["commondir", "gitdir", "config.worktree"];
 
 /// The sandbox for this OS, hiding Ovra's `data_dir` from agents. Where no
-/// platform crate exists (macOS until 4.B), sessions run unsandboxed, as
-/// they did before phase 4, and say so. On Linux the
+/// platform crate exists, sessions run unsandboxed, as they did before
+/// phase 4, and say so; so they do on macOS until its sandbox has been
+/// tested on a Mac (`docs/specs/sandbox-macos.md`). On Linux and macOS the
 /// sandbox tries itself once here and reports why if it cannot work.
 pub fn for_this_os(data_dir: &Path) -> Arc<dyn Sandbox> {
     #[cfg(target_os = "linux")]
@@ -66,7 +67,14 @@ pub fn for_this_os(data_dir: &Path) -> Arc<dyn Sandbox> {
             None => Arc::new(Unsandboxed),
         }
     }
-    #[cfg(not(any(target_os = "linux", windows)))]
+    #[cfg(target_os = "macos")]
+    {
+        match ovra_sandbox_macos::Setup::from_env(data_dir, &PROTECTED_IN_WORK_DIR) {
+            Some(setup) => Arc::new(ovra_sandbox_macos::Seatbelt::detect(setup)),
+            None => Arc::new(Unsandboxed),
+        }
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
     {
         let _ = data_dir;
         Arc::new(Unsandboxed)
@@ -78,6 +86,8 @@ pub fn for_this_os(data_dir: &Path) -> Arc<dyn Sandbox> {
 pub fn helper_if_asked() {
     #[cfg(target_os = "linux")]
     ovra_sandbox_linux::helper_if_asked();
+    #[cfg(target_os = "macos")]
+    ovra_sandbox_macos::helper_if_asked();
     #[cfg(windows)]
     ovra_sandbox_windows::helper_if_asked();
 }
