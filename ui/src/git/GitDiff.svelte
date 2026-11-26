@@ -17,7 +17,7 @@ import type { FileDiff, Hunk } from "../lib/protocol";
 import { useOvra } from "../shell/context";
 import type { GitDiffTarget } from "../shell/workspace.svelte";
 import { focusDiffRow } from "./focus";
-import { gitModel, message } from "./model.svelte";
+import { gitModel, message, showsStaging } from "./model.svelte";
 
 let { target }: { target: GitDiffTarget } = $props();
 const { transport, workspace } = useOvra();
@@ -48,13 +48,15 @@ const file = $derived(
   model?.state.kind === "ready" ? model.state.status.files.find((f) => f.path === target.path) : undefined,
 );
 const change = $derived(target.staged ? file?.staged : file?.unstaged);
+/** Without staging in the panel, the diff is the changes since the last commit: no staging words. */
+const staging = $derived(model?.state.kind === "ready" && showsStaging(model.state.status, model.choosing));
 const hunks = $derived(shown?.data?.hunks ?? []);
 /** Why hunks cannot be staged one by one, or null when they can. */
 const noHunks = $derived.by(() => {
   const data = shown?.data;
   if (!data || data.binary || hunks.length === 0) return null;
   if (data.truncated) return "This diff is too long to stage by hunk: stage the whole file from the Git panel.";
-  if (change === "untracked") return "This file is new and untracked: stage the whole file from the Git panel.";
+  if (change === "untracked") return "This file is new: stage the whole file from the Git panel.";
   if (change !== "modified") return "Hunks of an added, deleted or renamed file go with the whole file.";
   return null;
 });
@@ -266,7 +268,9 @@ const range = (hunk: Hunk) =>
   <header>
     <h2 id="git-diff-title" tabindex="-1" bind:this={heading} title={target.path}>
       <span class="path">{target.path}</span>
-      <span class="side">{target.staged ? "Staged changes" : "Unstaged changes"}</span>
+      <span class="side"
+        >{staging ? (target.staged ? "Staged changes" : "Not staged yet") : "Changes since the last commit"}</span
+      >
     </h2>
     <!-- One action: the tab closes the diff, and each side opens from its list in the panel. -->
     <button type="button" onclick={openFile}>Open file</button>

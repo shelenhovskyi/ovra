@@ -115,9 +115,9 @@ it("shows the branch and the lists, stages and unstages files and opens them", a
   expect(names("conflicts")).toEqual(["c.ts , conflicted"]);
   // A file in both lists has two rows with different names: one reads "staged".
   expect(names("staged")).toEqual(["a.ts src , modified, staged"]);
-  expect(names("changes")).toEqual(["b.ts src , modified", "new.md , untracked"]);
+  expect(names("changes")).toEqual(["b.ts src , modified", "new.md , new file"]);
   // The letter in the row's tooltip, besides the dot's colour.
-  expect($("[data-testid=git-changes] [data-path='new.md']")?.title).toBe("new.md (U: untracked)");
+  expect($("[data-testid=git-changes] [data-path='new.md']")?.title).toBe("new.md (U: new file)");
   expect(text("[data-testid=git-truncated]")).toBe("3 more changed files are not shown.");
 
   click("[aria-label='Stage src/b.ts']");
@@ -155,11 +155,15 @@ it("gets and sends commits from the sync card, and says why it could not", async
   expect(text("[data-testid=git-sync-error]")).toBe(
     "Could not get the commits. This branch and origin/main both have new commits.",
   );
+  // As a press does: the button has focus, and goes away once the commits are in.
+  $("[data-testid=git-pull]")?.focus();
   click("[data-testid=git-pull]");
   await settle();
   expect(core.calls.filter((c) => c.method === "git.pull")).toHaveLength(2);
   expect(text("[data-testid=git-got] strong")).toBe("Got 3 commits");
   expect(text("[data-testid=git-announce]")).toBe("Got 3 commits.");
+  // The pressed button went away: focus goes on to the Got card, not to the page.
+  expect(document.activeElement?.closest("[data-testid=git-got]")).not.toBeNull();
   click("[data-testid=git-push]");
   await settle();
   expect(core.methods()).toContain("git.push");
@@ -176,6 +180,27 @@ it("gets and sends commits from the sync card, and says why it could not", async
   expect(core.methods()).toContain("git.publish");
   expect($("[data-testid=git-publish-card]")).toBeNull();
   expect(text("[data-testid=git-announce]")).toBe("Published topic to origin.");
+});
+
+it("gets and sends commits from the palette, or says why not", async () => {
+  const core = new FakeGitCore();
+  core.status = repo({ upstream: "origin/main", ahead: 1, behind: 2 });
+  await setup(core);
+  const command = (id: string) => listCommands().find((c) => c.id === id);
+  await command("git.push")?.run();
+  await settle();
+  expect(core.methods()).not.toContain("git.push");
+  expect(text("[data-testid=git-announce]")).toBe("Get the new commits first, then send yours.");
+  await command("git.pull")?.run();
+  await settle();
+  expect(core.methods()).toContain("git.pull");
+  await command("git.push")?.run();
+  await settle();
+  expect(core.methods()).toContain("git.push");
+  expect(text("[data-testid=git-announce]")).toBe("Sent 1 commit.");
+  await command("git.push")?.run();
+  await settle();
+  expect(text("[data-testid=git-announce]")).toBe("There are no commits to send.");
 });
 
 it("says when the project is not a repository and sets up git in one press", async () => {
@@ -216,7 +241,7 @@ it("says when the project is not a repository and sets up git in one press", asy
   core.emit({ type: "fs.git_changed", data: { project: "p1" } });
   await settle();
   // No staging: one list, and Commit names what it takes.
-  expect(names("changes")).toEqual(["a.ts , untracked"]);
+  expect(names("changes")).toEqual(["a.ts , new file"]);
   expect($("[data-testid=git-staged]")).toBeNull();
   expect(text("[data-testid=git-first-commit]")).toBe(
     "A commit saves a version of your files that you can go back to.",
@@ -272,7 +297,7 @@ it("discards only after a confirmation and offers Undo until the next discard", 
   const actions = [...(button?.parentElement?.querySelectorAll<HTMLButtonElement>("button.icon") ?? [])];
   expect(actions.map((b) => b.getAttribute("aria-label"))).toEqual(["Stage new.md", "Open new.md"]);
   expect(actions.every((b) => b.querySelector("svg") && b.textContent?.trim() === "")).toBe(true);
-  expect(button?.parentElement?.querySelector(".mark")?.getAttribute("title")).toBe("U: untracked");
+  expect(button?.parentElement?.querySelector(".mark")?.getAttribute("title")).toBe("U: new file");
 
   // The row's menu: show and open, then stage, Discard last; a right click focuses the row.
   button?.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 5, clientY: 5 }));
@@ -525,7 +550,7 @@ it("shows a diff with hunk staging and reloads it on fs.git_changed", async () =
   click("[data-testid=git-changes] [data-path='new.md']");
   await settle();
   expect($("[data-hunk-action]")).toBeNull();
-  expect(text("[data-testid=git-diff-no-hunks]")).toMatch(/untracked/);
+  expect(text("[data-testid=git-diff-no-hunks]")).toMatch(/is new/);
   // The diff is the selected tab, and its row says it is shown.
   expect(text("[role=tab][aria-selected=true]")).toBe("new.md diff");
   expect($("[data-path='new.md']")?.getAttribute("aria-current")).toBe("true");

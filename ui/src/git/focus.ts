@@ -64,3 +64,21 @@ export function focusFirstRow(): boolean {
 export function focusMessage(): void {
   panel()?.querySelector<HTMLElement>("textarea")?.focus();
 }
+
+/**
+ * After a commit, Get or Send: the pressed button may be gone. Focus moves
+ * on to the next step (the Got card, Send, the first change, the message),
+ * only when it fell to the page (so a person who moved on keeps their
+ * place) unless `always`, as from the palette.
+ */
+export function focusNextStep(always = false): void {
+  if (!always && document.activeElement && document.activeElement !== document.body) return;
+  const root = panel();
+  (
+    root?.querySelector<HTMLElement>("[data-testid=git-got] button") ??
+    root?.querySelector<HTMLElement>("[data-testid=git-push]") ??
+    root?.querySelector<HTMLElement>('[data-row][tabindex="0"]') ??
+    root?.querySelector<HTMLElement>("textarea") ??
+    root?.querySelector<HTMLElement>("button")
+  )?.focus();
+}

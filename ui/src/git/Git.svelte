@@ -17,15 +17,15 @@ registerContextKeys(
 
 <script lang="ts">
 // Sidebar git view for the open project, and its palette commands: show
-// the panel, set up git, stage all, commit, new branch, switch branch, and
-// the agent actions.
+// the panel, set up git, stage all, commit, get and send commits, new
+// branch, switch branch, and the agent actions.
 import { tick } from "svelte";
 import { registerCommand } from "../keys/commands";
 import { useOvra } from "../shell/context";
 import { ACTION_LABEL } from "./AgentActions.svelte";
 import type { AssistAction } from "./assist";
 import { Assist, assistFor } from "./assist.svelte";
-import { focusDiffRow, focusFirstRow, focusMessage } from "./focus";
+import { focusDiffRow, focusFirstRow, focusMessage, focusNextStep } from "./focus";
 import GitPanel from "./GitPanel.svelte";
 import { fileLists, type GitModel, gitModel } from "./model.svelte";
 
@@ -79,6 +79,31 @@ async function runAssist(action: AssistAction): Promise<void> {
     return;
   }
   await assist.run(action);
+}
+
+/** Gets or sends the branch's commits from the palette, as the panel's buttons do, or says why not. */
+async function sync(what: "pull" | "push"): Promise<void> {
+  const model = await showPanel();
+  const status = model?.state.kind === "ready" ? model.state.status : null;
+  if (!model || !status) {
+    focusPanel();
+    return;
+  }
+  const why = !status.upstream
+    ? "This branch is not on a remote yet."
+    : what === "pull"
+      ? status.behind === 0
+        ? "There are no new commits to get."
+        : null
+      : status.behind > 0
+        ? "Get the new commits first, then send yours."
+        : status.ahead === 0
+          ? "There are no commits to send."
+          : null;
+  if (why) model.notice = why;
+  else await (what === "pull" ? model.pull(status.behind) : model.push(status.ahead));
+  await tick();
+  focusNextStep(true);
 }
 
 $effect(() => {
@@ -136,6 +161,18 @@ $effect(() => {
         await showPanel();
         focusPanel();
       },
+    }),
+    registerCommand({
+      id: "git.pull",
+      title: "Git: get new commits",
+      keywords: ["pull", "sync", "fetch", "update"],
+      run: () => sync("pull"),
+    }),
+    registerCommand({
+      id: "git.push",
+      title: "Git: send commits",
+      keywords: ["push", "sync", "upload"],
+      run: () => sync("push"),
     }),
     registerCommand({
       id: "git.new_branch",

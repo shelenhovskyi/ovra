@@ -45,7 +45,7 @@ export const CHANGE_LABEL: Record<GitChange, string> = {
   renamed: "renamed",
   copied: "copied",
   type_changed: "type changed",
-  untracked: "untracked",
+  untracked: "new file",
   conflicted: "conflicted",
 };
 

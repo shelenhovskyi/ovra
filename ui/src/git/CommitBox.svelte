@@ -8,6 +8,7 @@ import { tick } from "svelte";
 import { formatShortcut, isApple } from "../keys/shortcut";
 import type { RepoStatus } from "../lib/protocol";
 import type { Assist } from "./assist.svelte";
+import { focusNextStep } from "./focus";
 import { changedFiles, fileLists, type GitModel } from "./model.svelte";
 
 let { model, status, assist, staging }: { model: GitModel; status: RepoStatus; assist: Assist; staging: boolean } =
@@ -72,6 +73,9 @@ async function commit(): Promise<void> {
     replaced = null;
     tried = false;
     model.amend = false;
+    // The box may go with the changes: focus goes on to Send or the next change.
+    await tick();
+    focusNextStep();
   }
 }
 

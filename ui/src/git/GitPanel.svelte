@@ -18,7 +18,7 @@ import { Assist } from "./assist.svelte";
 import Branches from "./Branches.svelte";
 import CommitBox from "./CommitBox.svelte";
 import FileSection from "./FileSection.svelte";
-import { diffOpened, focusList, focusMessage, focusRow } from "./focus";
+import { diffOpened, focusList, focusMessage, focusNextStep, focusRow } from "./focus";
 import { changedFiles, describePaths, fileLists, GitModel, showsStaging } from "./model.svelte";
 
 let { project }: { project: ProjectId } = $props();
@@ -134,6 +134,19 @@ function ago(seconds: number, now = Date.now() / 1000): string {
   if (days < 30) return `${days} ${days === 1 ? "day" : "days"} ago`;
   return new Date(seconds * 1000).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
 }
+
+/** Gets or sends the commits; focus goes on to what comes next, as the button goes away. */
+async function sync(what: "pull" | "push", count: number): Promise<void> {
+  await (what === "pull" ? model.pull(count) : model.push(count));
+  await tick();
+  focusNextStep();
+}
+
+async function dismissGot(): Promise<void> {
+  model.got = null;
+  await tick();
+  focusNextStep();
+}
 </script>
 
 <section class="git" aria-labelledby="git-title" data-testid="git">
@@ -200,7 +213,7 @@ function ago(seconds: number, now = Date.now() / 1000): string {
               class="primary"
               data-testid="git-pull"
               aria-disabled={model.busy}
-              onclick={() => void model.pull(status.behind)}
+              onclick={() => void sync("pull", status.behind)}
               >{model.syncing === "pull" ? "Getting…" : `Get ${plural(status.behind, "commit")}`}</button
             >
           </div>
@@ -221,7 +234,7 @@ function ago(seconds: number, now = Date.now() / 1000): string {
                 class="bordered"
                 data-testid="git-push"
                 aria-disabled={model.busy}
-                onclick={() => void model.push(status.ahead)}
+                onclick={() => void sync("push", status.ahead)}
                 >{model.syncing === "push" ? "Sending…" : `Send ${plural(status.ahead, "commit")}`}</button
               >
             {/if}
@@ -270,7 +283,7 @@ function ago(seconds: number, now = Date.now() / 1000): string {
               }}>What's new?</button
             >
           {/if}
-          <button type="button" onclick={() => (model.got = null)}>Dismiss</button>
+          <button type="button" onclick={() => void dismissGot()}>Dismiss</button>
         </div>
       </div>
     {/if}
