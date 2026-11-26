@@ -16,6 +16,7 @@ use crate::orchestration::direct::Direct;
 use crate::protocol::agents::SandboxReport;
 use crate::protocol::agents::{
     AgentMessage, AgentStatus, AgentsEvent, Billing, SessionId, SessionInfo, SessionMode, ToolCall,
+    ToolKind,
 };
 use crate::protocol::audit::{AuditEvent, DecidedBy};
 use crate::protocol::permissions::{
@@ -1018,11 +1019,15 @@ impl AgentHost {
             .unwrap_or(false)
     }
 
-    /// Why `tool` is refused, if this is a research session and the tool is
-    /// not one of [`RESEARCH_TOOLS`].
     /// Why a worker's file change is refused because another worker of
     /// its task holds the file on the board (`docs/specs/task-board.md`).
     fn claimed_by_other(&self, tool: &ToolRequest) -> Option<String> {
+        if !matches!(
+            tool.call.kind,
+            ToolKind::Edit | ToolKind::Delete | ToolKind::Move
+        ) {
+            return None;
+        }
         let core = self.sessions.core()?;
         let cwd = self
             .sessions
@@ -1032,6 +1037,8 @@ impl AgentHost {
         crate::orchestration::claimed_write(&core, &self.session, &tool.call, &cwd)
     }
 
+    /// Why `tool` is refused, if this is a research session and the tool is
+    /// not one of [`RESEARCH_TOOLS`].
     fn outside_research(&self, tool: &str) -> Option<String> {
         let Ok((research, no_web)) = self.sessions.find(&self.session, |s| {
             let info = s.info();

@@ -3695,6 +3695,22 @@ async fn a_worker_cannot_edit_a_file_another_worker_claimed_first() {
         crate::orchestration::claimed_write(&f.core, &sid("s3"), &read, &worktree("docs")),
         None
     );
+    // `..` cannot step around a claim; a path outside the worktree is the
+    // sandbox's; a move is refused when either side is held.
+    assert!(write("s3", "docs", "docs/../src/a.rs").is_some());
+    let mut outside = edit_in("docs", "src/a.rs");
+    outside.paths = vec![crate::test_path!("/elsewhere/src/a.rs").to_owned()];
+    assert_eq!(
+        crate::orchestration::claimed_write(&f.core, &sid("s3"), &outside, &worktree("docs")),
+        None
+    );
+    let mut moved = edit_in("docs", "README.md");
+    moved.kind = crate::protocol::agents::ToolKind::Move;
+    moved.paths.extend(edit_in("docs", "src/new.rs").paths);
+    assert!(
+        crate::orchestration::claimed_write(&f.core, &sid("s3"), &moved, &worktree("docs"))
+            .is_some()
+    );
     // A later claim of the same file does not take it from the first.
     assert!(
         f.core
@@ -3713,6 +3729,13 @@ async fn a_worker_cannot_edit_a_file_another_worker_claimed_first() {
     );
     assert_eq!(write("s3", "docs", "src/a.rs"), None);
     assert!(write("s2", "lint", "src/a.rs").is_some());
+    // A folder claim covers what is under it.
+    assert!(
+        f.core
+            .board_claim(&docs, None, &["lib/".into()], "")
+            .is_ok()
+    );
+    assert!(write("s2", "lint", "lib/x/a.rs").is_some());
     // A worker that ended holds nothing.
     ok(
         &f.core,
