@@ -18,6 +18,10 @@ expression: transcript(&core).await
     "name": "Bash",
     "input": {
       "command": "ls"
+    },
+    "call": {
+      "kind": "execute",
+      "command": "ls"
     }
   },
   {

@@ -126,11 +126,36 @@ export type TurnUsage = {
 /** Who wrote a message an agent was sent: the person, the task's coordinator, Ovra in its own words, or `unknown` for one saved before Ovra recorded it. */
 export type MessageFrom = "person" | "coordinator" | "ovra" | "unknown";
 
+/** A tool call's kind: ACP's list plus `subagent`; unknown kinds arrive as `other`. */
+export type ToolKind =
+  | "read"
+  | "edit"
+  | "delete"
+  | "move"
+  | "search"
+  | "execute"
+  | "think"
+  | "fetch"
+  | "subagent"
+  | "other";
+
+/** What a tool call does, in terms every agent shares; the runtime maps its own tools to these. */
+export type ToolCall = {
+  kind: ToolKind;
+  /** The files it reads or changes, as the agent wrote them. */
+  paths?: string[];
+  /** The shell command of an `execute` call. */
+  command?: string;
+  /** The URL of a `fetch` call. */
+  url?: string;
+};
+
 /** `parent` is set when a subagent produced the message: the tool call that started it. */
 export type AgentMessage =
   | { kind: "user_text"; text: string; from: MessageFrom }
   | { kind: "assistant_text"; text: string; parent?: string }
-  | { kind: "tool_use"; id: string; name: string; input: unknown; parent?: string }
+  /** `name` and `input` are the agent's own; `call` is what the call does in shared terms (absent from a core before it: read as `other`). */
+  | { kind: "tool_use"; id: string; name: string; input: unknown; call?: ToolCall; parent?: string }
   | { kind: "tool_result"; tool_use_id: string; output: string; is_error: boolean; parent?: string }
   | { kind: "turn_end"; usage: TurnUsage }
   /** The person stopped the turn before it finished; no failure. */

@@ -2010,7 +2010,7 @@ impl DirectFx {
         let input = json!({"file_path": PathBuf::from(ROOT).join(path), "content": text});
         let hook = json!({"tool_use_id": path, "tool_name": "Write", "tool_input": input});
         assert_eq!(
-            host.before_tool(&hook).await,
+            crate::fakes::before_hook(&host, &hook).await,
             crate::agents::BeforeTool::Proceed
         );
         self.wt.put(ROOT, path, text);

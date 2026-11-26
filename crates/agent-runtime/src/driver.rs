@@ -163,7 +163,7 @@ impl Driver {
                 let line = if callback_id == wire::POLICY_HOOK {
                     // The CLI waits for the hook, so the tool has not run yet:
                     // a direct session snapshots the tree first (ADR 0005).
-                    let verdict = match self.host.before_tool(&input).await {
+                    let verdict = match self.before_tool(&input).await {
                         BeforeTool::Deny(reason) => policy::Verdict::Deny(reason),
                         BeforeTool::Ask(reason) => policy::Verdict::Ask(reason),
                         BeforeTool::Proceed => policy::pre_tool_use(&self.cwd, &input),
@@ -228,6 +228,20 @@ impl Driver {
         });
     }
 
+    /// What the core says about the call a `PreToolUse` hook input names
+    /// (`tool_use_id`, `tool_name`, `tool_input`). Without a tool name
+    /// there is nothing to decide.
+    async fn before_tool(&self, hook: &Value) -> BeforeTool {
+        let Some(name) = hook.get("tool_name").and_then(Value::as_str) else {
+            return BeforeTool::Proceed;
+        };
+        let input = hook.get("tool_input").cloned().unwrap_or(Value::Null);
+        let id = hook.get("tool_use_id").and_then(Value::as_str);
+        self.host
+            .before_tool(id, &crate::tools::tool(name, input))
+            .await
+    }
+
     /// Asks the person through the core and answers the CLI when they do.
     fn ask(
         &mut self,
@@ -244,7 +258,8 @@ impl Driver {
         self.asking.retain(|_, task| !task.is_finished());
         let id = request_id.clone();
         let task = tokio::spawn(async move {
-            let answer = host.ask(tool, input.clone(), title, reason).await;
+            let request = crate::tools::tool(&tool, input.clone());
+            let answer = host.ask(request, title, reason).await;
             let response = match answer.decision {
                 Decision::Allow => wire::allow(input),
                 Decision::Deny => wire::deny(

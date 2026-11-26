@@ -276,7 +276,10 @@ async fn an_ended_session_drops_its_permission_requests() {
     let mut rx = core.subscribe();
     let asking = tokio::spawn({
         let host = host.clone();
-        async move { host.ask("Bash".into(), json!({}), None, None).await }
+        async move {
+            host.ask(crate::fakes::tool("Bash", json!({})), None, None)
+                .await
+        }
     });
     until(&mut rx, AgentStatus::WaitingForApproval).await;
     host.status(AgentStatus::Stopped);
@@ -298,7 +301,10 @@ async fn a_request_put_back_is_announced_again_or_denied_once_its_session_ended(
     let mut rx = core.subscribe();
     let asking = tokio::spawn({
         let host = host.clone();
-        async move { host.ask("Bash".into(), json!({}), None, None).await }
+        async move {
+            host.ask(crate::fakes::tool("Bash", json!({})), None, None)
+                .await
+        }
     });
     until(&mut rx, AgentStatus::WaitingForApproval).await;
     let sessions = core.inner_sessions();
@@ -468,7 +474,10 @@ async fn the_state_machine_ignores_reports_that_make_no_sense() {
     let host = host(&core);
     let asking = tokio::spawn({
         let host = host.clone();
-        async move { host.ask("Bash".into(), json!({}), None, None).await }
+        async move {
+            host.ask(crate::fakes::tool("Bash", json!({})), None, None)
+                .await
+        }
     });
     until(&mut rx, AgentStatus::WaitingForApproval).await;
     // A request still waits: neither working nor idle shows.
@@ -493,7 +502,9 @@ async fn the_state_machine_ignores_reports_that_make_no_sense() {
     });
     host.status(AgentStatus::Idle);
     host.status(AgentStatus::Stopped);
-    let late = host.ask("Bash".into(), json!({}), None, None).await;
+    let late = host
+        .ask(crate::fakes::tool("Bash", json!({})), None, None)
+        .await;
     assert_eq!(late.message.as_deref(), Some("the session ended"));
 
     let mut seen = Vec::new();
@@ -521,7 +532,10 @@ async fn a_request_the_agent_cancels_is_withdrawn() {
     let host = host(&core);
     let asking = tokio::spawn({
         let host = host.clone();
-        async move { host.ask("Bash".into(), json!({}), None, None).await }
+        async move {
+            host.ask(crate::fakes::tool("Bash", json!({})), None, None)
+                .await
+        }
     });
     until(&mut rx, AgentStatus::WaitingForApproval).await;
     asking.abort();
@@ -1189,7 +1203,11 @@ async fn the_projects_policy_decides_before_the_person_is_asked() {
     .await;
     let host = host(&core);
     let fetch = host
-        .ask("WebFetch".into(), json!({"url": "x"}), None, None)
+        .ask(
+            crate::fakes::tool("WebFetch", json!({"url": "x"})),
+            None,
+            None,
+        )
         .await;
     assert_eq!(fetch.decision, Decision::Deny);
     assert!(fetch.message.is_some_and(|m| m.contains("(WebFetch)")));
@@ -1198,28 +1216,31 @@ async fn the_projects_policy_decides_before_the_person_is_asked() {
     let hook = |id: &str, tool: &str, input: serde_json::Value| json!({"tool_use_id": id, "tool_name": tool, "tool_input": input});
     let fetch = hook("t1", "WebFetch", json!({"url": "x"}));
     assert!(matches!(
-        host.before_tool(&fetch).await,
+        crate::fakes::before_hook(&host, &fetch).await,
         BeforeTool::Deny(_)
     ));
     // A hook input without a call id is decided all the same.
     let unnamed = json!({"tool_name": "WebFetch", "tool_input": {"url": "x"}});
     assert!(matches!(
-        host.before_tool(&unnamed).await,
+        crate::fakes::before_hook(&host, &unnamed).await,
         BeforeTool::Deny(_)
     ));
     let unnamed = json!({"tool_name": "Bash", "tool_input": {"command": "git push"}});
     assert!(matches!(
-        host.before_tool(&unnamed).await,
+        crate::fakes::before_hook(&host, &unnamed).await,
         BeforeTool::Ask(_)
     ));
     let push = hook("t2", "Bash", json!({"command": "git push origin"}));
     assert!(
-        matches!(host.before_tool(&push).await, BeforeTool::Ask(why) if why.contains("(Bash(git push))"))
+        matches!(crate::fakes::before_hook(&host, &push).await, BeforeTool::Ask(why) if why.contains("(Bash(git push))"))
     );
     // Auto never skips the user's settings: the CLI decides as usual.
     for (id, command) in [("t3", "ls"), ("t4", "npm test")] {
         let bash = hook(id, "Bash", json!({"command": command}));
-        assert_eq!(host.before_tool(&bash).await, BeforeTool::Proceed);
+        assert_eq!(
+            crate::fakes::before_hook(&host, &bash).await,
+            BeforeTool::Proceed
+        );
     }
 
     // Auto counts only once the runtime said it ran a sandbox.
@@ -1227,8 +1248,12 @@ async fn the_projects_policy_decides_before_the_person_is_asked() {
     let asking = tokio::spawn({
         let host = host.clone();
         async move {
-            host.ask("Bash".into(), json!({"command": "npm test"}), None, None)
-                .await
+            host.ask(
+                crate::fakes::tool("Bash", json!({"command": "npm test"})),
+                None,
+                None,
+            )
+            .await
         }
     });
     until(&mut rx, AgentStatus::WaitingForApproval).await;
@@ -1255,7 +1280,11 @@ async fn the_projects_policy_decides_before_the_person_is_asked() {
             .map(|s| s.name.as_str()),
         Some("test")
     );
-    let test = second.ask("Bash".into(), json!({"command": "npm test"}), None, None);
+    let test = second.ask(
+        crate::fakes::tool("Bash", json!({"command": "npm test"})),
+        None,
+        None,
+    );
     assert_eq!(test.await.decision, Decision::Allow);
 
     // A policy Ovra cannot read never lets a call through on its own.
@@ -1267,11 +1296,15 @@ async fn the_projects_policy_decides_before_the_person_is_asked() {
     );
     let read = hook("t5", "Read", json!({"file_path": "a"}));
     assert!(
-        matches!(lost.before_tool(&read).await, BeforeTool::Deny(why) if why.contains("could not read"))
+        matches!(crate::fakes::before_hook(&lost, &read).await, BeforeTool::Deny(why) if why.contains("could not read"))
     );
     let asking = tokio::spawn(async move {
-        lost.ask("Bash".into(), json!({"command": "npm test"}), None, None)
-            .await
+        lost.ask(
+            crate::fakes::tool("Bash", json!({"command": "npm test"})),
+            None,
+            None,
+        )
+        .await
     });
     until(&mut rx, AgentStatus::WaitingForApproval).await;
 
@@ -1291,7 +1324,11 @@ async fn the_projects_policy_decides_before_the_person_is_asked() {
     );
     let asking = tokio::spawn(async move {
         second
-            .ask("Bash".into(), json!({"command": "npm test"}), None, None)
+            .ask(
+                crate::fakes::tool("Bash", json!({"command": "npm test"})),
+                None,
+                None,
+            )
             .await
     });
     until(&mut rx, AgentStatus::WaitingForApproval).await;
@@ -1601,20 +1638,35 @@ async fn a_research_session_gets_only_its_tools_and_searches_without_asking() {
         "Task",
         "mcp__ovra__spawn_agent",
     ] {
-        let answer = host.ask(tool.into(), json!({}), None, None).await;
+        let answer = host
+            .ask(crate::fakes::tool(tool, json!({})), None, None)
+            .await;
         assert_eq!(answer.decision, Decision::Deny, "{tool}");
         assert!(answer.message.is_some_and(|m| m.contains("research")));
         let hook = json!({"tool_name": tool, "tool_input": {}});
         assert!(
-            matches!(host.before_tool(&hook).await, BeforeTool::Deny(_)),
+            matches!(
+                crate::fakes::before_hook(&host, &hook).await,
+                BeforeTool::Deny(_)
+            ),
             "{tool}"
         );
     }
     for tool in ["Read", "Grep", "Glob", "WebSearch"] {
         let hook = json!({"tool_name": tool, "tool_input": {}});
-        assert_eq!(host.before_tool(&hook).await, BeforeTool::Proceed, "{tool}");
+        assert_eq!(
+            crate::fakes::before_hook(&host, &hook).await,
+            BeforeTool::Proceed,
+            "{tool}"
+        );
     }
-    let search = || host.ask("WebSearch".into(), json!({"query": "x"}), None, None);
+    let search = || {
+        host.ask(
+            crate::fakes::tool("WebSearch", json!({"query": "x"})),
+            None,
+            None,
+        )
+    };
     assert_eq!(search().await.decision, Decision::Allow);
     // A project's rule about it still wins.
     ok(
@@ -1668,17 +1720,21 @@ async fn a_research_session_without_the_web_cannot_search() {
     assert!(lock_started(&agent, 0).no_web);
     let host = host(&core);
     let search = host
-        .ask("WebSearch".into(), json!({"query": "x"}), None, None)
+        .ask(
+            crate::fakes::tool("WebSearch", json!({"query": "x"})),
+            None,
+            None,
+        )
         .await;
     assert_eq!(search.decision, Decision::Deny);
     let hook = json!({"tool_name": "WebSearch", "tool_input": {}});
     assert!(matches!(
-        host.before_tool(&hook).await,
+        crate::fakes::before_hook(&host, &hook).await,
         crate::agents::BeforeTool::Deny(_)
     ));
     let read = json!({"tool_name": "Read", "tool_input": {}});
     assert_eq!(
-        host.before_tool(&read).await,
+        crate::fakes::before_hook(&host, &read).await,
         crate::agents::BeforeTool::Proceed
     );
     // A resume keeps it.

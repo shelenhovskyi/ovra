@@ -1009,8 +1009,12 @@ mod keychain {
             core.sink(),
         );
         let asking = tokio::spawn(async move {
-            host.ask("Bash".into(), bash("echo known-value-123"), None, None)
-                .await
+            host.ask(
+                crate::fakes::tool("Bash", bash("echo known-value-123")),
+                None,
+                None,
+            )
+            .await
         });
         next(&mut rx, status(AgentStatus::WaitingForApproval)).await;
         let id = match ok(&core, json!({"method": "permissions.pending"})).await {

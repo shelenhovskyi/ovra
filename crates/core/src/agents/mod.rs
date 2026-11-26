@@ -15,7 +15,7 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use crate::orchestration::direct::Direct;
 use crate::protocol::agents::SandboxReport;
 use crate::protocol::agents::{
-    AgentMessage, AgentStatus, AgentsEvent, Billing, SessionId, SessionInfo, SessionMode,
+    AgentMessage, AgentStatus, AgentsEvent, Billing, SessionId, SessionInfo, SessionMode, ToolCall,
 };
 use crate::protocol::audit::{AuditEvent, DecidedBy};
 use crate::protocol::permissions::{
@@ -619,11 +619,7 @@ impl AgentHost {
     /// folder and sandbox as the runtime reported them. `Err` when the
     /// policy or the session cannot be read: callers then never skip a
     /// question, and the hook refuses.
-    fn policy(
-        &self,
-        tool: &str,
-        input: &serde_json::Value,
-    ) -> Result<Option<(PolicyAction, String)>, ()> {
+    fn policy(&self, tool: &ToolRequest) -> Result<Option<(PolicyAction, String)>, ()> {
         let core = self.sessions.core().ok_or(())?;
         let (cwd, sandbox) = self
             .sessions
@@ -634,8 +630,8 @@ impl AgentHost {
         let policy = core.project_store().policy(&self.project).map_err(|_| ())?;
         Ok(crate::policy::decide(
             &policy,
-            tool,
-            input,
+            &tool.name,
+            &tool.input,
             &cwd.ok_or(())?,
             sandbox.as_ref(),
         ))
@@ -679,8 +675,7 @@ impl AgentHost {
     /// returned future waits until it is written.
     fn audit_tool(
         &self,
-        tool: &str,
-        input: &serde_json::Value,
+        tool: &ToolRequest,
         allowed: bool,
         by: DecidedBy,
     ) -> impl Future<Output = ()> + use<> {
@@ -689,8 +684,8 @@ impl AgentHost {
                 &core,
                 &self.project,
                 Some(&self.session),
-                tool,
-                input,
+                &tool.name,
+                &tool.input,
                 allowed,
                 by,
             )
@@ -705,43 +700,33 @@ impl AgentHost {
     /// Records who decided a tool call and passes the answer on.
     async fn decided(
         &self,
-        tool: &str,
-        input: &serde_json::Value,
+        tool: &ToolRequest,
         answer: PermissionAnswer,
         by: DecidedBy,
     ) -> PermissionAnswer {
         let allowed = answer.decision == Decision::Allow;
-        self.audit_tool(tool, input, allowed, by).await;
+        self.audit_tool(tool, allowed, by).await;
         answer
     }
 
-    /// The agent is about to run a tool: the input of a `PreToolUse` hook
-    /// (`tool_use_id`, `tool_name`, `tool_input`). The runtime awaits this
-    /// before the tool runs, so a direct session can snapshot the tree
-    /// first (ADR 0005).
+    /// The agent is about to run `tool`; `id` is the agent's id for the
+    /// call (Claude: from its `PreToolUse` hook), if it gave one. The
+    /// runtime awaits this before the tool runs, so a direct session can
+    /// snapshot the tree first (ADR 0005).
     ///
     /// Returns what the project's policy says about the call: the hook also
     /// sees calls the user's own settings allow without asking, which never
     /// reach [`Self::ask`] unless the hook tells the CLI to ask.
-    pub async fn before_tool(&self, hook_input: &serde_json::Value) -> BeforeTool {
-        let field = |name: &str| hook_input.get(name).and_then(serde_json::Value::as_str);
-        // The policy decides whenever the tool is known; only the
-        // bookkeeping below needs the call's id.
-        let Some(name) = field("tool_name") else {
-            return BeforeTool::Proceed;
-        };
-        let input = hook_input
-            .get("tool_input")
-            .cloned()
-            .unwrap_or(serde_json::Value::Null);
+    pub async fn before_tool(&self, id: Option<&str>, tool: &ToolRequest) -> BeforeTool {
+        let name = tool.name.as_str();
         if let Some(why) = self.outside_research(name) {
-            self.audit_tool(name, &input, false, DecidedBy::Role).await;
+            self.audit_tool(tool, false, DecidedBy::Role).await;
             return BeforeTool::Deny(why);
         }
         // Ovra's own tools follow their role rules (`Self::ask`).
         let mut verdict = BeforeTool::Proceed;
         if !name.starts_with(crate::orchestration::IDE_TOOL_PREFIX) {
-            let refused = match self.policy(name, &input) {
+            let refused = match self.policy(tool) {
                 Ok(Some((PolicyAction::Deny, rule))) => Some((
                     format!(
                         "The project's policy refuses this ({rule}). Ask the person if it is needed."
@@ -767,14 +752,14 @@ impl AgentHost {
             };
             if let Some((why, rule)) = refused {
                 let by = DecidedBy::Policy { rule };
-                self.audit_tool(name, &input, false, by).await;
+                self.audit_tool(tool, false, by).await;
                 return BeforeTool::Deny(why);
             }
         }
-        if let Some(id) = field("tool_use_id") {
+        if let Some(id) = id {
             self.sessions
                 .direct
-                .tool_started(&self.session, id, name, &input)
+                .tool_started(&self.session, id, &tool.name, &tool.input)
                 .await;
         }
         verdict
@@ -865,32 +850,35 @@ impl AgentHost {
         }
     }
 
-    /// Asks a person whether the agent may use `tool` with `input`, and
+    /// Asks a person whether the agent may make the call `tool`, and
     /// waits for the answer. The session shows as waiting meanwhile. A
     /// stopping or ended session is denied without asking. Dropping the
     /// future withdraws the request.
     pub async fn ask(
         &self,
-        tool: String,
-        input: serde_json::Value,
+        tool: ToolRequest,
         title: Option<String>,
         reason: Option<PermissionReason>,
     ) -> PermissionAnswer {
-        if let Some(why) = self.outside_research(&tool) {
+        if let Some(why) = self.outside_research(&tool.name) {
             let answer = PermissionAnswer::deny(why);
-            return self.decided(&tool, &input, answer, DecidedBy::Role).await;
+            return self.decided(&tool, answer, DecidedBy::Role).await;
         }
-        if let Some(name) = tool.strip_prefix(crate::orchestration::IDE_TOOL_PREFIX) {
+        if let Some(name) = tool
+            .name
+            .strip_prefix(crate::orchestration::IDE_TOOL_PREFIX)
+        {
             // Ovra's own tools are decided by role and limits, never asked.
             return match self.sessions.core() {
                 Some(core) => {
-                    let answer = crate::orchestration::decide(&core, &self.session, name, &input);
-                    self.decided(&tool, &input, answer, DecidedBy::Role).await
+                    let answer =
+                        crate::orchestration::decide(&core, &self.session, name, &tool.input);
+                    self.decided(&tool, answer, DecidedBy::Role).await
                 }
                 None => PermissionAnswer::deny("Ovra is shutting down"),
             };
         }
-        let decided = self.policy(&tool, &input);
+        let decided = self.policy(&tool);
         // A call some rule asks about, or under an unreadable policy, gets
         // no "Always allow".
         let open = matches!(decided, Ok(None));
@@ -900,32 +888,29 @@ impl AgentHost {
                 // between the two).
                 self.sessions
                     .direct
-                    .tool_answered(&self.session, &tool, &input, false)
+                    .tool_answered(&self.session, &tool.name, &tool.input, false)
                     .await;
                 let answer = PermissionAnswer::deny(format!(
                     "The project's policy refuses this ({rule}). Ask the person if it is needed."
                 ));
                 return self
-                    .decided(&tool, &input, answer, DecidedBy::Policy { rule })
+                    .decided(&tool, answer, DecidedBy::Policy { rule })
                     .await;
             }
             Ok(Some((PolicyAction::Auto, rule))) => {
                 let by = DecidedBy::Policy { rule };
-                return self
-                    .decided(&tool, &input, PermissionAnswer::allow(), by)
-                    .await;
+                return self.decided(&tool, PermissionAnswer::allow(), by).await;
             }
             // A research session's web search runs on Anthropic's side and
             // touches nothing here (ADR 0013).
-            Ok(None) if tool == WEB_SEARCH && self.is_research() => {
+            Ok(None) if tool.name == WEB_SEARCH && self.is_research() => {
                 return self
-                    .decided(&tool, &input, PermissionAnswer::allow(), DecidedBy::Role)
+                    .decided(&tool, PermissionAnswer::allow(), DecidedBy::Role)
                     .await;
             }
             // Unreadable policy: ask, never decide on its own.
             _ => {}
         }
-        let tool_input = (tool.clone(), input.clone());
         let registered = self.sessions.find(&self.session, |s| {
             if s.stopping() {
                 return Err(PermissionAnswer::deny("the session was stopped"));
@@ -935,17 +920,17 @@ impl AgentHost {
             }
             let cwd = s.launch().map(|l| l.cwd);
             let sandbox = s.info().sandbox;
-            let always = cwd
-                .as_deref()
-                .filter(|_| open)
-                .and_then(|cwd| crate::policy::always_rule(&tool, &input, cwd, sandbox.as_ref()));
+            let always = cwd.as_deref().filter(|_| open).and_then(|cwd| {
+                crate::policy::always_rule(&tool.name, &tool.input, cwd, sandbox.as_ref())
+            });
             Ok(s.permissions.register(PermissionRequest {
                 id: PermissionId(String::new()),
                 session: self.session.clone(),
                 project: s.info().project,
                 cwd: cwd.map(|c| c.to_string_lossy().into_owned()),
-                tool,
-                input,
+                tool: tool.name.clone(),
+                input: tool.input.clone(),
+                call: tool.call.clone(),
                 title,
                 reason,
                 always,
@@ -954,17 +939,11 @@ impl AgentHost {
         let (request, answer) = match registered {
             Ok(Ok(registered)) => registered,
             Ok(Err(answer)) => {
-                let (tool, input) = &tool_input;
-                return self
-                    .decided(tool, input, answer, DecidedBy::SessionEnded)
-                    .await;
+                return self.decided(&tool, answer, DecidedBy::SessionEnded).await;
             }
             Err(_) => {
-                let (tool, input) = &tool_input;
                 let answer = PermissionAnswer::deny("the session ended");
-                return self
-                    .decided(tool, input, answer, DecidedBy::SessionEnded)
-                    .await;
+                return self.decided(&tool, answer, DecidedBy::SessionEnded).await;
             }
         };
         let mut waiting = Waiting {
@@ -972,9 +951,10 @@ impl AgentHost {
             id: Some(request.id.clone()),
             settled: false,
         };
-        let (tool, input) = tool_input;
         let direct = &self.sessions.direct;
-        direct.tool_waiting(&self.session, &tool, &input).await;
+        direct
+            .tool_waiting(&self.session, &tool.name, &tool.input)
+            .await;
         self.sink
             .emit(PermissionsEvent::Requested(Box::new(request)));
         self.set_status(AgentStatus::WaitingForApproval);
@@ -987,9 +967,9 @@ impl AgentHost {
         waiting.id = None;
         // Queued at once, so the entry survives the future being dropped.
         let allowed = answer.decision == Decision::Allow;
-        let recorded = self.audit_tool(&tool, &input, allowed, by);
+        let recorded = self.audit_tool(&tool, allowed, by);
         direct
-            .tool_answered(&self.session, &tool, &input, allowed)
+            .tool_answered(&self.session, &tool.name, &tool.input, allowed)
             .await;
         // Ignored while other requests of the session still wait.
         self.set_status(AgentStatus::Working);
@@ -1035,6 +1015,21 @@ impl AgentHost {
             )
         })
     }
+}
+
+/// A tool call as a runtime passes it to the core ([`AgentHost::ask`],
+/// [`AgentHost::before_tool`]): the agent's own name and input, and what
+/// they mean in shared terms. The runtime maps its tools; the core decides
+/// on `call`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ToolRequest {
+    pub name: String,
+    pub input: serde_json::Value,
+    pub call: ToolCall,
+    /// The text an `edit` call writes (a file's new content, or what
+    /// replaces a part of it), whose hash the audit log keeps. Never sent
+    /// to clients or kept in transcripts.
+    pub written: Option<String>,
 }
 
 /// What the project's policy says about a tool call before it runs

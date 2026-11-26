@@ -2,7 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use super::agents::SessionId;
+use super::agents::{SessionId, ToolCall};
 use super::policy::PolicyRule;
 use super::projects::ProjectId;
 
@@ -26,6 +26,9 @@ pub struct PermissionRequest {
     pub tool: String,
     /// The tool's input, as the agent sent it.
     pub input: serde_json::Value,
+    /// What the call does in shared terms.
+    #[serde(default)]
+    pub call: ToolCall,
     /// A one-line description from the agent, if it gave one.
     pub title: Option<String>,
     /// Why the agent's own rules ask a person, if it says.

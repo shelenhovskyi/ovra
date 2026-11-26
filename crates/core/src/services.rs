@@ -16,7 +16,7 @@ use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::sync::broadcast;
 
-pub use crate::agents::{AgentHost, BeforeTool};
+pub use crate::agents::{AgentHost, BeforeTool, ToolRequest};
 pub use crate::lsp::ServerHost;
 use crate::path::RelPath;
 use crate::protocol::agents::{

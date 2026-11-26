@@ -1,0 +1,24 @@
+---
+source: crates/agent-runtime/src/tools.rs
+expression: "lines.join(\"\\n\")"
+---
+Bash => {"kind":"execute","command":"git status"}
+Read => {"kind":"read","paths":["/w/src/a.rs"]}
+NotebookRead => {"kind":"read","paths":["/w/n.ipynb"]}
+Edit => {"kind":"edit","paths":["/w/a.rs"]} writes y
+Write => {"kind":"edit","paths":["b.rs"]} writes fn main() {}
+MultiEdit => {"kind":"edit","paths":["/w/a.rs"]} writes [{"new_string":"y","old_string":"x"}]
+NotebookEdit => {"kind":"edit","paths":["/w/n.ipynb"]} writes print(1)
+Glob => {"kind":"search"}
+Grep => {"kind":"search"}
+LS => {"kind":"search"}
+WebSearch => {"kind":"search"}
+WebFetch => {"kind":"fetch","url":"https://docs.rs/"}
+Task => {"kind":"subagent"}
+Agent => {"kind":"subagent"}
+TodoWrite => {"kind":"think"}
+BashOutput => {"kind":"other"}
+mcp__ovra__spawn_agent => {"kind":"other"}
+mcp__github__create_issue => {"kind":"other"}
+Bash => {"kind":"execute"}
+Edit => {"kind":"edit"} writes y

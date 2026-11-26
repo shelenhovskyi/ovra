@@ -858,12 +858,15 @@ mod through_the_core {
             "tool_name": "Bash", "tool_input": input,
         });
         assert_eq!(
-            host.before_tool(&hook).await,
+            crate::fakes::before_hook(&host, &hook).await,
             crate::agents::BeforeTool::Proceed
         );
         let asking = tokio::spawn({
             let host = host.clone();
-            async move { host.ask("Bash".into(), input, None, None).await }
+            async move {
+                host.ask(crate::fakes::tool("Bash", input), None, None)
+                    .await
+            }
         });
         let id = loop {
             if let Some(id) = pending(&core).await.pop() {
@@ -1130,7 +1133,7 @@ mod through_the_core {
             "tool_use_id": id, "tool_name": "Bash", "tool_input": {"command": "cargo build"},
         });
         assert_eq!(
-            host.before_tool(&hook).await,
+            crate::fakes::before_hook(host, &hook).await,
             crate::agents::BeforeTool::Proceed
         );
         during.await;

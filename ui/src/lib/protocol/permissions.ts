@@ -1,4 +1,4 @@
-import type { SessionId } from "./agents";
+import type { SessionId, ToolCall } from "./agents";
 import type { PolicyRule } from "./policy";
 import type { ProjectId } from "./projects";
 
@@ -14,6 +14,8 @@ export type PermissionRequest = {
   /** Tool name as the agent reports it, e.g. `Bash` or `Edit`. */
   tool: string;
   input: unknown;
+  /** What the call does in shared terms; a core from before it sends none (read as `other`). */
+  call?: ToolCall;
   title: string | null;
   /** Why the agent's own rules ask a person, if it says. */
   reason?: PermissionReason;

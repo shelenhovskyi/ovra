@@ -6,7 +6,7 @@ use crate::fakes::{MemoryFs, MemoryProjects, RecordingOpener};
 use crate::protocol::agents::{
     AgentMessage, AgentSetup, AgentStatus, AgentsEvent, AgentsResponse, Billing, ConfigItem,
     ConfigKind, ProjectAgentConfig, ProjectConfigReview, SandboxNetwork, SandboxReport, SessionId,
-    SetupState,
+    SetupState, ToolCall, ToolKind,
 };
 use crate::protocol::fs::{FileBody, FsEvent};
 use crate::protocol::info::InfoEvent;
@@ -506,6 +506,7 @@ fn wire_format_is_stable() {
                     id: "tool1".into(),
                     name: "Task".into(),
                     input: serde_json::json!({"prompt": "look"}),
+                    call: ToolCall { kind: ToolKind::Subagent, ..ToolCall::default() },
                     parent: Some("tool0".into()),
                 },
             }),
@@ -528,6 +529,11 @@ fn wire_format_is_stable() {
                 cwd: Some("/work/demo".into()),
                 tool: "Bash".into(),
                 input: serde_json::json!({"command": "ls"}),
+                call: ToolCall {
+                    kind: ToolKind::Execute,
+                    command: Some("ls".into()),
+                    ..ToolCall::default()
+                },
                 title: Some("List files".into()),
                 reason: Some(PermissionReason {
                     text: "This command requires approval".into(),
@@ -594,6 +600,25 @@ fn a_session_saved_before_the_sandbox_flag_reads_as_unreported() {
     assert_eq!(
         boxed.sandbox.map(|s| (s.network, s.gaps)),
         Some((SandboxNetwork::Proxy, vec![]))
+    );
+}
+
+#[test]
+fn a_tool_call_saved_before_its_kind_reads_as_other() {
+    let old: AgentMessage = serde_json::from_value(serde_json::json!({"kind": "tool_use",
+        "id": "t1", "name": "Bash", "input": {"command": "ls"}}))
+    .expect("old tool call");
+    assert!(
+        matches!(&old, AgentMessage::ToolUse { call, .. } if *call == ToolCall::default()),
+        "{old:?}"
+    );
+    // A kind a newer agent reports reads as `other` too.
+    let newer: ToolCall =
+        serde_json::from_value(serde_json::json!({"kind": "teleport", "paths": ["a"]}))
+            .expect("newer kind");
+    assert_eq!(
+        (newer.kind, newer.paths),
+        (ToolKind::Other, vec!["a".into()])
     );
 }
 

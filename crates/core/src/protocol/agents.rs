@@ -245,8 +245,13 @@ pub enum AgentMessage {
     },
     ToolUse {
         id: String,
+        /// The agent's own name and input, for display and the audit log.
         name: String,
         input: serde_json::Value,
+        /// What the call does in shared terms. Transcripts saved before
+        /// Ovra recorded it load as `other`.
+        #[serde(default)]
+        call: ToolCall,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         parent: Option<String>,
     },
@@ -267,6 +272,45 @@ pub enum AgentMessage {
     Error {
         message: String,
     },
+}
+
+/// What a tool call does, in the terms every agent shares (ADR 0011): the
+/// runtime maps its own tool names and inputs to these, and shared code
+/// (policies, direct mode, the audit log, approvals, the transcript) reads
+/// them next to the raw name.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ToolCall {
+    pub kind: ToolKind,
+    /// The files the call reads or changes, as the agent wrote them
+    /// (absolute, or relative to the session's folder).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub paths: Vec<String>,
+    /// The shell command an `execute` call runs.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub command: Option<String>,
+    /// The URL a `fetch` call reads.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
+}
+
+/// A tool call's kind: ACP's list, plus `subagent` for a call that starts a
+/// helper agent, whose own calls follow with it as their `parent`.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ToolKind {
+    Read,
+    Edit,
+    Delete,
+    Move,
+    Search,
+    Execute,
+    Think,
+    Fetch,
+    Subagent,
+    /// Anything else, and a kind Ovra does not know yet.
+    #[default]
+    #[serde(other)]
+    Other,
 }
 
 /// Whether an agent can run on this machine, and what to do if not.

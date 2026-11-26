@@ -53,6 +53,9 @@ expression: samples
     {
       "data": {
         "message": {
+          "call": {
+            "kind": "subagent"
+          },
           "id": "tool1",
           "input": {
             "prompt": "look"
@@ -93,6 +96,10 @@ expression: samples
           "from_approval": true,
           "match": "ls",
           "tool": "Bash"
+        },
+        "call": {
+          "command": "ls",
+          "kind": "execute"
         },
         "cwd": "/work/demo",
         "id": "perm1",

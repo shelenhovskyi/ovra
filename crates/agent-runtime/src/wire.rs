@@ -195,12 +195,17 @@ fn messages(v: &Value) -> Vec<AgentMessage> {
                     text: str_field(block, "text")?,
                     parent: parent.clone(),
                 }),
-                (true, "tool_use") => Some(AgentMessage::ToolUse {
-                    id: str_field(block, "id")?,
-                    name: str_field(block, "name")?,
-                    input: block.get("input").cloned().unwrap_or(json!({})),
-                    parent: parent.clone(),
-                }),
+                (true, "tool_use") => {
+                    let name = str_field(block, "name")?;
+                    let input = block.get("input").cloned().unwrap_or(json!({}));
+                    Some(AgentMessage::ToolUse {
+                        id: str_field(block, "id")?,
+                        call: crate::tools::tool(&name, input.clone()).call,
+                        name,
+                        input,
+                        parent: parent.clone(),
+                    })
+                }
                 (false, "tool_result") => Some(AgentMessage::ToolResult {
                     tool_use_id: str_field(block, "tool_use_id")?,
                     output: tool_output(block.get("content")),

@@ -16,6 +16,10 @@ expression: transcript
       "command": "ping -c 120 127.0.0.1",
       "description": "Ping localhost 120 times in foreground",
       "timeout": 600000
+    },
+    "call": {
+      "kind": "execute",
+      "command": "ping -c 120 127.0.0.1"
     }
   },
   {

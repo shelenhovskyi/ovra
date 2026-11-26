@@ -16,6 +16,9 @@ expression: transcript
       "description": "Read README last line",
       "prompt": "Read the file README.md in the directory /w. Reply with only its last line of text, exactly as written. If the file does not exist or is empty, say so.",
       "subagent_type": "general-purpose"
+    },
+    "call": {
+      "kind": "subagent"
     }
   },
   {
@@ -42,6 +45,12 @@ expression: transcript
     "name": "Read",
     "input": {
       "file_path": "/w/README.md"
+    },
+    "call": {
+      "kind": "read",
+      "paths": [
+        "/w/README.md"
+      ]
     },
     "parent": "toolu_01"
   },

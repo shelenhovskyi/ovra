@@ -13,6 +13,7 @@ mod lsp;
 mod power;
 mod remote;
 mod servers;
+mod tools;
 mod worktrees;
 
 /// An absolute path for tests on every OS, as a `&'static str`: the Unix
@@ -36,6 +37,7 @@ pub use lsp::{FakeLanguageServers, FakeServer, HostRecord};
 pub use power::FakeKeepAwake;
 pub use remote::FakeRemote;
 pub use servers::{FakeDevServer, FakeDevServers};
+pub use tools::{before_hook, tool};
 pub use worktrees::MemoryWorktrees;
 
 use crate::path::RelPath;
@@ -1223,17 +1225,16 @@ async fn play(
             }
             Step::Use { tool, input } => {
                 let id = format!("tool{n}");
+                let request = self::tool(tool, input.clone());
                 host.message(AgentMessage::ToolUse {
                     id: id.clone(),
                     name: tool.to_owned(),
                     input: input.clone(),
+                    call: request.call.clone(),
                     parent: None,
                 });
-                let hook = serde_json::json!({
-                    "tool_use_id": id, "tool_name": tool, "tool_input": input,
-                });
                 let refused = if tools.hooks {
-                    match host.before_tool(&hook).await {
+                    match host.before_tool(Some(&id), &request).await {
                         BeforeTool::Deny(why) => Some(why),
                         BeforeTool::Proceed | BeforeTool::Ask(_) => None,
                     }
@@ -1243,7 +1244,7 @@ async fn play(
                 let (output, is_error) = match refused {
                     Some(why) => (why, true),
                     None => {
-                        let answer = host.ask(tool.to_owned(), input.clone(), None, None).await;
+                        let answer = host.ask(request, None, None).await;
                         match answer.decision {
                             Decision::Allow => tools.run(host, tool, input).await,
                             Decision::Deny => (answer.message.unwrap_or_default(), true),

@@ -138,8 +138,9 @@ impl Checkout {
     async fn tool(&mut self, name: &str, input: Value, change: impl FnOnce(&Path)) {
         self.tools += 1;
         let id = format!("toolu_{}", self.tools);
-        let hook = json!({"tool_use_id": id, "tool_name": name, "tool_input": input});
-        assert_eq!(self.host.before_tool(&hook).await, BeforeTool::Proceed);
+        let call = ovra_core::fakes::tool(name, input);
+        let proceed = self.host.before_tool(Some(&id), &call).await;
+        assert_eq!(proceed, BeforeTool::Proceed);
         change(&self.root);
         self.host.message(AgentMessage::ToolResult {
             tool_use_id: id,

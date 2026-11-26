@@ -630,7 +630,7 @@ async fn always_allow_adds_the_rule_answers_and_the_next_call_is_allowed() {
     let test = json!({"command": "npm test"});
     let asking = |host: AgentHost| {
         let test = test.clone();
-        tokio::spawn(async move { host.ask("Bash".into(), test, None, None).await })
+        tokio::spawn(async move { host.ask(crate::fakes::tool("Bash", test), None, None).await })
     };
     let requested = |rx: &mut tokio::sync::broadcast::Receiver<Event>| {
         let mut rx = rx.resubscribe();
@@ -691,7 +691,9 @@ async fn always_allow_adds_the_rule_answers_and_the_next_call_is_allowed() {
     assert!(kept.rules[0].from_approval);
 
     // The next identical call is decided by the rule, without a request.
-    let again = boxed.ask("Bash".into(), test.clone(), None, None).await;
+    let again = boxed
+        .ask(crate::fakes::tool("Bash", test.clone()), None, None)
+        .await;
     assert_eq!(again.decision, Decision::Allow);
     // A longer command starting the same way is asked about.
     let longer = json!({"command": "npm test -- --reporter x"});
@@ -768,8 +770,12 @@ async fn always_allow_takes_the_request_first_and_adds_no_rule_twice() {
     let ask = || {
         let host = host.clone();
         tokio::spawn(async move {
-            host.ask("Bash".into(), json!({"command": "npm test"}), None, None)
-                .await
+            host.ask(
+                crate::fakes::tool("Bash", json!({"command": "npm test"})),
+                None,
+                None,
+            )
+            .await
         })
     };
     let requested = || {

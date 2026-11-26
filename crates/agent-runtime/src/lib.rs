@@ -11,6 +11,7 @@ mod env;
 mod launch;
 mod policy;
 mod project;
+mod tools;
 mod wire;
 
 use std::path::PathBuf;
