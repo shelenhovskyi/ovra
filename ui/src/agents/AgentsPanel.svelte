@@ -214,6 +214,16 @@ const researchFull = $derived(
   mode === "research" && capacity !== undefined && capacity.research_working >= capacity.research_limit,
 );
 /** Why Start cannot work right now, said before the press instead of after it. */
+/**
+ * The task that works in the project's own folder: one at a time there, so
+ * "One agent, here" says so before Start, with the way on (NEW-1, ORCH-4).
+ */
+const holder = $derived(
+  list.find((s) => s.mode === "direct" && sessions.roles.get(s.id)?.kind !== "coordinator" && !isEnded(s.status)) ??
+    null,
+);
+const heldHere = $derived(mode === "here" && holder !== null);
+
 const startBlock = $derived(
   blocked
     ? "The account is signed out"
@@ -223,7 +233,9 @@ const startBlock = $derived(
         ? capacity?.research_limit === 0
           ? "Research is off in Settings"
           : `All ${capacity?.research_limit} research agents are busy`
-        : null,
+        : heldHere
+          ? "Another task has this folder"
+          : null,
 );
 const usable = $derived(accounts.signedIn);
 /** Who pays for the next task, in two or three words; it opens the agent's setup. */
@@ -717,7 +729,7 @@ async function begin(body: string, how: TaskMode, use: string | null, context: C
 
 async function start(): Promise<void> {
   const body = prompt.trim();
-  if (!project || !body || busy || blocked) return;
+  if (!project || !body || busy || blocked || heldHere) return;
   if (drafts.unconfirmed(newBox).length > 0) {
     startError = { text: "Choose Send anyway or remove the marked item first.", setup: false };
     return;
@@ -1586,6 +1598,16 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
         <p class="blocked" role="note" data-testid="agent-needs-git">
           <span>Needs git: Plan and split works on copies of a git repository.</span>
           <button type="button" class="quiet soft" onclick={() => project && setUpGit(project.id)}>Set up git</button>
+        </p>
+      {:else if heldHere && holder}
+        <p class="blocked calm" role="note" data-testid="agent-folder-held">
+          {#if isBusy(holder.status) || holder.status.state === "queued"}
+            <span>"{sessions.name(holder.id)}" works in this folder. One task works here at a time.</span>
+            {#if noRepo !== project.id}<button type="button" class="quiet" onclick={() => (mode = "split")}>Use Plan and split</button>{/if}
+          {:else}
+            <span>"{sessions.name(holder.id)}" still has this folder. Close it to start a new task here.</span>
+            <button type="button" class="quiet" onclick={() => holder && close(holder.id)}>Close it</button>
+          {/if}
         </p>
       {:else if atCap}
         <p class="blocked calm" role="note" data-testid="agent-at-cap">

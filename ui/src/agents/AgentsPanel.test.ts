@@ -1216,7 +1216,8 @@ describe("AgentsPanel", () => {
 
   it("says when every agent waits for the person, and that One agent, here waits in line at the cap", async () => {
     const core = new FakeAgentCore();
-    for (const n of [1, 2, 3]) core.addSession("p1", `Task ${n}`, { state: "waiting_for_approval" });
+    // Each in its own copy: none has the project's folder, so One agent, here may queue.
+    for (const n of [1, 2, 3]) core.addSession("p1", `Task ${n}`, { state: "waiting_for_approval" }).mode = "isolated";
     core.capacity = { working: 3, limit: 3, queued: 0, research_working: 0, research_limit: 2, waiting: [] };
     await setup(core);
     const count = () => target.querySelector("[data-testid=agents-capacity]");
@@ -1233,6 +1234,22 @@ describe("AgentsPanel", () => {
     core.status("s1", { state: "working" });
     await settle();
     expect(count()?.textContent?.trim()).toBe("3 of 3");
+  });
+
+  it("says before Start that another task has the project's folder, with the way on", async () => {
+    const core = new FakeAgentCore();
+    const first = core.addSession("p1", "Fix the typo", { state: "working" });
+    await setup(core);
+    const note = () =>
+      target.querySelector("[data-testid=agent-folder-held]")?.textContent?.replace(/\s+/g, " ").trim();
+    expect(note()).toBe('"Fix the typo" works in this folder. One task works here at a time. Use Plan and split');
+    expect(startButton()?.title).toBe("Another task has this folder");
+    core.status(first.id, { state: "idle" });
+    await settle();
+    expect(note()).toBe('"Fix the typo" still has this folder. Close it to start a new task here. Close it');
+    button("Close it")?.click();
+    await settle();
+    expect(note()).toBeUndefined();
   });
 
   it("shows a waiting start's place in line, and Cancel takes it out", async () => {
