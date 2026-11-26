@@ -289,20 +289,49 @@ fn writes_main(ctx: &Ctx<'_>, session: &SessionId) -> Result<()> {
     Err(ProtocolError::new(ErrorCode::BadRequest, refused))
 }
 
-/// `parts` after the note a go-back left for the agent, if any, and
-/// before what waits for it on its task's board: one message starts the
-/// turn, the sender's words first.
+/// `parts` after the note a go-back left for the agent, if any.
 fn with_note(ctx: &Ctx<'_>, session: &SessionId, parts: Parts) -> Parts {
     let note = ctx.sessions.direct.note(session);
-    let board = ctx
-        .sessions
-        .core()
-        .and_then(|core| crate::orchestration::board_waiting(&core, session));
     note.map(|n| (n, MessageFrom::Ovra))
         .into_iter()
         .chain(parts)
-        .chain(board.map(|b| (b, MessageFrom::Ovra)))
         .collect()
+}
+
+/// `parts` and then what waits for the agent on its task's board, so one
+/// message starts the turn with the sender's words first. The entries stay
+/// queued until [`delivered`]: a message that would be too long with them
+/// goes without them.
+fn with_board(
+    ctx: &Ctx<'_>,
+    session: &SessionId,
+    parts: Parts,
+) -> (Parts, Option<crate::orchestration::BoardWaiting>) {
+    let waiting = ctx
+        .sessions
+        .core()
+        .and_then(|core| crate::orchestration::board_waiting(&core, session));
+    let Some(waiting) = waiting else {
+        return (parts, None);
+    };
+    let mut with = parts.clone();
+    with.push((waiting.text.clone(), MessageFrom::Ovra));
+    if joined(&with).is_ok() {
+        (with, Some(waiting))
+    } else {
+        (parts, None)
+    }
+}
+
+/// The board entries a message carried reached the agent.
+fn delivered(
+    ctx: &Ctx<'_>,
+    session: &SessionId,
+    waiting: Option<crate::orchestration::BoardWaiting>,
+) {
+    if let (Some(core), Some(waiting)) = (ctx.sessions.core(), waiting) {
+        crate::orchestration::board_delivered(&core, session, waiting);
+    }
 }
 
 /// `parts`, now in the transcript, start a turn: direct mode takes its
@@ -676,6 +705,7 @@ async fn run(
     resume: Option<String>,
 ) -> Result<SessionInfo> {
     let parts = with_note(ctx, id, parts);
+    let (parts, board) = with_board(ctx, id, parts);
     let prompt = joined(&parts)?;
     let sessions = ctx.sessions;
     let project = target.project.id.clone();
@@ -768,7 +798,10 @@ async fn run(
         no_web,
     };
     match ctx.runtime.start(spec, host.clone()) {
-        Ok(process) => sessions.find(id, |s| s.set_process(Arc::from(process)))?,
+        Ok(process) => {
+            delivered(ctx, id, board);
+            sessions.find(id, |s| s.set_process(Arc::from(process)))?;
+        }
         Err(err) => {
             host.status(AgentStatus::Failed {
                 message: err.message.clone(),
@@ -830,9 +863,13 @@ pub(crate) async fn trust(
     ctx.projects.set_trusted(project, Some(current))
 }
 
-/// Sends `parts` as the running session's next message.
+/// Sends `parts` as the running session's next message; empty `parts`
+/// send only what waits for it on its task's board, if anything.
 pub(crate) fn send(ctx: &Ctx<'_>, session: SessionId, parts: Parts) -> Result<()> {
-    joined(&parts)?;
+    let only_board = parts.is_empty();
+    if !only_board {
+        joined(&parts)?;
+    }
     let sessions = ctx.sessions;
     let (process, info, stopping) =
         sessions.find(&session, |s| (s.process(), s.info(), s.stopping()))?;
@@ -851,8 +888,11 @@ pub(crate) fn send(ctx: &Ctx<'_>, session: SessionId, parts: Parts) -> Result<()
         }
         None => return Err(conflict("the session has ended")),
     };
-    // Taken only once the message can go: what waits stays otherwise.
     let parts = with_note(ctx, &session, parts);
+    let (parts, board) = with_board(ctx, &session, parts);
+    if only_board && board.is_none() {
+        return Ok(());
+    }
     let text = joined(&parts)?;
     let host = AgentHost::new(
         session.clone(),
@@ -865,7 +905,9 @@ pub(crate) fn send(ctx: &Ctx<'_>, session: SessionId, parts: Parts) -> Result<()
     }
     turn_started(ctx, &session, &parts);
     host.set_status(AgentStatus::Working);
-    process.send(text)
+    process.send(text)?;
+    delivered(ctx, &session, board);
+    Ok(())
 }
 
 /// Denies what the agent waits for and asks it to end; the runtime then

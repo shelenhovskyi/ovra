@@ -16,7 +16,7 @@ use super::{Result, conflict, forbidden, not_found, tasks};
 use crate::Core;
 use crate::agents;
 use crate::path::RelPath;
-use crate::protocol::agents::{AgentStatus, MessageFrom, SessionId};
+use crate::protocol::agents::{AgentStatus, SessionId};
 use crate::protocol::board::{
     Author, BoardEntry, BoardEvent, BoardRequest, BoardResponse, EntryBody, EntryId, Recipient,
 };
@@ -61,7 +61,7 @@ pub(super) struct Board {
     /// Entries each agent has not been given yet; saved, so that what an
     /// agent did not get before a restart reaches it after.
     #[serde(default)]
-    pending: BTreeMap<SessionId, Vec<usize>>,
+    pub(super) pending: BTreeMap<SessionId, Vec<usize>>,
 }
 
 /// What a caller is on the board.
@@ -467,63 +467,58 @@ fn targets(
     out
 }
 
-/// Takes what waits for `session` on its task's board, as one delivery's
-/// text (`docs/specs/task-board.md`, Delivery).
-pub(super) fn take_waiting(core: &Core, session: &SessionId) -> Option<String> {
-    let (_, entries) = take(core, session);
-    (!entries.is_empty()).then(|| delivery(&entries))
+/// What waits for an agent: one delivery's text and the queue entries it
+/// holds.
+pub(crate) struct Waiting {
+    pub(crate) text: String,
+    taken: Vec<(TaskId, Vec<usize>)>,
 }
 
-/// Takes `session`'s queue off every board, saved: (task, indices) and
-/// their entries.
-fn take(core: &Core, session: &SessionId) -> (Vec<(TaskId, Vec<usize>)>, Vec<BoardEntry>) {
+/// What waits for `session` on any board, left queued
+/// (`docs/specs/task-board.md`, Delivery).
+pub(super) fn waiting(core: &Core, session: &SessionId) -> Option<Waiting> {
     let state = core.orchestration_state();
-    let mut guard = state.lock();
+    let guard = state.lock();
     let mut taken = Vec::new();
     let mut entries = Vec::new();
-    for (task, board) in &mut guard.boards {
-        if let Some(waiting) = board.pending.remove(session) {
+    for (task, board) in &guard.boards {
+        if let Some(waiting) = board.pending.get(session) {
             entries.extend(
                 waiting
                     .iter()
                     .filter_map(|&i| board.entries.get(i).cloned()),
             );
-            taken.push((task.clone(), waiting));
+            taken.push((task.clone(), waiting.clone()));
         }
     }
-    if !taken.is_empty() {
-        state.save(&guard);
-    }
-    (taken, entries)
+    (!entries.is_empty()).then(|| Waiting {
+        text: delivery(&entries),
+        taken,
+    })
 }
 
-/// Sends `session` what waits for it now; what a send cannot take (a
-/// queued or stopping session) goes back, before anything queued since.
-fn flush(core: &Core, session: &SessionId) {
-    let (taken, entries) = take(core, session);
-    if entries.is_empty() {
-        return;
-    }
-    let text = delivery(&entries);
-    if agents::send(
-        &core.agents_ctx(),
-        session.clone(),
-        vec![(text, MessageFrom::Ovra)],
-    )
-    .is_ok()
-    {
-        return;
-    }
+/// `waiting` reached `session`: its entries leave the queue, which is
+/// saved; entries queued since stay.
+pub(super) fn delivered(core: &Core, session: &SessionId, waiting: Waiting) {
     let state = core.orchestration_state();
     let mut guard = state.lock();
-    for (task, waiting) in taken {
-        if let Some(board) = guard.boards.get_mut(&task) {
-            let pending = board.pending.entry(session.clone()).or_default();
-            let later = std::mem::replace(pending, waiting);
-            pending.extend(later);
+    for (task, sent) in waiting.taken {
+        if let Some(board) = guard.boards.get_mut(&task)
+            && let Some(pending) = board.pending.get_mut(session)
+        {
+            pending.retain(|i| !sent.contains(i));
+            if pending.is_empty() {
+                board.pending.remove(session);
+            }
         }
     }
     state.save(&guard);
+}
+
+/// Sends `session` what waits for it now; a send that cannot go (a queued
+/// or stopping session) leaves it queued for the session's next message.
+fn flush(core: &Core, session: &SessionId) {
+    let _ = agents::send(&core.agents_ctx(), session.clone(), Vec::new());
 }
 
 /// One delivery's text: up to [`DELIVER_ENTRIES`] entries or

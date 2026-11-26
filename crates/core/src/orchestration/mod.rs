@@ -132,6 +132,20 @@ pub(crate) async fn pull_request(
     publish::handle(core, request).await
 }
 
+pub(crate) use board::Waiting as BoardWaiting;
+
+/// What waits for `session` on its task's board, as the text that goes
+/// with the message starting its next turn; it stays queued until
+/// [`board_delivered`].
+pub(crate) fn board_waiting(core: &Core, session: &SessionId) -> Option<BoardWaiting> {
+    board::waiting(core, session)
+}
+
+/// The message carrying `waiting` reached `session`: off the queue.
+pub(crate) fn board_delivered(core: &Core, session: &SessionId, waiting: BoardWaiting) {
+    board::delivered(core, session, waiting);
+}
+
 pub(crate) fn board(
     core: &Core,
     request: crate::protocol::board::BoardRequest,
@@ -146,12 +160,6 @@ pub(crate) async fn orchestration(core: &Core, request: OrchestrationRequest) ->
 /// Called whenever a session changes state (and with `starting` when it
 /// starts or resumes). A running session holds its project like an open
 /// window does, so its review diff stays live; the end lets go.
-/// What waits for `session` on its task's board, as the text that goes
-/// with the message starting its next turn; taken off the board's queue.
-pub(crate) fn board_waiting(core: &Core, session: &SessionId) -> Option<String> {
-    board::take_waiting(core, session)
-}
-
 pub(crate) fn on_status(core: &Core, session: &SessionId, status: &AgentStatus) {
     let Ok(project) = core.sessions().find(session, |s| s.info().project) else {
         return;

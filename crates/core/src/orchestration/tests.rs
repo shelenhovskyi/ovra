@@ -3312,3 +3312,31 @@ async fn a_worker_may_ask_the_coordinator_as_often_as_it_needs() {
         assert!(f.core.board_answer(&boss, &q.id, "this").is_ok());
     }
 }
+
+#[tokio::test]
+async fn a_message_too_long_to_carry_the_board_goes_alone_and_the_entries_wait() {
+    let (f, mut rx) = board_fx().await;
+    let lint = caller("s2", ToolRole::Worker);
+    assert!(
+        f.core
+            .board_ask(&lint, "docs", "Do you touch README?")
+            .is_ok()
+    );
+    let long = "x".repeat(65_500);
+    let send = json!({"method": "agents.send", "params": {"session": "s3", "text": long}});
+    ok(&f.core, send).await;
+    until(&mut rx, "s3", AgentStatus::Idle).await;
+    assert!(board_notes(transcript(&f.core, "s3").await).is_empty());
+    let send = json!({"method": "agents.send", "params": {"session": "s3", "text": "and now?"}});
+    ok(&f.core, send).await;
+    until(&mut rx, "s3", AgentStatus::Idle).await;
+    assert_eq!(board_notes(transcript(&f.core, "s3").await).len(), 1);
+    let state = f.core.orchestration_state();
+    assert!(
+        state
+            .lock()
+            .boards
+            .values()
+            .all(|b| !b.pending.contains_key(&sid("s3")))
+    );
+}
