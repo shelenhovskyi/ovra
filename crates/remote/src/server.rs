@@ -462,9 +462,30 @@ struct PairBody {
     name: String,
 }
 
+/// Whether `c` is invisible formatting that could hide or reorder what a
+/// name shows: zero-width and direction marks, soft hyphens, line and
+/// paragraph separators.
+fn is_format(c: char) -> bool {
+    matches!(
+        c,
+        '\u{00AD}'
+            | '\u{061C}'
+            | '\u{180E}'
+            | '\u{200B}'..='\u{200F}'
+            | '\u{2028}'..='\u{202E}'
+            | '\u{2060}'..='\u{206F}'
+            | '\u{FEFF}'
+            | '\u{FFF9}'..='\u{FFFB}'
+    )
+}
+
 /// A device name for lists: one line, printable, at most 40 characters.
 fn clean_name(name: &str) -> String {
-    let name: String = name.chars().filter(|c| !c.is_control()).take(40).collect();
+    let name: String = name
+        .chars()
+        .filter(|c| !c.is_control() && !is_format(*c))
+        .take(40)
+        .collect();
     let name = name.trim();
     if name.is_empty() {
         "Phone".into()
@@ -691,6 +712,11 @@ mod tests {
         assert_eq!(clean_name("  "), "Phone");
         assert_eq!(clean_name("Ana's\niPhone\u{7}"), "Ana'siPhone");
         assert_eq!(clean_name(&"x".repeat(100)).len(), 40);
+        assert_eq!(
+            clean_name("Ana\u{202E}enohp\u{200B}\u{2028}\u{FEFF}\u{00AD}\u{061C}\u{2066}"),
+            "Anaenohp"
+        );
+        assert_eq!(clean_name("\u{200D}\u{2029}"), "Phone");
     }
 
     #[test]
