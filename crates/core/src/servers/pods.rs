@@ -44,7 +44,7 @@ pub(super) async fn pod(core: &Core, place: &Place, defs: &[ServerDef]) -> Resul
         Some(_) => SessionMode::Isolated,
         None => SessionMode::Direct,
     };
-    let mut profile = crate::agents::profile(&project, mode, &place.dir, network, Vec::new(), None);
+    let mut profile = crate::agents::profile(&project, mode, &place.dir, network, Vec::new());
     profile.expose = defs.iter().map(|d| d.port).collect();
     profile.kind = crate::services::ProfileKind::Pod;
     profile.work_env = crate::orchestration::work_env(core, &place.dir);

@@ -183,21 +183,23 @@ async fn session(
     // An available sandbox that cannot wrap the session fails it: it never
     // runs unsandboxed instead.
     let line = match sandbox.status() {
-        SandboxStatus::Available { name, gaps } => match sandbox.wrap(&spec.sandbox, line) {
-            Ok(line) => {
-                host.sandboxed(Some(SandboxReport {
-                    name,
-                    network: network(&spec.sandbox.network),
-                    gaps,
-                }));
-                line
+        SandboxStatus::Available { name, gaps } => {
+            match sandbox.wrap(&launch::profile(&spec), line) {
+                Ok(line) => {
+                    host.sandboxed(Some(SandboxReport {
+                        name,
+                        network: network(&spec.sandbox.network),
+                        gaps,
+                    }));
+                    line
+                }
+                // Not reported: the session never ran, and a resume already
+                // dropped the last run's report.
+                Err(e) => {
+                    return failed(format!("the sandbox could not wrap claude: {}", e.message));
+                }
             }
-            // Not reported: the session never ran, and a resume already
-            // dropped the last run's report.
-            Err(e) => {
-                return failed(format!("the sandbox could not wrap claude: {}", e.message));
-            }
-        },
+        }
         SandboxStatus::Unavailable { .. } => {
             host.sandboxed(None);
             let outer = std::env::vars_os().map(|(name, _)| name);

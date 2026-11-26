@@ -152,7 +152,10 @@ mod tests {
     #[test]
     fn the_names_kept_are_the_sandboxes_plus_what_they_set_themselves() {
         let linux = include_str!("../../sandbox-linux/src/plan.rs");
-        let mut expected = list(linux, "ENV_KEPT");
+        let mut expected = list(linux, "ENV_PERSON");
+        expected.extend(list(linux, "ENV_TOOLS"));
+        expected.extend(CLAUDE_LISTS.env);
+        expected.push(CLAUDE_LISTS.fixture_var);
         expected.extend(list(linux, "CA_BUNDLE_VARS"));
         expected.extend(["PATH", "TMPDIR", "NODE_USE_ENV_PROXY"]);
         expected.extend(["HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY"]);

@@ -1,6 +1,21 @@
 #![allow(clippy::unwrap_used)]
 
 use super::*;
+use ovra_core::services::AgentState;
+
+/// The Claude runtime's own lists, compiled here so the plans below are
+/// those of `claude`'s real state. Read as source: this crate cannot depend
+/// on the runtime, so the crate graph does not see this.
+#[path = "../../../agent-runtime/src/claude_lists.rs"]
+mod claude_lists;
+
+/// `claude`'s state, in the account's folder `config_dir` if given.
+fn claude_state(config_dir: Option<PathBuf>) -> Option<AgentState> {
+    Some(AgentState {
+        lists: &claude_lists::CLAUDE_LISTS,
+        config_dir,
+    })
+}
 
 const PROTECTED: &[&str] = &[".claude", ".vscode", "**/CLAUDE.md"];
 
@@ -121,7 +136,7 @@ fn a_direct_session_behind_a_proxy() {
     root.dir("sys/bin");
     let profile = SandboxProfile {
         kind: ovra_core::services::ProfileKind::Agent,
-        claude_dir: None,
+        agent_state: None,
         project: None,
         work_env: None,
         work_dir: work.clone(),
@@ -152,7 +167,7 @@ fn a_worker_reads_its_git_folder() {
     let setup = root.setup(&["sys/bin"]);
     let profile = SandboxProfile {
         kind: ovra_core::services::ProfileKind::Agent,
-        claude_dir: None,
+        agent_state: None,
         project: None,
         work_env: None,
         work_dir: work.clone(),
@@ -177,7 +192,7 @@ fn a_read_only_folder_is_refused_until_it_can_be_kept_read_only() {
     let setup = root.setup(&["sys/bin"]);
     let profile = SandboxProfile {
         kind: ovra_core::services::ProfileKind::Agent,
-        claude_dir: None,
+        agent_state: None,
         work_dir: work.clone(),
         work_dir_read_only: true,
         read: Vec::new(),
@@ -201,7 +216,7 @@ fn folders_holding_the_home_folder_or_ovras_data_are_refused() {
     for work in [root.0.clone(), root.dir("home"), root.dir("home/.claude/x")] {
         let profile = SandboxProfile {
             kind: ovra_core::services::ProfileKind::Agent,
-            claude_dir: None,
+            agent_state: None,
             project: None,
             work_env: None,
             work_dir: work.clone(),
@@ -231,7 +246,7 @@ fn a_protected_path_that_is_a_link_refuses_the_session() {
     let setup = root.setup(&["sys/bin"]);
     let profile = SandboxProfile {
         kind: ovra_core::services::ProfileKind::Agent,
-        claude_dir: None,
+        agent_state: None,
         project: None,
         work_env: None,
         work_dir: work,
@@ -254,7 +269,7 @@ fn variable_names_match_without_case() {
     let setup = root.setup(&["sys/bin"]);
     let profile = SandboxProfile {
         kind: ovra_core::services::ProfileKind::Agent,
-        claude_dir: None,
+        agent_state: None,
         project: None,
         work_env: None,
         work_dir: work.clone(),
@@ -308,7 +323,7 @@ fn a_helper_installed_in_the_home_folder_can_be_started() {
     setup.helper = root.file("home/AppData/Local/Programs/Ovra/ovra.exe");
     let profile = SandboxProfile {
         kind: ovra_core::services::ProfileKind::Agent,
-        claude_dir: None,
+        agent_state: None,
         project: None,
         work_env: None,
         work_dir: work,
@@ -333,7 +348,7 @@ fn secret_folders_stay_hidden_whatever_the_case_of_their_name() {
     let setup = root.setup(&["home/.SSH/bin", "sys/bin"]);
     let profile = SandboxProfile {
         kind: ovra_core::services::ProfileKind::Agent,
-        claude_dir: None,
+        agent_state: None,
         project: None,
         work_env: None,
         work_dir: work,
@@ -349,7 +364,7 @@ fn secret_folders_stay_hidden_whatever_the_case_of_their_name() {
     let home_claude = root.dir("home/.Claude/x");
     let profile = SandboxProfile {
         kind: ovra_core::services::ProfileKind::Agent,
-        claude_dir: None,
+        agent_state: None,
         project: None,
         work_env: None,
         work_dir: home_claude,
@@ -371,7 +386,7 @@ fn server_pods_are_refused_and_forwards_left_out() {
     let setup = root.setup(&["sys/bin"]);
     let mut profile = SandboxProfile {
         kind: ovra_core::services::ProfileKind::Agent,
-        claude_dir: None,
+        agent_state: None,
         project: None,
         work_env: None,
         work_dir: work,
@@ -396,7 +411,7 @@ fn an_account_with_its_own_folder_is_refused() {
     let setup = root.setup(&["sys/bin"]);
     let profile = SandboxProfile {
         kind: ovra_core::services::ProfileKind::Agent,
-        claude_dir: Some(root.dir("home/.claude-work")),
+        agent_state: claude_state(Some(root.dir("home/.claude-work"))),
         project: None,
         work_env: None,
         work_dir: work,

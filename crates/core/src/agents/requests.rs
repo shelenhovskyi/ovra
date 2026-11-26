@@ -705,19 +705,19 @@ pub(crate) async fn resume(ctx: &Ctx<'_>, session: SessionId, parts: Parts) -> R
 
 /// What a session may touch in a sandbox. A worker reads its main
 /// repository's git folder, which its worktree's history lives in.
-/// `forward`: the ports of its work dir's servers (ADR 0008).
-/// `claude_dir`: the account's configuration folder, if it has one.
+/// `forward`: the ports of its work dir's servers (ADR 0008). The agent's
+/// own state is the runtime's to add: it knows its provider's lists, and
+/// the account's folder is `AgentSpec::config_dir`.
 pub(crate) fn profile(
     project: &Project,
     mode: SessionMode,
     cwd: &Path,
     network: ProfileNetwork,
     forward: Vec<u16>,
-    claude_dir: Option<PathBuf>,
 ) -> SandboxProfile {
     SandboxProfile {
         kind: crate::services::ProfileKind::Agent,
-        claude_dir,
+        agent_state: None,
         project: Some(project.id.clone()),
         work_env: None,
         work_dir: cwd.to_path_buf(),
@@ -808,14 +808,7 @@ async fn run(
         crate::servers::session_started(core, id);
     }
     let config_dir = target.account.config_dir.map(PathBuf::from);
-    let mut sandbox = profile(
-        &target.project,
-        mode,
-        &launch.cwd,
-        network,
-        forward,
-        config_dir.clone(),
-    );
+    let mut sandbox = profile(&target.project, mode, &launch.cwd, network, forward);
     // A worker's ports and roots (`docs/specs/worktree-setup.md`).
     sandbox.work_env = core
         .as_ref()

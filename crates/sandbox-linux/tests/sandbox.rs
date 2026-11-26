@@ -15,6 +15,12 @@ use std::process::{Command, Output, Stdio};
 use ovra_core::services::{CommandLine, ProfileNetwork, Sandbox, SandboxProfile, SandboxStatus};
 use ovra_sandbox_linux::{Bubblewrap, HELPER_FLAG, Protected, Setup};
 
+/// The Claude runtime's own lists, compiled here so the sandbox gives back
+/// `claude`'s real state. Read as source: this crate cannot depend on the
+/// runtime, so the crate graph does not see this.
+#[path = "../../agent-runtime/src/claude_lists.rs"]
+mod claude_lists;
+
 const HELPER: &str = env!("CARGO_BIN_EXE_ovra-sandbox-helper");
 
 const PROTECTED: Protected = Protected {
@@ -114,7 +120,10 @@ fn sandbox_on(home: &Path, hidden: Vec<PathBuf>, path: &str) -> Option<Bubblewra
 fn profile(work_dir: &Path, network: ProfileNetwork) -> SandboxProfile {
     SandboxProfile {
         kind: ovra_core::services::ProfileKind::Agent,
-        claude_dir: None,
+        agent_state: Some(ovra_core::services::AgentState {
+            lists: &claude_lists::CLAUDE_LISTS,
+            config_dir: None,
+        }),
         project: None,
         work_env: None,
         work_dir: work_dir.to_path_buf(),

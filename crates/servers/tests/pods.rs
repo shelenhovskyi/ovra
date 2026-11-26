@@ -98,7 +98,7 @@ impl Setup {
             work_dir: self.work.path().into(),
             profile: SandboxProfile {
                 kind: ovra_core::services::ProfileKind::Pod,
-                claude_dir: None,
+                agent_state: None,
                 project: None,
                 work_env: None,
                 work_dir: self.work.path().into(),

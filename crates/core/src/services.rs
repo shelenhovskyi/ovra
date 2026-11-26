@@ -297,10 +297,10 @@ pub struct SandboxProfile {
     /// Whom the sandbox is for, which decides what of the person's own
     /// state it gets back.
     pub kind: ProfileKind,
-    /// An agent session's `claude` configuration folder when its account
-    /// has one: the sandbox gives back this folder instead of `~/.claude`
-    /// and `~/.claude.json`, and no other account's.
-    pub claude_dir: Option<PathBuf>,
+    /// An agent session's own state, which its sandbox gives back, and the
+    /// variables it keeps: set by the runtime of the session's provider.
+    /// `None` gives back none; pods and the browser never get any.
+    pub agent_state: Option<AgentState>,
     /// The project the work dir belongs to: its package caches are that
     /// project's own copy, shared by all its worktrees
     /// (`docs/specs/worktree-setup.md`).
@@ -382,14 +382,14 @@ pub struct WorkEnv {
 /// Whom a sandbox is for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ProfileKind {
-    /// An agent session: `claude`'s settings, login and transcripts come
-    /// back, and the variables it needs.
+    /// An agent session: the agent's settings, login and transcripts come
+    /// back, and the variables it needs (`agent_state`).
     Agent,
-    /// A server pod (ADR 0008; `expose` names its ports): none of
-    /// `claude`'s state, no Claude or cloud-provider variables.
+    /// A server pod (ADR 0008; `expose` names its ports): no agent's
+    /// state, no agent or cloud-provider variables.
     Pod,
-    /// The agent browser (ADR 0009): its profile folder alone, none of
-    /// `claude`'s state or the home folder's tools and caches.
+    /// The agent browser (ADR 0009): its profile folder alone, no agent's
+    /// state and none of the home folder's tools and caches.
     Browser,
 }
 

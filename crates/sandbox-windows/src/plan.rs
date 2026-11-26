@@ -215,7 +215,11 @@ impl Plan {
             ));
         }
         // It would show `~/.claude` instead of the account's folder.
-        if profile.claude_dir.is_some() {
+        if profile
+            .agent_state
+            .as_ref()
+            .is_some_and(|state| state.config_dir.is_some())
+        {
             return Err(invalid(
                 "the Windows sandbox cannot run a Claude account with its own folder yet; use the default account",
             ));

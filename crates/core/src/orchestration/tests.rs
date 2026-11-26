@@ -2586,7 +2586,7 @@ async fn workers_run_with_their_coordinators_account() {
     let started = started.unwrap_or_else(|e| panic!("{e}"));
     for spec in &started[..2] {
         assert_eq!(spec.config_dir.as_deref(), Some(std::path::Path::new(work)));
-        assert_eq!(spec.sandbox.claude_dir, spec.config_dir);
+        assert_eq!(spec.sandbox.agent_state, None);
     }
 }
 

@@ -815,6 +815,14 @@ echo '{"type":"result","subtype":"success","usage":{"input_tokens":1,"output_tok
         let profiles = lock(&sandbox.wrapped).clone();
         assert_eq!(profiles.len(), 1);
         assert_eq!(profiles[0].work_dir, dir.0);
+        // `claude`'s own state, in the default account's folder.
+        assert_eq!(
+            profiles[0].agent_state,
+            Some(ovra_core::services::AgentState {
+                lists: &crate::claude_lists::CLAUDE_LISTS,
+                config_dir: None,
+            })
+        );
         assert_eq!(
             sessions(&core).await[0].sandbox,
             Some(SandboxReport {

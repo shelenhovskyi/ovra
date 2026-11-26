@@ -28,7 +28,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use ovra_core::protocol::{ErrorCode, ProtocolError};
 use ovra_core::services::{
-    CommandLine, Result, Sandbox, SandboxProfile, SandboxStatus, ServerProfile,
+    AgentState, CommandLine, ProviderLists, Result, Sandbox, SandboxProfile, SandboxStatus,
+    ServerProfile,
 };
 
 mod helper;
@@ -43,6 +44,27 @@ pub use plan::Protected;
 /// The first argument that makes a program the sandbox helper (see
 /// [`helper_if_asked`]).
 pub const HELPER_FLAG: &str = "--ovra-sandbox-helper";
+
+/// The probe's own stand-in for an agent's state: a configuration folder
+/// with one private folder, a transcripts folder with its read-only
+/// memory and one rewritten file, so the probe tries the same layering
+/// (a read-only bind with private and writable mounts on top) a session's
+/// sandbox makes.
+const PROBE_AGENT: ProviderLists = ProviderLists {
+    name: "probe",
+    home_dir: ".agent",
+    state_file: ".agent.json",
+    config_var: "OVRA_PROBE_CONFIG_DIR",
+    private: &["cache"],
+    in_place: &[],
+    files: &["history"],
+    files_made: &["history"],
+    projects: "projects",
+    project_memory: "memory",
+    env: &[],
+    windows_env: &[],
+    fixture_var: "OVRA_PROBE_FIXTURE",
+};
 
 /// Where bubblewrap may be. Only system folders: a `bwrap` found through
 /// the user's `PATH` could be anyone's.
@@ -208,7 +230,10 @@ impl Bubblewrap {
         };
         let profile = SandboxProfile {
             kind: ovra_core::services::ProfileKind::Agent,
-            claude_dir: None,
+            agent_state: Some(AgentState {
+                lists: &PROBE_AGENT,
+                config_dir: None,
+            }),
             project: None,
             work_env: None,
             work_dir: work.clone(),
@@ -386,7 +411,7 @@ mod tests {
         };
         let agent = SandboxProfile {
             kind: ovra_core::services::ProfileKind::Agent,
-            claude_dir: None,
+            agent_state: None,
             project: None,
             work_env: None,
             work_dir: "/".into(),

@@ -29,7 +29,7 @@ pub(crate) const NESTED_SESSION_VARS: [&str; 9] = [
 
 /// Where `claude` keeps its settings, login and transcripts. Set only for
 /// an account the user added with its own folder (ADR 0006).
-pub(crate) const CONFIG_DIR_VAR: &str = crate::claude_lists::CLAUDE_LISTS.config_var;
+pub(crate) const CONFIG_DIR_VAR: &str = CLAUDE_LISTS.config_var;
 
 /// A command for `claude` (its version, its sign-in) with the environment a
 /// session gets, so a check sees what a session will: the allowlist of
@@ -77,6 +77,18 @@ pub(crate) fn line(
     }
 }
 
+/// What the session's sandbox shows: the core's profile, with `claude`'s
+/// own state from [`CLAUDE_LISTS`] in the account's folder if it has one.
+pub(crate) fn profile(spec: &AgentSpec) -> SandboxProfile {
+    SandboxProfile {
+        agent_state: Some(AgentState {
+            lists: &CLAUDE_LISTS,
+            config_dir: spec.config_dir.clone(),
+        }),
+        ..spec.sandbox.clone()
+    }
+}
+
 /// The process a (possibly wrapped) command line starts.
 pub(crate) fn spawnable(line: &CommandLine) -> Command {
     let mut command = Command::new(&line.program);
@@ -91,7 +103,9 @@ pub(crate) fn spawnable(line: &CommandLine) -> Command {
     command
 }
 
-use ovra_core::services::{AgentSpec, CommandLine, ToolRole};
+use ovra_core::services::{AgentSpec, AgentState, CommandLine, SandboxProfile, ToolRole};
+
+use crate::claude_lists::CLAUDE_LISTS;
 
 /// Which Claude Code session the process works in.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -460,7 +474,7 @@ mod tests {
             no_web: false,
             sandbox: ovra_core::services::SandboxProfile {
                 kind: ovra_core::services::ProfileKind::Agent,
-                claude_dir: None,
+                agent_state: None,
                 project: None,
                 work_env: None,
                 work_dir: "/work".into(),
@@ -487,5 +501,23 @@ mod tests {
             }
         );
         assert_eq!(resumed.id(), "abc");
+
+        // The sandbox gives back the account's own folder, and nothing
+        // else of the core's profile changes.
+        spec.config_dir = Some("/home/u/.claude-work".into());
+        let profile = super::profile(&spec);
+        let state = profile.agent_state.clone();
+        assert_eq!(
+            state,
+            Some(AgentState {
+                lists: &CLAUDE_LISTS,
+                config_dir: Some("/home/u/.claude-work".into()),
+            })
+        );
+        let rest = SandboxProfile {
+            agent_state: None,
+            ..profile
+        };
+        assert_eq!(rest, spec.sandbox);
     }
 }

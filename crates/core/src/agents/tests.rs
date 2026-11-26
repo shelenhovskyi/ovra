@@ -1417,12 +1417,9 @@ async fn sessions_run_with_their_accounts_folder_and_resume_only_with_it() {
     until(&mut rx, AgentStatus::Idle).await;
     let started = agent.started.lock().map(|s| s.clone()).unwrap_or_default();
     assert_eq!(started[0].config_dir.as_deref(), Some(work.as_path()));
-    assert_eq!(
-        started[0].sandbox.claude_dir.as_deref(),
-        Some(work.as_path())
-    );
     assert_eq!(started[1].config_dir, None);
-    assert_eq!(started[1].sandbox.claude_dir, None);
+    // The runtime adds the agent's own state from its provider's lists.
+    assert!(started.iter().all(|s| s.sandbox.agent_state.is_none()));
     let unknown = json!({"method": "agents.start", "params": {
         "project": "p1", "agent": "claude", "mode": "direct", "prompt": "x", "account": "gone"}});
     assert_eq!(code(&core, unknown).await, ErrorCode::NotFound);

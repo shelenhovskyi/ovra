@@ -247,7 +247,7 @@ mod tests {
         };
         let mut profile = SandboxProfile {
             kind: ovra_core::services::ProfileKind::Browser,
-            claude_dir: None,
+            agent_state: None,
             project: None,
             work_env: None,
             work_dir: "/w".into(),

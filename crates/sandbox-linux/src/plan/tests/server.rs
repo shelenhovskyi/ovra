@@ -119,8 +119,7 @@ fn a_language_server_reads_the_project_and_writes_only_its_cache() {
 
 #[test]
 fn a_language_server_keeps_no_name_of_claude_or_a_cloud_provider() {
-    for name in &crate::plan::server::SERVER_ENV_KEPT {
-        assert!(ENV_KEPT.contains(name), "{name}");
+    for name in ENV_PERSON.iter().chain(&ENV_TOOLS) {
         for word in [
             "ANTHROPIC",
             "CLAUDE",

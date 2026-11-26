@@ -29,6 +29,12 @@ use ovra_core::services::{
 use ovra_netproxy::NetProxies;
 use ovra_sandbox_linux::{Bubblewrap, Protected, Setup};
 
+/// The Claude runtime's own lists, compiled here so the sandbox gives back
+/// `claude`'s real state. Read as source: the crate graph keeps the
+/// runtime out of these tests.
+#[path = "../../../crates/agent-runtime/src/claude_lists.rs"]
+mod claude_lists;
+
 /// The sandbox helper, as the daemon is, plus the probes in `src/main.rs`.
 const AGENT: &str = env!("CARGO_BIN_EXE_ovra-security-agent");
 
@@ -138,7 +144,10 @@ impl World {
     fn profile(&self, network: ProfileNetwork) -> SandboxProfile {
         SandboxProfile {
             kind: ovra_core::services::ProfileKind::Agent,
-            claude_dir: None,
+            agent_state: Some(ovra_core::services::AgentState {
+                lists: &claude_lists::CLAUDE_LISTS,
+                config_dir: None,
+            }),
             project: Some(ProjectId("p1".into())),
             work_env: None,
             work_dir: self.project.clone(),

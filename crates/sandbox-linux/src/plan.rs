@@ -8,10 +8,12 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
+use ovra_core::protected::AGENT_STATE_IN_HOME;
 use ovra_core::protocol::projects::ProjectId;
 use ovra_core::protocol::{ErrorCode, ProtocolError};
 use ovra_core::services::{
-    CommandLine, ProfileKind, ProfileNetwork, Result, SandboxProfile, WorkEnv,
+    AgentState, CommandLine, ProfileKind, ProfileNetwork, ProviderLists, Result, SandboxProfile,
+    WorkEnv,
 };
 use sha2::{Digest as _, Sha256};
 
@@ -29,39 +31,15 @@ pub struct Protected {
     pub work_dir: &'static [&'static str],
 }
 
-/// Folders under `~/.claude` that `claude` writes during a session. Each
-/// session gets them empty and private: the user's own sessions read them
-/// too (shell snapshots are sourced before each Bash call), so an agent
-/// must not change theirs. They are made if missing, because `~/.claude`
-/// itself stays read-only.
-const CLAUDE_PRIVATE: [&str; 14] = [
-    "backups",
-    "cache",
-    "debug",
-    "file-history",
-    "ide",
-    "logs",
-    "paste-cache",
-    "plans",
-    "session-env",
-    "sessions",
-    "shell-snapshots",
-    "statsig",
-    "telemetry",
-    "todos",
-];
-
-/// Files `claude` rewrites: its login (the known limit in the spec) and its
-/// prompt history. The history is made if missing.
-const CLAUDE_FILES: [&str; 2] = [".credentials.json", "history.jsonl"];
-
-/// The variables a session keeps from Ovra's environment; every other one
-/// is removed, so tokens such as `GITHUB_TOKEN`, `GH_TOKEN`, `NPM_TOKEN`,
-/// `AWS_*` credentials and `SSH_AUTH_SOCK` stay out (owner approved,
-/// amending ADR 0006). Whole names only: a prefix such as `CLAUDE_CODE_`
-/// would let `CLAUDE_CODE_OAUTH_TOKEN` through. The proxy variables,
-/// `PATH` and `TMPDIR` are set by the plan itself.
-const ENV_KEPT: [&str; 36] = [
+/// The variables every sandbox keeps from Ovra's environment, besides an
+/// agent's own ([`ProviderLists::env`]): every other one is removed, so
+/// tokens such as `GITHUB_TOKEN`, `GH_TOKEN`, `NPM_TOKEN`, `AWS_*`
+/// credentials and `SSH_AUTH_SOCK` stay out (owner approved, amending ADR
+/// 0006). Whole names only: a prefix such as `CLAUDE_CODE_` would let
+/// `CLAUDE_CODE_OAUTH_TOKEN` through. The proxy variables, `PATH` and
+/// `TMPDIR` are set by the plan itself. First the person's own and their
+/// terminal's, then ([`ENV_TOOLS`]) what their tools need.
+const ENV_PERSON: [&str; 12] = [
     "HOME",
     "USER",
     "LOGNAME",
@@ -74,24 +52,10 @@ const ENV_KEPT: [&str; 36] = [
     "TERM",
     "COLORTERM",
     "NO_COLOR",
-    // Where usage is billed, and the gateway it goes through.
-    "ANTHROPIC_API_KEY",
-    "ANTHROPIC_AUTH_TOKEN",
-    "ANTHROPIC_BASE_URL",
-    "ANTHROPIC_MODEL",
-    "ANTHROPIC_SMALL_FAST_MODEL",
-    // Cloud providers: which one, its region and project, never its keys.
-    "CLAUDE_CODE_USE_BEDROCK",
-    "CLAUDE_CODE_USE_VERTEX",
-    "CLAUDE_CODE_USE_FOUNDRY",
-    "ANTHROPIC_BEDROCK_BASE_URL",
-    "ANTHROPIC_VERTEX_BASE_URL",
-    "ANTHROPIC_VERTEX_PROJECT_ID",
-    "ANTHROPIC_FOUNDRY_RESOURCE",
-    "ANTHROPIC_FOUNDRY_BASE_URL",
-    "AWS_REGION",
-    "CLOUD_ML_REGION",
-    "GOOGLE_CLOUD_PROJECT",
+];
+
+/// See [`ENV_PERSON`].
+const ENV_TOOLS: [&str; 7] = [
     // Certificate bundles, for networks that inspect TLS.
     "SSL_CERT_FILE",
     "SSL_CERT_DIR",
@@ -101,9 +65,6 @@ const ENV_KEPT: [&str; 36] = [
     "RUSTUP_HOME",
     "NVM_DIR",
     "GOPATH",
-    // The recording Ovra's own stand-in for `claude` plays in e2e and UX
-    // runs: a file path, never a secret.
-    "OVRA_FAKE_CLAUDE_FIXTURE",
 ];
 
 /// Where TLS clients look for a CA bundle: OpenSSL and rustls, Node,
@@ -261,10 +222,11 @@ pub(crate) struct Plan {
     /// sandbox runs (agents and pods; [`crate::made`]).
     record: Option<PathBuf>,
     kind: Kind,
-    /// The account's configuration folder, resolved: `claude` is pointed
-    /// at this path, which the sandbox shows even when the one it was given
-    /// goes through a link in the hidden home folder.
-    claude_dir: Option<PathBuf>,
+    /// An agent session's own state, with the account's configuration
+    /// folder resolved: the agent is pointed at that path, which the
+    /// sandbox shows even when the one it was given goes through a link in
+    /// the hidden home folder.
+    agent_state: Option<AgentState>,
     /// The work dir's variables, set on the sandbox's own line.
     work_env: Option<WorkEnv>,
 }
@@ -272,20 +234,21 @@ pub(crate) struct Plan {
 /// Who the sandbox is for.
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Kind {
-    /// An agent session: [`ENV_KEPT`], and the working folder its line names.
+    /// An agent session: its agent's state and variables, and the working
+    /// folder its line names.
     Agent,
     /// A server pod (a profile that exposes ports): an agent's sandbox
-    /// without `claude`'s state (all of `~/.claude` and `~/.claude.json`
-    /// stay hidden), with [`server::SERVER_ENV_KEPT`]. Servers run the
-    /// project's code, not `claude`: they get no login, no transcripts and
-    /// no Claude or cloud-provider variables.
+    /// without any agent's state (all of [`AGENT_STATE_IN_HOME`] stays
+    /// hidden), with [`ENV_PERSON`] and [`ENV_TOOLS`] alone. Servers run
+    /// the project's code, not an agent: they get no login, no transcripts
+    /// and no agent or cloud-provider variables.
     Pod,
     /// The agent browser: a pod's sandbox without the home folder's tools,
     /// git settings and caches; Chromium needs only its profile folder.
     /// It runs web pages with Chromium's own sandbox off, so it gets
     /// nothing of the person's that it does not need.
     Browser,
-    /// A language server: [`server::SERVER_ENV_KEPT`], the line's own
+    /// A language server: the variables a pod keeps, the line's own
     /// variables over the plan's, and the project as its working folder.
     Server { project: PathBuf },
 }
@@ -309,17 +272,24 @@ impl Plan {
                 )));
             }
         }
-        let own = match (&profile.claude_dir, profile.kind) {
-            (Some(dir), ProfileKind::Agent) => Some(account_dir(dir, &home, &work_dir, setup)?),
+        let own = match (&profile.agent_state, profile.kind) {
+            (Some(state), ProfileKind::Agent) => Some(AgentState {
+                lists: state.lists,
+                config_dir: match &state.config_dir {
+                    Some(dir) => Some(account_dir(state.lists, dir, &home, &work_dir, setup)?),
+                    None => None,
+                },
+            }),
             _ => None,
         };
-        // `claude`'s own configuration stays read-only, whatever the project
-        // and the account: the default account's and every other one's.
+        // Every agent's own configuration stays read-only, whatever the
+        // project, the provider and the account: the default account's and
+        // every other one's.
         for path in std::iter::once(&work_dir).chain(&profile.write) {
             let path = real(path).unwrap_or_else(|_| path.clone());
-            if holds_claude_state(&path, &home) {
+            if holds_agent_state(&path, &home) {
                 return Err(invalid(format!(
-                    "the sandbox does not let an agent write {}: it holds claude's settings",
+                    "the sandbox does not let an agent write {}: it holds an agent's own settings",
                     path.display()
                 )));
             }
@@ -333,7 +303,7 @@ impl Plan {
             path: OsString::new(),
             temporary: Vec::new(),
             record: None,
-            claude_dir: own.clone(),
+            agent_state: own.clone(),
             work_env: profile.work_env.clone(),
             kind: match profile.kind {
                 ProfileKind::Agent => Kind::Agent,
@@ -352,7 +322,7 @@ impl Plan {
             )
             .collect();
         let caches = cache_key(profile.project.as_ref(), &work_dir);
-        plan.home_back(setup, (&home, &work_dir), &caches, &shown, own.as_deref());
+        plan.home_back(setup, (&home, &work_dir), &caches, &shown, own.as_ref());
         for read in &profile.read {
             if let Ok(read) = real(read) {
                 plan.mounts.push(Mount::Ro(read));
@@ -489,19 +459,21 @@ impl Plan {
         }
     }
 
-    /// What `claude`, git and the toolchains need from the home folder.
+    /// What the agent, git and the toolchains need from the home folder.
     /// `caches`: the folder of the project's package caches ([`cache_key`]).
-    /// `own`: the account's configuration folder, if it has one.
+    /// `own`: the agent's own state, if it gets any.
     fn home_back(
         &mut self,
         setup: &Setup,
         (home, work_dir): (&Path, &Path),
         caches: &str,
         shown: &[PathBuf],
-        own: Option<&Path>,
+        own: Option<&AgentState>,
     ) {
-        if self.kind == Kind::Agent {
-            self.claude_back(home, work_dir, own);
+        if self.kind == Kind::Agent
+            && let Some(own) = own
+        {
+            self.agent_back(own.lists, home, work_dir, own.config_dir.as_deref());
         }
         if self.kind == Kind::Browser {
             // The system's programs only; an empty `PATH` would search
@@ -514,24 +486,35 @@ impl Plan {
         self.private_caches(setup, home, caches);
     }
 
-    /// `claude`'s own state: its settings read-only, what it writes during
-    /// a session private or writable. With an account's own folder `own`,
-    /// that folder and the state file in it instead of `~/.claude` and
-    /// `~/.claude.json`, which stay hidden with every other account's.
-    fn claude_back(&mut self, home: &Path, work_dir: &Path, own: Option<&Path>) {
-        let (claude, state) = claude_state(home, own);
+    /// The agent's own state (`lists`): its settings read-only, what it
+    /// writes during a session private or writable. With an account's own
+    /// folder `own`, that folder and the state file in it instead of the
+    /// default ones in the home folder, which stay hidden with every other
+    /// account's.
+    fn agent_back(
+        &mut self,
+        lists: &ProviderLists,
+        home: &Path,
+        work_dir: &Path,
+        own: Option<&Path>,
+    ) {
+        let (config, state) = agent_state(lists, home, own);
         if own.is_none() {
-            let _ = fs::create_dir_all(&claude);
+            let _ = fs::create_dir_all(&config);
         }
-        if let Ok(claude) = real(&claude)
-            && claude.starts_with(home)
+        if let Ok(config) = real(&config)
+            && config.starts_with(home)
         {
-            self.mounts.push(Mount::Ro(claude.clone()));
-            for dir in CLAUDE_PRIVATE {
-                let dir = claude.join(dir);
+            self.mounts.push(Mount::Ro(config.clone()));
+            // Empty and private, made if missing because the folder itself
+            // stays read-only: the user's own sessions read them too (shell
+            // snapshots are sourced before each command), so an agent must
+            // not change theirs.
+            for dir in lists.private {
+                let dir = config.join(dir);
                 if fs::create_dir_all(&dir).is_ok()
                     && let Ok(dir) = real(&dir)
-                    && dir.starts_with(&claude)
+                    && dir.starts_with(&config)
                 {
                     self.writable.push(dir.clone());
                     self.mounts.push(Mount::Tmpfs(dir));
@@ -539,14 +522,14 @@ impl Plan {
             }
             // The transcripts of this folder's sessions, which a resume
             // reads; not those of the user's other projects.
-            let transcripts = claude.join("projects").join(project_key(work_dir));
+            let transcripts = config.join(lists.projects).join(project_key(work_dir));
             if fs::create_dir_all(&transcripts).is_ok()
                 && let Ok(transcripts) = real(&transcripts)
-                && transcripts.starts_with(&claude)
+                && transcripts.starts_with(&config)
             {
                 // Its memory loads into every later session there, the
-                // user's own too: read-only, like `CLAUDE.md`.
-                let memory = transcripts.join("memory");
+                // user's own too: read-only, like a rules file.
+                let memory = transcripts.join(lists.project_memory);
                 self.rw(transcripts.clone());
                 if fs::create_dir_all(&memory).is_ok()
                     && let Ok(memory) = real(&memory)
@@ -555,9 +538,9 @@ impl Plan {
                     self.mounts.push(Mount::Ro(memory));
                 }
             }
-            for file in CLAUDE_FILES {
-                let file = claude.join(file);
-                if file.ends_with("history.jsonl") {
+            for name in lists.files {
+                let file = config.join(name);
+                if lists.files_made.contains(name) {
                     let _ = fs::OpenOptions::new().create(true).append(true).open(&file);
                 }
                 if let Ok(meta) = fs::symlink_metadata(&file)
@@ -816,8 +799,12 @@ impl Plan {
         }
         env.push((os("PATH"), Some(self.path.clone())));
         env.push((os("TMPDIR"), Some(os("/tmp"))));
-        if let Some(dir) = &self.claude_dir {
-            env.push((os("CLAUDE_CONFIG_DIR"), Some(os(dir))));
+        if let Some(AgentState {
+            lists,
+            config_dir: Some(dir),
+        }) = &self.agent_state
+        {
+            env.push((os(lists.config_var), Some(os(dir))));
         }
         if let Some(work) = &self.work_env {
             env.push((os("OVRA_PORT"), Some(os(work.port.to_string()))));
@@ -826,7 +813,7 @@ impl Plan {
         }
         env.extend(last);
         let names = self.env_kept();
-        allowlist(outer_env, names, &mut env);
+        allowlist(outer_env, &names, &mut env);
         // The helper keeps only these: the plan removes the rest, and
         // whatever Ovra's environment gains later.
         let mut kept: Vec<OsString> = names.iter().map(os).collect();
@@ -862,12 +849,17 @@ impl Plan {
         })
     }
 
-    /// The variables this sandbox keeps from Ovra's environment.
-    fn env_kept(&self) -> &'static [&'static str] {
-        match self.kind {
-            Kind::Agent => &ENV_KEPT,
-            Kind::Pod | Kind::Browser | Kind::Server { .. } => &server::SERVER_ENV_KEPT,
-        }
+    /// The variables this sandbox keeps from Ovra's environment: an
+    /// agent's own among everyone's, the rest only everyone's.
+    fn env_kept(&self) -> Vec<&'static str> {
+        let own = self.agent_state.as_ref().map(|state| state.lists);
+        ENV_PERSON
+            .iter()
+            .chain(own.into_iter().flat_map(|lists| lists.env))
+            .chain(&ENV_TOOLS)
+            .chain(own.map(|lists| &lists.fixture_var))
+            .copied()
+            .collect()
     }
 
     /// What to bind so that `program` runs: its folder when it is installed
@@ -986,41 +978,49 @@ fn cache_key(project: Option<&ProjectId>, work_dir: &Path) -> String {
     format!("{}-{hex}", &kind[..1])
 }
 
-/// `claude`'s configuration folder and state file: an account's own folder
-/// keeps its state file inside (`CLAUDE_CONFIG_DIR`), the default account
-/// uses `~/.claude` and `~/.claude.json`.
-fn claude_state(home: &Path, own: Option<&Path>) -> (PathBuf, PathBuf) {
+/// The agent's configuration folder and state file: an account's own
+/// folder keeps its state file inside (`CLAUDE_CONFIG_DIR`), the default
+/// account uses both right in the home folder (`~/.claude` and
+/// `~/.claude.json`).
+fn agent_state(lists: &ProviderLists, home: &Path, own: Option<&Path>) -> (PathBuf, PathBuf) {
     match own {
-        Some(dir) => (dir.to_path_buf(), dir.join(".claude.json")),
-        None => (home.join(".claude"), home.join(".claude.json")),
+        Some(dir) => (dir.to_path_buf(), dir.join(lists.state_file)),
+        None => (home.join(lists.home_dir), home.join(lists.state_file)),
     }
 }
 
-/// Whether `name`, right in the home folder, holds `claude`'s state:
-/// `.claude`, `.claude.json` or an account's folder such as `.claude-work`.
-fn claude_name(name: &std::ffi::OsStr) -> bool {
-    name.to_string_lossy().starts_with(".claude")
-}
-
-/// Whether `path` (resolved) is in or is one of the home folder's
-/// [`claude_name`] entries, which every account's sessions load from.
-fn holds_claude_state(path: &Path, home: &Path) -> bool {
+/// Whether `path` (resolved) is in or is one of the home folder's entries
+/// whose name starts with one of [`AGENT_STATE_IN_HOME`]: a known agent's
+/// state or an account's folder such as `.claude-work`, which every
+/// account's sessions load from.
+fn holds_agent_state(path: &Path, home: &Path) -> bool {
     path.strip_prefix(home)
         .ok()
         .and_then(|rest| rest.components().next())
-        .is_some_and(|top| claude_name(top.as_os_str()))
+        .is_some_and(|top| {
+            let top = top.as_os_str().to_string_lossy();
+            AGENT_STATE_IN_HOME.iter().any(|name| top.starts_with(name))
+        })
 }
 
 /// The account's configuration folder, resolved, if the sandbox may give
 /// it back: an existing folder right in the home folder whose name starts
-/// with `.claude` (not `.claude` itself), like the ones Ovra suggests, and
-/// that holds none of Ovra's hidden folders. Any other folder could hold
-/// the person's secrets or a project an agent writes.
-fn account_dir(dir: &Path, home: &Path, work_dir: &Path, setup: &Setup) -> Result<PathBuf> {
+/// with the agent's own folder's (`.claude`, not `.claude` itself), like
+/// the ones Ovra suggests, and that holds none of Ovra's hidden folders.
+/// Any other folder could hold the person's secrets or a project an agent
+/// writes.
+fn account_dir(
+    lists: &ProviderLists,
+    dir: &Path,
+    home: &Path,
+    work_dir: &Path,
+    setup: &Setup,
+) -> Result<PathBuf> {
     let refused = |why: &str| {
         Err(invalid(format!(
-            "the sandbox does not use {} as a Claude account's folder: {why}",
-            dir.display()
+            "the sandbox does not use {} as a {} account's folder: {why}",
+            dir.display(),
+            lists.name,
         )))
     };
     let Ok(real_dir) = real(dir) else {
@@ -1031,11 +1031,12 @@ fn account_dir(dir: &Path, home: &Path, work_dir: &Path, setup: &Setup) -> Resul
     }
     let named = real_dir
         .file_name()
-        .is_some_and(|n| claude_name(n) && n != ".claude");
+        .is_some_and(|n| n.to_string_lossy().starts_with(lists.home_dir) && n != lists.home_dir);
     if real_dir.parent() != Some(home) || !named {
-        return refused(
-            "it must be a folder right in the home folder whose name starts with .claude, such as ~/.claude-work",
-        );
+        return refused(&format!(
+            "it must be a folder right in the home folder whose name starts with {0}, such as ~/{0}-work",
+            lists.home_dir
+        ));
     }
     if real_dir.starts_with(work_dir) || work_dir.starts_with(&real_dir) {
         return refused("it overlaps the session's folder");

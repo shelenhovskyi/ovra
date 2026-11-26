@@ -352,7 +352,7 @@ mod tests {
     fn profile() -> SandboxProfile {
         SandboxProfile {
             kind: crate::services::ProfileKind::Browser,
-            claude_dir: None,
+            agent_state: None,
             project: None,
             work_env: None,
             work_dir: "/w".into(),

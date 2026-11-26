@@ -7,54 +7,17 @@
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
+use ovra_core::protected::AGENT_STATE_IN_HOME;
 use ovra_core::services::{ProfileNetwork, Result, ServerProfile};
 
 use super::{CACHES, Kind, Mount, NEVER_BOUND, Plan, SECRETS, real};
 use crate::{Setup, invalid};
 
-/// The variables a language server or a server pod keeps from Ovra's
-/// environment: those of [`super::ENV_KEPT`] without where Claude usage is
-/// billed, the cloud provider's names and Ovra's own test recording. A
-/// server has no use for them, and the project's code it runs must not see
-/// them. Whole names
-/// only, as for agents. `PATH` and `TMPDIR` are set by the plan, and the
-/// server's own line sets its build and cache folders.
-pub(super) const SERVER_ENV_KEPT: [&str; 19] = [
-    "HOME",
-    "USER",
-    "LOGNAME",
-    "SHELL",
-    "LANG",
-    "LANGUAGE",
-    "LC_ALL",
-    "LC_CTYPE",
-    "TZ",
-    "TERM",
-    "COLORTERM",
-    "NO_COLOR",
-    // Certificate bundles, for networks that inspect TLS.
-    "SSL_CERT_FILE",
-    "SSL_CERT_DIR",
-    "NODE_EXTRA_CA_CERTS",
-    // Toolchain homes.
-    "CARGO_HOME",
-    "RUSTUP_HOME",
-    "NVM_DIR",
-    "GOPATH",
-];
-
 /// Paths under the home folder a server's `read` folder may neither be in
-/// nor hold, besides the agent plan's [`NEVER_BOUND`] folders: Claude's
-/// state and the files that keep credentials for tools.
-const NEVER_READ: [&str; 7] = [
-    ".claude",
-    ".claude.json",
-    ".netrc",
-    ".git-credentials",
-    ".npmrc",
-    ".pypirc",
-    ".pgpass",
-];
+/// nor hold, besides the agent plan's [`NEVER_BOUND`] folders and every
+/// agent's state ([`AGENT_STATE_IN_HOME`]): the files that keep
+/// credentials for tools.
+const NEVER_READ: [&str; 5] = [".netrc", ".git-credentials", ".npmrc", ".pypirc", ".pgpass"];
 
 impl Plan {
     /// The sandbox of one language server. Refuses a profile with any
@@ -82,6 +45,7 @@ impl Plan {
         };
         let secret: Vec<PathBuf> = NEVER_BOUND
             .iter()
+            .chain(&AGENT_STATE_IN_HOME)
             .chain(&NEVER_READ)
             .map(|name| home.join(name))
             .collect();
@@ -142,7 +106,7 @@ impl Plan {
             path: OsString::new(),
             temporary: Vec::new(),
             record: None,
-            claude_dir: None,
+            agent_state: None,
             work_env: None,
             kind: Kind::Server {
                 project: project.clone(),

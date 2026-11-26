@@ -7,7 +7,7 @@ use std::ffi::{OsStr, OsString};
 use ovra_core::services::CommandLine;
 
 /// The names an unsandboxed server keeps from Ovra's environment. The same
-/// as `SERVER_ENV_KEPT` in `crates/sandbox-linux/src/plan/server.rs` (this
+/// as `ENV_PERSON` and `ENV_TOOLS` in `crates/sandbox-linux/src/plan.rs` (this
 /// crate cannot depend on it), plus `PATH`, which the sandbox sets itself.
 const KEPT: [&str; 20] = [
     "PATH",
@@ -93,13 +93,19 @@ mod tests {
         // Read as text, a test only: this crate cannot depend on the
         // sandbox's, so the crate graph does not see this. The list holds
         // names only; a quote in a comment there would break the parse.
-        let source = include_str!("../../sandbox-linux/src/plan/server.rs");
-        let list = source
-            .split_once("SERVER_ENV_KEPT: [&str; ")
-            .and_then(|(_, rest)| rest.split_once("];"))
-            .map(|(list, _)| list)
-            .expect("SERVER_ENV_KEPT in plan/server.rs");
-        let mut sandbox: Vec<&str> = list.split('"').skip(1).step_by(2).chain(["PATH"]).collect();
+        let source = include_str!("../../sandbox-linux/src/plan.rs");
+        let list = |name: &str| {
+            source
+                .split_once(&format!("{name}: [&str; "))
+                .and_then(|(_, rest)| rest.split_once("];"))
+                .map(|(list, _)| list)
+                .unwrap_or_else(|| panic!("{name} in plan.rs"))
+        };
+        let names = |list: &'static str| list.split('"').skip(1).step_by(2);
+        let mut sandbox: Vec<&str> = names(list("ENV_PERSON"))
+            .chain(names(list("ENV_TOOLS")))
+            .chain(["PATH"])
+            .collect();
         let mut kept = KEPT.to_vec();
         sandbox.sort_unstable();
         kept.sort_unstable();
