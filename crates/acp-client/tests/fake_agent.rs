@@ -25,6 +25,7 @@ static LISTS: ProviderLists = ProviderLists {
     private: &[],
     in_place: &[],
     files: &[],
+    layered: false,
     files_made: &[],
     projects: "projects",
     project_memory: "MEMORY.md",

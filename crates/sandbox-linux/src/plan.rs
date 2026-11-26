@@ -505,12 +505,16 @@ impl Plan {
         if let Ok(config) = real(&config)
             && config.starts_with(home)
         {
-            self.mounts.push(Mount::Ro(config.clone()));
+            if lists.layered {
+                self.layer(lists, &config);
+            } else {
+                self.mounts.push(Mount::Ro(config.clone()));
+            }
             // Empty and private, made if missing because the folder itself
             // stays read-only: the user's own sessions read them too (shell
             // snapshots are sourced before each command), so an agent must
-            // not change theirs.
-            for dir in lists.private {
+            // not change theirs. A layer leaves them out instead.
+            for dir in lists.private.iter().filter(|_| !lists.layered) {
                 let dir = config.join(dir);
                 if fs::create_dir_all(&dir).is_ok()
                     && let Ok(dir) = real(&dir)
@@ -553,6 +557,34 @@ impl Plan {
         if fs::symlink_metadata(&state).is_ok_and(|m| m.is_file()) {
             self.rw(state);
         }
+    }
+
+    /// `config` as a private, writable layer: its entries bound back
+    /// read-only, but for `private` and [`SECRETS`] (left out) and `files`
+    /// (bound writable after). Lock and temporary files an agent writes next to them stay
+    /// in the layer. A link is left out: it may lead out of the folder.
+    fn layer(&mut self, lists: &ProviderLists, config: &Path) {
+        self.writable.push(config.to_path_buf());
+        self.mounts.push(Mount::Tmpfs(config.to_path_buf()));
+        let Ok(entries) = fs::read_dir(config) else {
+            return;
+        };
+        let mut shown: Vec<PathBuf> = entries
+            .flatten()
+            .filter(|e| e.file_type().is_ok_and(|t| !t.is_symlink()))
+            .filter(|e| {
+                let name = e.file_name();
+                !lists
+                    .private
+                    .iter()
+                    .chain(lists.files)
+                    .chain(&SECRETS)
+                    .any(|n| name == std::ffi::OsStr::new(n))
+            })
+            .map(|e| e.path())
+            .collect();
+        shown.sort();
+        self.mounts.extend(shown.into_iter().map(Mount::Ro));
     }
 
     /// What git and the toolchains read from the home folder, and the

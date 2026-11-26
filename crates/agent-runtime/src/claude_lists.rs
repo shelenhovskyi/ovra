@@ -48,6 +48,7 @@ pub(crate) const CLAUDE_LISTS: ProviderLists = ProviderLists {
     ],
     // Its login (the known limit in the spec) and its prompt history.
     files: &[".credentials.json", "history.jsonl"],
+    layered: false,
     files_made: &["history.jsonl"],
     projects: "projects",
     project_memory: "memory",

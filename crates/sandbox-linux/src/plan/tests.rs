@@ -846,3 +846,76 @@ fn git_status_leaves_out_exactly_the_files_made() {
     // listed would show up for "Commit all".
     assert_eq!(super::FILES_MADE, ovra_core::protected::PLACEHOLDERS);
 }
+
+/// An agent that writes lock files next to its state, as Gemini does.
+const LAYERED: ProviderLists = ProviderLists {
+    name: "Layered",
+    home_dir: ".layered",
+    state_file: ".layered.json",
+    config_var: "LAYERED_HOME",
+    private: &["tmp", "projects.json"],
+    in_place: &["tmp"],
+    files: &["oauth_creds.json"],
+    layered: true,
+    files_made: &[],
+    projects: "tmp",
+    project_memory: "memory",
+    env: &[],
+    windows_env: &[],
+    fixture_var: "OVRA_FAKE_LAYERED",
+};
+
+#[test]
+fn a_layered_config_folder_is_private_with_its_entries_bound_back() {
+    let root = Root::new("layered");
+    let project = root.dir("projects/app");
+    let config = root.dir("home/.layered");
+    root.file("home/.layered/settings.json");
+    root.file("home/.layered/oauth_creds.json");
+    root.file("home/.layered/projects.json");
+    root.file("home/.layered/credentials.json");
+    root.file("home/.layered/tmp/old-chat.json");
+    root.dir("home/.layered/extensions");
+    std::os::unix::fs::symlink(root.dir("home/.ssh"), config.join("keys")).unwrap();
+    let setup = root.setup("/usr/bin");
+    let mut profile = profile(&project);
+    profile.agent_state = Some(AgentState {
+        lists: &LAYERED,
+        config_dir: None,
+    });
+    let plan = Plan::new(&setup, &profile).unwrap();
+    let under: Vec<&Mount> = plan
+        .mounts
+        .iter()
+        .filter(|m| match m {
+            Mount::Ro(p) | Mount::Rw(p) | Mount::Tmpfs(p) | Mount::Null(p) => {
+                p.starts_with(&config) && !p.starts_with(config.join("tmp"))
+            }
+            Mount::Private { .. } => false,
+        })
+        .collect();
+    assert_eq!(
+        under,
+        [
+            &Mount::Tmpfs(config.clone()),
+            &Mount::Ro(config.join("extensions")),
+            &Mount::Ro(config.join("settings.json")),
+            &Mount::Rw(config.join("oauth_creds.json")),
+        ]
+    );
+    assert!(plan.writable.contains(&config));
+    // The chats of other folders stay out; this folder's own come back.
+    assert!(!plan.mounts.contains(&Mount::Tmpfs(config.join("tmp"))));
+    assert!(plan.mounts.iter().all(|m| match m {
+        Mount::Ro(p) | Mount::Rw(p) => !p.starts_with(config.join("tmp/old-chat.json")),
+        _ => true,
+    }));
+    plan.line(
+        Path::new("/usr/bin/bwrap"),
+        &setup.helper,
+        Landlock::Try,
+        line(Path::new("/bin/sh"), &project),
+        &Root::outer_env(),
+    )
+    .unwrap();
+}

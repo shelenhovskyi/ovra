@@ -35,6 +35,7 @@ expression: described
             private: [
                 "tmp",
                 "history",
+                "projects.json",
             ],
             in_place: [
                 "tmp",
@@ -43,8 +44,8 @@ expression: described
             files: [
                 "oauth_creds.json",
                 "google_accounts.json",
-                "projects.json",
             ],
+            layered: true,
             files_made: [],
             projects: "tmp",
             project_memory: "memory",
@@ -123,6 +124,7 @@ expression: described
                 "logs_2.sqlite-wal",
                 "logs_2.sqlite-shm",
             ],
+            layered: true,
             files_made: [
                 "history.jsonl",
             ],

@@ -58,6 +58,7 @@ const PROBE_AGENT: ProviderLists = ProviderLists {
     private: &["cache"],
     in_place: &[],
     files: &["history"],
+    layered: false,
     files_made: &["history"],
     projects: "projects",
     project_memory: "memory",

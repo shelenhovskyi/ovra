@@ -338,7 +338,8 @@ pub struct ProviderLists {
     pub config_var: &'static str,
     /// Folders in the configuration folder it writes during a session. The
     /// person's own sessions read them too, so a sandbox makes them empty
-    /// and private to the session where it can.
+    /// and private to the session where it can. With `layered`, files too:
+    /// left out of the layer, so it makes them anew.
     pub private: &'static [&'static str],
     /// Those of `private` a sandbox that cannot make folders private lets
     /// it write in place: not those the person's own sessions run commands
@@ -346,6 +347,11 @@ pub struct ProviderLists {
     pub in_place: &'static [&'static str],
     /// Files in the configuration folder it rewrites.
     pub files: &'static [&'static str],
+    /// Whether it writes lock and temporary files right in the
+    /// configuration folder (Gemini, Codex): a sandbox then shows that
+    /// folder as a private layer over its entries, read-only but for
+    /// `files`, where what it adds is lost with the session.
+    pub layered: bool,
     /// Those of `files` made empty when missing.
     pub files_made: &'static [&'static str],
     /// The folder in the configuration folder that holds one folder per

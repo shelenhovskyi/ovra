@@ -47,11 +47,13 @@ pub(crate) const GEMINI_LISTS: ProviderLists = ProviderLists {
     // variable for an account's folder is ever set.
     state_file: ".gemini.json",
     config_var: "GEMINI_CLI_HOME",
-    private: &["tmp", "history"],
+    // The names it gives project folders, which it renames into place
+    // under a lock file next to them: a session's own.
+    private: &["tmp", "history", "projects.json"],
     in_place: &["tmp", "history"],
-    // Its Google login, refreshed during a session, and the names it gives
-    // project folders.
-    files: &["oauth_creds.json", "google_accounts.json", "projects.json"],
+    // Its Google login, refreshed during a session.
+    files: &["oauth_creds.json", "google_accounts.json"],
+    layered: true,
     files_made: &[],
     projects: "tmp",
     project_memory: "memory",
@@ -93,6 +95,7 @@ pub(crate) const CODEX_LISTS: ProviderLists = ProviderLists {
         "logs_2.sqlite-wal",
         "logs_2.sqlite-shm",
     ],
+    layered: true,
     files_made: &["history.jsonl"],
     projects: "sessions",
     project_memory: "memory",
