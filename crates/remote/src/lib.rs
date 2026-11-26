@@ -9,6 +9,7 @@ mod auth;
 mod ca;
 mod devices;
 mod net;
+mod phone;
 mod server;
 
 use std::net::{IpAddr, SocketAddr};
@@ -425,26 +426,7 @@ impl RemoteAccess for RemoteServer {
     }
 
     fn forget(&self, device: &str) -> Result<()> {
-        let forgotten = lock(&self.shared.state)
-            .devices
-            .forget(device)
-            .map_err(|e| err(ErrorCode::Internal, e))?;
-        if !forgotten {
-            return Err(err(
-                ErrorCode::NotFound,
-                format!("device {device} not found"),
-            ));
-        }
-        tracing::info!(device, "phone forgotten");
-        let _ = self.shared.kicks.send(device.to_owned());
-        let core = lock(&self.shared.state)
-            .running
-            .as_ref()
-            .map(|r| r.core.clone());
-        if let Some(core) = core {
-            core.emit(RemoteEvent::DevicesChanged);
-        }
-        Ok(())
+        self.shared.forget(device)
     }
 }
 
@@ -464,6 +446,28 @@ impl Shared {
 
     pub(crate) fn lock(&self) -> std::sync::MutexGuard<'_, State> {
         lock(&self.state)
+    }
+
+    /// Forgets `device` and closes its sessions.
+    pub(crate) fn forget(&self, device: &str) -> Result<()> {
+        let forgotten = self
+            .lock()
+            .devices
+            .forget(device)
+            .map_err(|e| err(ErrorCode::Internal, e))?;
+        if !forgotten {
+            return Err(err(
+                ErrorCode::NotFound,
+                format!("device {device} not found"),
+            ));
+        }
+        tracing::info!(device, "phone forgotten");
+        let _ = self.kicks.send(device.to_owned());
+        let core = self.lock().running.as_ref().map(|r| r.core.clone());
+        if let Some(core) = core {
+            core.emit(RemoteEvent::DevicesChanged);
+        }
+        Ok(())
     }
 
     /// A phone used the pairing secret: asks the person and waits. `None`

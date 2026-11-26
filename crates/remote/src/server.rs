@@ -32,7 +32,7 @@ use tokio_rustls::server::TlsStream;
 use tokio_util::either::Either;
 use tokio_util::sync::CancellationToken;
 
-use crate::{Shared, auth};
+use crate::{Shared, auth, phone};
 
 /// A WebSocket lasts this long; then the phone signs a new challenge.
 const SESSION_LIFE: Duration = Duration::from_secs(15 * 60);
@@ -573,21 +573,23 @@ async fn session(
         return;
     }
     shared.connected(&device.id, true);
-    serve(socket, &core, &device.id, &device.name, &mut kicks, &stop).await;
+    serve(socket, &shared, &core, &device, &mut kicks, &stop).await;
     shared.connected(&device.id, false);
 }
 
 /// Frames as in `ovra-transport`, through a phone client, until the phone
 /// leaves, is forgotten, phone access stops or the session is too old.
+/// `phone.*` requests are answered here and never reach the core.
 async fn serve(
     socket: WebSocket,
+    shared: &Shared,
     core: &Core,
-    id: &str,
-    name: &str,
+    device: &crate::devices::Stored,
     kicks: &mut tokio::sync::broadcast::Receiver<String>,
     stop: &CancellationToken,
 ) {
     let (mut tx, mut rx) = socket.split();
+    let (id, name) = (device.id.as_str(), device.name.as_str());
     let mut events = core.subscribe();
     // The name kept at pairing, never one the phone sends.
     let client = core.connect_phone(name);
@@ -608,9 +610,14 @@ async fn serve(
                 }
             },
             incoming = rx.next(), if running.len() < MAX_IN_FLIGHT => match incoming {
-                Some(Ok(Message::Text(text))) => {
-                    running.push(async move { ovra_transport::dispatch(client, &text).await });
-                }
+                Some(Ok(Message::Text(text))) => match phone::handle(shared, id, &text) {
+                    Some(reply) => {
+                        if tx.send(Message::Text(reply.text.into())).await.is_err() || reply.close {
+                            break;
+                        }
+                    }
+                    None => running.push(async move { ovra_transport::dispatch(client, &text).await }),
+                },
                 Some(Ok(Message::Close(_))) | None | Some(Err(_)) => break,
                 Some(Ok(_)) => {}
             },

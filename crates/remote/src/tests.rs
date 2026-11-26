@@ -308,3 +308,59 @@ async fn a_new_code_replaces_an_old_one_without_being_closed_by_it() {
     let (status, _) = pair(&s, &new, &TestKey::new(), true).await;
     assert_eq!(status, 200);
 }
+
+/// A paired, signed-in phone past its `info.ready`.
+async fn signed_in(s: &Setup) -> (Ws, String) {
+    let pairing = s.server.start_pairing().expect("pairing");
+    let key = TestKey::new();
+    let (_, body) = pair(s, &secret_of(&pairing.url), &key, true).await;
+    let paired: Value = serde_json::from_slice(&body).expect("json");
+    let device = paired["device"].as_str().expect("device").to_owned();
+    let (mut ws, _) = sign_in(s, &device, &key).await;
+    next_json(&mut ws).await.expect("ready");
+    (ws, device)
+}
+
+async fn ask(ws: &mut Ws, frame: Value) -> Value {
+    ws.send(Message::Text(frame.to_string().into()))
+        .await
+        .expect("send");
+    next_json(ws).await.expect("reply")
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_phone_forgets_itself_and_its_session_closes() {
+    let s = setup();
+    let (mut ws, device) = signed_in(&s).await;
+    let reply = ask(&mut ws, json!({"id": 1, "method": "phone.nope"})).await;
+    assert_eq!(reply["id"], 1);
+    assert_eq!(reply["error"]["code"], "bad_request", "{reply}");
+    let reply = ask(&mut ws, json!({"method": "phone.forget"})).await;
+    assert_eq!(reply["error"]["code"], "bad_request", "no id, nothing done");
+    assert_eq!(s.server.devices().expect("devices").len(), 1);
+    let mut events = s.core.subscribe();
+    let reply = ask(
+        &mut ws,
+        json!({"id": 1, "method": "phone.forget", "params": {"device": "someone-else"}}),
+    )
+    .await;
+    assert_eq!(reply, json!({"id": 1, "result": null}));
+    assert!(next_json(&mut ws).await.is_none(), "the session closed");
+    assert!(s.server.devices().expect("devices").is_empty());
+    assert!(
+        !s.server
+            .shared
+            .lock()
+            .devices
+            .list()
+            .iter()
+            .any(|d| d.id == device)
+    );
+    loop {
+        if let Some(Event::Remote(RemoteEvent::DevicesChanged)) =
+            Core::next_event(&mut events).await
+        {
+            break;
+        }
+    }
+}
