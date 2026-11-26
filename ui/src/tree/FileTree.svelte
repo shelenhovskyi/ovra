@@ -29,6 +29,7 @@ registerContextKeys(
 // rendered. Folders load lazily; fs events mark listings stale and only the
 // ones on screen reload.
 import { untrack } from "svelte";
+import { secretLooking } from "../agents/attach";
 import { tabs, unsavedText } from "../editor/open-files.svelte";
 import { listCommands, registerCommand } from "../keys/commands";
 import type { GitStatus, ProjectId } from "../lib/protocol";
@@ -40,7 +41,7 @@ import Icon from "../shell/Icon.svelte";
 import type { MainMode } from "../shell/workspace.svelte";
 import { FileActions } from "./actions.svelte";
 import { folderFor, registerFileCommands } from "./commands";
-import DropClash from "./DropClash.svelte";
+import DropQuestion from "./DropQuestion.svelte";
 import { DropImporter } from "./drop-import.svelte";
 import { HoverExpander } from "./hover-expand";
 import { rootMenu, rowMenu, selectionMenu } from "./menu";
@@ -357,6 +358,7 @@ const importer = new DropImporter({
   transport,
   project,
   dirAt: outsideDirAt,
+  secretNames: (paths) => secretLooking(transport, project, paths),
   copied: (paths) => void showImported(paths),
   fail: (message) => actions.fail(new Error(message)),
   tell: (message) => actions.tell(message),
@@ -737,7 +739,15 @@ function onkeydown(e: KeyboardEvent): void {
     />
   {/if}
   {#if importer.asking}
-    <DropClash question={importer.asking.text} onanswer={(clash) => void importer.answer(clash)} />
+    <DropQuestion
+      kind={importer.asking.kind}
+      question={importer.asking.text}
+      onanswer={(answer) => void importer.answer(answer)}
+    />
+  {/if}
+  {#if importer.over !== null}
+    <!-- Not a target itself: the drop goes to the row under it. -->
+    <p class="drop-hint" role="status">Copy into {importer.over || "the project folder"}</p>
   {/if}
   {#if actions.notice}<p class="note error" role="alert">{actions.notice}</p>{/if}
   {#if actions.info}<p class="note" role="status">{actions.info}</p>{/if}
@@ -1021,6 +1031,24 @@ function onkeydown(e: KeyboardEvent): void {
   .note {
     margin: 0;
     padding: 12px 14px;
+  }
+  /* Says where files dragged in from outside will be copied. */
+  .drop-hint {
+    position: absolute;
+    z-index: 1;
+    right: 8px;
+    bottom: 8px;
+    left: 8px;
+    margin: 0;
+    padding: 6px 10px;
+    overflow: hidden;
+    border-radius: var(--radius-sm);
+    background: var(--s4);
+    box-shadow: var(--card-shadow);
+    color: var(--text);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    pointer-events: none;
   }
   .error,
   .failed {

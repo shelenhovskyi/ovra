@@ -1,12 +1,17 @@
 import { describe, expect, it } from "vitest";
 import type { DropClash, DropImport, Point, Transport, WindowDrop } from "../lib/transport";
-import { clashQuestion, DropImporter, skippedNote } from "./drop-import.svelte";
+import { clashQuestion, DropImporter, secretQuestion, skippedNote } from "./drop-import.svelte";
 
 describe("drop import texts", () => {
   it("names the clashing items and where they are", () => {
     expect(clashQuestion(["a.png"], "src")).toBe("“a.png” already exists in src.");
     expect(clashQuestion(["a.png", "b"], "")).toBe("“a.png” and 1 more item already exist in the project folder.");
     expect(clashQuestion(["a", "b", "c"], "src")).toBe("“a” and 2 more items already exist in src.");
+  });
+
+  it("names the secret-looking items", () => {
+    expect(secretQuestion([".env"])).toBe("“.env” may hold secrets. A copy in the project can be read by every agent.");
+    expect(secretQuestion([".env", "id_rsa", "x.pem"])).toMatch(/^“\.env” and 2 more items may hold secrets\./);
   });
 
   it("says which links were left out", () => {
@@ -19,7 +24,11 @@ describe("drop import texts", () => {
 type Call = { id: string; dir: string; clash: DropClash };
 
 /** A window transport whose imports answer from `replies`, in order. */
-function setup(replies: (DropImport | Error)[], dirAt: (at: Point) => string | null = () => "src") {
+function setup(
+  replies: (DropImport | Error)[],
+  dirAt: (at: Point) => string | null = () => "src",
+  secrets: (paths: string[]) => Promise<string[]> = async () => [],
+) {
   const calls: Call[] = [];
   const seen = { copied: [] as string[][], failed: [] as string[], told: [] as string[] };
   const transport = {
@@ -34,6 +43,7 @@ function setup(replies: (DropImport | Error)[], dirAt: (at: Point) => string | n
     transport,
     project: "p1",
     dirAt,
+    secretNames: secrets,
     copied: (paths) => seen.copied.push(paths),
     fail: (message) => seen.failed.push(message),
     tell: (message) => seen.told.push(message),
@@ -92,6 +102,36 @@ describe("DropImporter", () => {
     expect(calls.map((c) => c.clash)).toEqual(["ask", "keep_both", "ask"]);
   });
 
+  it("asks before copying secret-looking names, then checks for clashes", async () => {
+    const copied: DropImport = { kind: "copied", paths: ["src/.env"], skipped_links: [] };
+    const { importer, calls, seen } = setup([{ kind: "clashes", names: [".env"] }, copied], undefined, async (paths) =>
+      paths.filter((p) => p.endsWith(".env")).map((p) => p.split("/").at(-1) as string),
+    );
+    const secret: WindowDrop = { ...drop, paths: ["/home/me/.env"] };
+    await importer.drop(secret);
+    expect(importer.asking?.kind).toBe("secret");
+    expect(calls).toEqual([]);
+    await importer.answer(null);
+    expect(importer.asking).toBeNull();
+    expect(calls).toEqual([]);
+
+    await importer.drop(secret);
+    await importer.answer("copy");
+    expect(importer.asking?.kind).toBe("clash");
+    await importer.answer("replace");
+    expect(calls.map((c) => c.clash)).toEqual(["ask", "replace"]);
+    expect(seen.copied).toEqual([["src/.env"]]);
+  });
+
+  it("reports a failed secret check and copies nothing", async () => {
+    const { importer, calls, seen } = setup([], undefined, async () => {
+      throw new Error("The core is not reachable.");
+    });
+    await importer.drop(drop);
+    expect(seen.failed).toEqual(["The core is not reachable."]);
+    expect(calls).toEqual([]);
+  });
+
   it("reports a refused import", async () => {
     const { importer, seen } = setup([new Error("That drop is over. Drop the files again.")]);
     await importer.drop(drop);
@@ -103,6 +143,7 @@ describe("DropImporter", () => {
       transport: {} as Transport,
       project: "p1",
       dirAt: () => "",
+      secretNames: async () => [],
       copied: () => {},
       fail: () => {},
       tell: () => {},

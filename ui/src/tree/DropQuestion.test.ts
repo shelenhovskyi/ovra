@@ -1,6 +1,6 @@
 import { flushSync, mount, unmount } from "svelte";
 import { afterEach, describe, expect, it } from "vitest";
-import DropClash from "./DropClash.svelte";
+import DropQuestion from "./DropQuestion.svelte";
 
 let cleanup: (() => void) | null = null;
 afterEach(() => {
@@ -9,13 +9,13 @@ afterEach(() => {
   document.body.innerHTML = "";
 });
 
-function show() {
+function show(kind: "clash" | "secret" = "clash") {
   const answers: (string | null)[] = [];
   const target = document.body.appendChild(document.createElement("div"));
   const outside = document.body.appendChild(document.createElement("button"));
-  const app = mount(DropClash, {
+  const app = mount(DropQuestion, {
     target,
-    props: { question: "“a.png” already exists in src.", onanswer: (clash) => answers.push(clash) },
+    props: { kind, question: "“a.png” already exists in src.", onanswer: (answer) => answers.push(answer) },
   });
   cleanup = () => unmount(app);
   flushSync();
@@ -25,7 +25,7 @@ function show() {
   return { answers, card, outside, key };
 }
 
-describe("DropClash", () => {
+describe("DropQuestion", () => {
   it("has Keep both focused, so Enter never replaces, and Tab cycles the buttons", () => {
     const { answers, key } = show();
     expect(document.activeElement?.textContent).toBe("Keep both");
@@ -44,6 +44,14 @@ describe("DropClash", () => {
     [...card.querySelectorAll("button")].find((b) => b.textContent === "Replace")?.click();
     [...card.querySelectorAll("button")].find((b) => b.textContent === "Keep both")?.click();
     expect(answers).toEqual(["replace", "keep_both"]);
+  });
+
+  it("asks about secrets with Cancel focused, so Enter never copies", () => {
+    const { answers, card } = show("secret");
+    expect(card.getAttribute("aria-label")).toBe("Copy files that may hold secrets");
+    expect(document.activeElement?.textContent).toBe("Cancel");
+    [...card.querySelectorAll("button")].find((b) => b.textContent === "Copy anyway")?.click();
+    expect(answers).toEqual(["copy"]);
   });
 
   it("cancels on Escape", () => {
