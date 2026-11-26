@@ -281,6 +281,49 @@ async fn a_retry_after_gh_failed_goes_on_from_the_push_it_made() {
 }
 
 #[tokio::test]
+async fn a_pull_request_gh_opened_before_it_failed_is_adopted() {
+    let f = fx().await;
+    let id = item(&f.core).await.id.0;
+    let prepared = prepare(&f.core, &id).await;
+    *lock(&f.forge.lose_create) = true;
+    let pr = pull_request(ok(&f.core, create(&prepared, &id)).await);
+    assert_eq!(pr.number, 1);
+    assert_eq!(item(&f.core).await.state, ReviewState::Published);
+
+    assert_eq!(lock(&f.forge.created).len(), 1);
+}
+
+#[tokio::test]
+async fn only_a_pull_request_from_the_items_own_branch_is_adopted() {
+    let f = fx().await;
+    let id = item(&f.core).await.id.0;
+    let prepared = prepare(&f.core, &id).await;
+    let theirs = crate::protocol::pr::PrDraft {
+        remote: prepared.remote.clone(),
+        base: prepared.base.clone(),
+        branch: "someone/else".into(),
+        title: "t".into(),
+        body: String::new(),
+        draft: false,
+    };
+    lock(&f.forge.created).push(theirs);
+    let status = crate::protocol::pr::PrStatus {
+        state: PrState::Open,
+        draft: false,
+        url: "https://github.com/o/r/pull/1".into(),
+        head: "c0".into(),
+        checks: Vec::new(),
+        review_decision: None,
+        merge_state: None,
+    };
+    lock(&f.forge.pulls).insert(1, status);
+    *lock(&f.forge.refuse_create) = true;
+    let failed = call(&f.core, create(&prepared, &id)).await;
+    assert_eq!(code(failed), ErrorCode::Unavailable);
+    assert_eq!(item(&f.core).await.state, ReviewState::Open);
+}
+
+#[tokio::test]
 async fn nothing_is_published_when_the_base_already_has_the_changes() {
     let f = fx().await;
     f.wt.put("/remote", "a.rs", "one\n");

@@ -437,7 +437,16 @@ async fn create(
         body: draft.body,
         draft: draft.draft,
     };
-    let info = forge.create(root, draft).await?;
+    let info = match forge.create(root.clone(), draft).await {
+        Ok(info) => info,
+        // `gh pr create` may have timed out after GitHub opened it; a
+        // retry would then fail forever ("already exists"). The branch
+        // is Ovra's own, so an open pull request from it is this one.
+        Err(e) => match forge.find(root, remote.clone(), branch.clone()).await {
+            Ok(Some(info)) => info,
+            _ => return Err(e),
+        },
+    };
     let opened = AuditEvent::PullRequestOpened {
         review: id.clone(),
         remote: remote.clone(),
