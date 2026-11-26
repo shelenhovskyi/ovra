@@ -53,6 +53,22 @@ describe("FocusView", () => {
     expect(text("focus-nothing")).toBe("Nothing waits for you.");
   });
 
+  it("loads the plan of an agent at work and shows its next steps", async () => {
+    await setup((core) => {
+      core.addSession("p1", "Fix sync", { state: "working" });
+      core.transcripts.set("s1", [
+        {
+          kind: "tool_use",
+          id: "t1",
+          name: "TodoWrite",
+          input: { todos: [{ content: "Write a <i>test</i>", status: "pending" }] },
+        },
+      ]);
+    });
+    await vi.waitFor(() => expect(text("focus-next")).toBe("Next1 Write a <i>test</i>Planned by Fix sync"));
+    expect(target.querySelector("[data-testid=focus-next] i")).toBeNull();
+  });
+
   it("shows a review that waits, and See changes leaves Focus for Reviews", async () => {
     const opened = vi.fn();
     const off = registerCommand({ id: "inbox.toggle", title: "Reviews", run: opened });

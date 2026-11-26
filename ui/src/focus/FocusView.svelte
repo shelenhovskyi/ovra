@@ -18,6 +18,16 @@ const sessions = agentSessions(transport);
 const approvals = approvalQueue(transport);
 
 const sections = $derived(workspace.project ? focusSections(sessions, workspace.project.id) : null);
+// Plans come from transcripts: load those of agents at work that this window has not watched.
+const asked = new Set<SessionId>();
+$effect(() => {
+  for (const row of sections?.progress ?? []) {
+    if (sessions.transcripts.has(row.id) || asked.has(row.id)) continue;
+    asked.add(row.id);
+    void sessions.loadTranscript(row.id).catch(() => {});
+  }
+});
+
 const nothingWaits = $derived(approvals.pending.length === 0 && (sections?.reviews.length ?? 0) === 0);
 
 function filesLine(id: SessionId): string {
@@ -44,7 +54,7 @@ async function newTask(): Promise<void> {
     <h3>{name}{#if list.length}<span class="n">{list.length}</span>{/if}</h3>
     {#if list.length}
       <ul>
-        {#each list as row (row.id)}
+        {#each list as row (`${row.id}:${row.step ?? ""}`)}
           <li><span class="mark {mark}" aria-hidden="true"></span><span class="name">{row.name}</span><span
               class="status">{row.status}</span
             ></li>

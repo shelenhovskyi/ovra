@@ -34,7 +34,7 @@ Two columns on wide windows, one on narrow ones:
 | Header         | The project's name and a one-line count: "2 working · 1 next · 3 done".                                                                                                                                                                                 |
 | Waiting on you | The existing approval cards (same component, same arming, keys and checks), then one card per session whose changes wait for review: its name, the agent's summary, "N files changed" and **See changes**. When nothing waits: "Nothing waits for you." |
 | In progress    | One row per session that starts, works or waits for an approval, with the words `AgentSessions.status` gives ("Working", "Needs approval", "Workers are on it").                                                                                        |
-| Next           | Sessions waiting for a free agent or preparing a worktree.                                                                                                                                                                                              |
+| Next           | Sessions waiting for a free agent or preparing a worktree, then the pending steps of each agent at work from its latest to-do list (Claude's `TodoWrite`), "Planned by <name>": at most 8 per agent, 160 characters each, shown as text.                |
 | Done           | Sessions that finished, stopped or failed, with their words ("Done", "Failed: …").                                                                                                                                                                      |
 | New task       | **New task** leaves Focus and opens the Agents composer (`agents.new_session`).                                                                                                                                                                         |
 
@@ -64,7 +64,6 @@ cards on screen already say what waits. System notifications are unchanged
 - Agent questions to the person with options, a recommended answer and a
   reason, through the task board's `ask` (D2; MCP tool change, with the
   board).
-- "Next" from the coordinator's plan (`TodoWrite`), D4.
 - One view model shared with the phone companion (D5), when the companion
   is built; `ui/src/focus/model.ts` is written so it can be shared.
 - A "Where you left off" line after a break.
