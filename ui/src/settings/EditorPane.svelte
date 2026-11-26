@@ -1,5 +1,5 @@
 <script lang="ts">
-// Settings > Editor: text size, tabs, word wrap and auto save. Every field
+// Settings > Editor: text size, tabs, word wrap, auto save and format on save. Every field
 // reads and writes `editorPrefs`, which checks the value on write; a number
 // field shows the kept value again after a write that was clamped.
 import { type AutoSave, editorPrefs } from "../editor/prefs.svelte";
@@ -59,6 +59,10 @@ function setNumber(input: HTMLInputElement, field: "fontSize" | "tabSize"): void
     </select>
   </label>
   <p class="note">Auto save never overwrites a file changed on disk.</p>
+  <label class="check">
+    <input type="checkbox" role="switch" bind:checked={editorPrefs.formatOnSave} data-testid="editor-format-on-save" />
+    Format on save
+  </label>
 </div>
 
 <style>

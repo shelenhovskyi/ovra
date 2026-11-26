@@ -46,6 +46,7 @@ import { treeSitterHighlighting } from "./highlight/extension";
 import type { LanguageSource } from "./highlight/protocol";
 import { dedentLines, fileIndentation, indentLines, indentTab, newlineKeepIndent } from "./indent";
 import { commentTokens, type Language, languageFor, languageSource } from "./languages";
+import { formatBeforeSave } from "./lsp/format";
 import { editorPrefs } from "./prefs.svelte";
 import { goToLine, runSearch, searchPhrases } from "./search";
 import { detectIndent, lineEndingOf } from "./status.svelte";
@@ -303,9 +304,14 @@ export class Buffer {
     return true;
   }
 
-  /** Writes the text; with `overwrite`, even if the file changed on disk. */
+  /**
+   * Writes the text; with `overwrite`, even if the file changed on disk.
+   * With format on save, a shown file is formatted first (only a shown one
+   * has its language server's plugin).
+   */
   async save(overwrite = false): Promise<boolean> {
     await this.loaded;
+    if (editorPrefs.formatOnSave && this.view && this.status === "ready") await formatBeforeSave(this.view);
     const doc = this.current?.doc;
     if (!doc) return false;
     try {

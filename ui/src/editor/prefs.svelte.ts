@@ -6,7 +6,8 @@
 //
 // Who reads what: `fontSize` sizes the editor's and the read-only viewer's
 // file text; `wordWrap`, `tabSize` and `insertSpaces` shape editing
-// (buffers.svelte.ts, indent.ts); `autoSave` drives autosave.svelte.ts.
+// (buffers.svelte.ts, indent.ts); `autoSave` drives autosave.svelte.ts;
+// `formatOnSave` has a buffer's language server format it before a save.
 // Settings > Editor changes them.
 
 const KEY = "ovra.editor.prefs";
@@ -24,7 +25,14 @@ const TAB_SIZE = { min: 1, max: 16, default: 4 } as const;
 
 type Store = Pick<Storage, "getItem" | "setItem">;
 
-type Stored = { fontSize: number; wordWrap: boolean; tabSize: number; insertSpaces: boolean; autoSave: AutoSave };
+type Stored = {
+  fontSize: number;
+  wordWrap: boolean;
+  tabSize: number;
+  insertSpaces: boolean;
+  autoSave: AutoSave;
+  formatOnSave: boolean;
+};
 
 const clamp = (value: number, limits: { min: number; max: number }) =>
   Math.min(limits.max, Math.max(limits.min, value));
@@ -35,6 +43,7 @@ export class EditorPrefs {
   #tabSize = $state<number>(TAB_SIZE.default);
   #insertSpaces = $state(true);
   #autoSave = $state<AutoSave>("off");
+  #formatOnSave = $state(false);
 
   constructor(private readonly storage: Store | null) {
     try {
@@ -45,6 +54,7 @@ export class EditorPrefs {
       if (typeof stored.tabSize === "number") this.#tabSize = clamp(Math.round(stored.tabSize), TAB_SIZE);
       if (typeof stored.insertSpaces === "boolean") this.#insertSpaces = stored.insertSpaces;
       if (AUTO_SAVE.includes(stored.autoSave as AutoSave)) this.#autoSave = stored.autoSave as AutoSave;
+      if (typeof stored.formatOnSave === "boolean") this.#formatOnSave = stored.formatOnSave;
     } catch {
       // Unreadable or unavailable: the defaults.
     }
@@ -98,6 +108,15 @@ export class EditorPrefs {
     this.save();
   }
 
+  /** Whether saving first has the file's language server format it; off by default. */
+  get formatOnSave(): boolean {
+    return this.#formatOnSave;
+  }
+  set formatOnSave(value: boolean) {
+    this.#formatOnSave = value;
+    this.save();
+  }
+
   /** One pixel larger (`1`), smaller (`-1`), or back to the default (`0`). */
   zoom(step: -1 | 0 | 1): void {
     this.fontSize = step === 0 ? FONT_SIZE.default : this.#fontSize + step;
@@ -110,6 +129,7 @@ export class EditorPrefs {
       tabSize: this.#tabSize,
       insertSpaces: this.#insertSpaces,
       autoSave: this.#autoSave,
+      formatOnSave: this.#formatOnSave,
     };
     try {
       this.storage?.setItem(KEY, JSON.stringify(stored));

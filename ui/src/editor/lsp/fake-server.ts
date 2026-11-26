@@ -20,6 +20,12 @@ export class FakeLspCore extends FakeCore {
   opened: string[] = [];
   /** Results for requests by method. */
   answers: Record<string, unknown> = {};
+  /** Requests answered with an error, by method, with its message. */
+  failures: Record<string, string> = {};
+  /** Requests never answered. */
+  unanswered = new Set<string>();
+  /** Capabilities added to the server's own. */
+  capabilities: Record<string, unknown> = {};
   private nextId = 1;
   private running = new Map<string, ServerInfo>();
 
@@ -84,6 +90,13 @@ export class FakeLspCore extends FakeCore {
   }
 
   private answer(server: string, message: JsonRpcMessage): void {
+    const method = message.method as string;
+    if (this.unanswered.has(method)) return;
+    const failure = this.failures[method];
+    if (failure !== undefined) {
+      queueMicrotask(() => this.push(server, { id: message.id, error: { code: -32603, message: failure } }));
+      return;
+    }
     const result =
       message.method === "initialize"
         ? {
@@ -93,9 +106,10 @@ export class FakeLspCore extends FakeCore {
               definitionProvider: true,
               renameProvider: true,
               referencesProvider: true,
+              ...this.capabilities,
             },
           }
-        : (this.answers[message.method as string] ?? null);
+        : (this.answers[method] ?? null);
     queueMicrotask(() => this.push(server, { id: message.id, result }));
   }
 }
