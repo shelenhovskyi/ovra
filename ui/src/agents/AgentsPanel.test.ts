@@ -697,6 +697,12 @@ describe("AgentsPanel", () => {
       "Total: 10 tokens in, 5 out, $0.0012",
     );
     expect(panel()?.querySelector("[data-testid=agent-billing]")).toBeNull();
+    // A plan is no news: it waits under Details, and the name shares its line with the status.
+    core.emit({ type: "agents.billing", data: { session: "s1", billing: { kind: "subscription" } } });
+    await settle();
+    expect(panel()?.querySelector("[data-testid=agent-billing]")).toBeNull();
+    expect(panel()?.querySelector("details.more [data-testid=agent-billing-more]")).not.toBeNull();
+    expect(panel()?.querySelector(".title-row [role=status]")).not.toBeNull();
     core.emit({ type: "agents.billing", data: { session: "s1", billing: { kind: "api_key" } } });
     await settle();
     const billed = panel()?.querySelector("[data-testid=agent-billing]");

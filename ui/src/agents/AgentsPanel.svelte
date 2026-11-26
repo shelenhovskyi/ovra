@@ -1067,23 +1067,32 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
       <!-- What the session is, and what waits: it gives way (and scrolls) before the transcript does. -->
       <div class="info">
         <div class="facts">
-          <h3 class="clamp" title={sessions.name(current.id)}>{sessions.name(current.id)}</h3>
-          <p class="status" role="status" data-state={tone(current)}>{sessions.status(current.id)}</p>
-          {#if current.billing}
-            <!-- An API key bills at API prices, often not what a plan user expects. -->
-            <p class="line" class:warn={current.billing.kind === "api_key"} data-testid="agent-billing">
+          <!-- Name and status share one line; the account and plan wait under Details. -->
+          <div class="title-row">
+            <h3 class="clamp" title={sessions.name(current.id)}>{sessions.name(current.id)}</h3>
+            <p class="status" role="status" data-state={tone(current)}>{sessions.status(current.id)}</p>
+          </div>
+          {#if current.billing?.kind === "api_key"}
+            <!-- An API key bills at API prices, often not what a plan user expects: it stays in sight. -->
+            <p class="line warn" data-testid="agent-billing">
               {accounts.list.length > 1 ? `${accounts.name(current.account)} · ` : ""}{billedShort(current.billing)}
             </p>
           {/if}
-          {#if sandbox}
-            <!-- One line; what the sandbox covers, and what not, is under Details. -->
-            <p class="line" class:security={sandbox.warning} data-testid="agent-sandbox">
-              {#if sandbox.warning}<Icon name="shield-alert" small />{/if}{sandbox.text}
-            </p>
-          {/if}
-          {#if current.usage.input_tokens + current.usage.output_tokens > 0 || current.billing || sandbox?.more}
+          <div class="meta-row">
+            {#if sandbox}
+              <!-- One line, never hidden; what the sandbox covers, and what not, is under Details. -->
+              <p class="line" class:security={sandbox.warning} data-testid="agent-sandbox">
+                {#if sandbox.warning}<Icon name="shield-alert" small />{/if}{sandbox.text}
+              </p>
+            {/if}
+            {#if current.usage.input_tokens + current.usage.output_tokens > 0 || current.billing || sandbox?.more}
             <details class="more">
               <summary>Details</summary>
+              {#if current.billing && current.billing.kind !== "api_key"}
+                <p data-testid="agent-billing-more">
+                  {accounts.list.length > 1 ? `${accounts.name(current.account)} · ` : ""}{billedShort(current.billing)}
+                </p>
+              {/if}
               {#if sandbox?.more}<p data-testid="agent-sandbox-more">{sandbox.more}</p>{/if}
               {#if gaps}<p data-testid="agent-sandbox-gaps">{gaps}</p>{/if}
               {#if current.billing}<p>{paidText(current.billing)}</p>{/if}
@@ -1091,7 +1100,8 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
                 <p data-testid="agent-usage">Total: {usageText(current.usage, current.billing)}</p>
               {/if}
             </details>
-          {/if}
+            {/if}
+          </div>
         </div>
         {#if signedOut}
           {@const name = accounts.name(current.account)}
@@ -1708,8 +1718,13 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
   /* A task's Conversation and Board */
   .tabs {
     display: flex;
-    gap: 4px;
-    padding: 0 16px 8px;
+    gap: 2px;
+    padding: 0 16px 6px;
+  }
+  .tabs button {
+    height: 24px;
+    padding: 0 8px;
+    font-size: 13px;
   }
   /* The conversation keeps the detail's own layout. */
   .talk {
@@ -1986,13 +2001,41 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
     gap: 2px;
   }
   .facts {
-    padding: 4px 16px 8px;
+    padding: 2px 16px 6px;
     display: flex;
     flex-direction: column;
     gap: 2px;
   }
+  .title-row {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    min-width: 0;
+  }
+  .title-row h3 {
+    flex: 0 1 auto;
+    min-width: 0;
+  }
+  .title-row .status {
+    flex: none;
+  }
+  /* The sandbox line and Details share a row; opened, Details takes the full width below. */
+  .meta-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    column-gap: 12px;
+    row-gap: 2px;
+    min-width: 0;
+  }
+  .meta-row > .line {
+    min-width: 0;
+  }
+  .meta-row > .more[open] {
+    flex-basis: 100%;
+  }
   h3 {
-    margin: 0 0 2px;
+    margin: 0;
     font-size: 14px;
     font-weight: 600;
     overflow-wrap: anywhere;
