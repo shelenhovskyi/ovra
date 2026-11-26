@@ -9,6 +9,7 @@ import type {
   AgentSetup,
   AgentStatus,
   BoardEntry,
+  Checkpoint,
   ContextWarning,
   CoreEvent,
   PermissionRequest,
@@ -96,6 +97,10 @@ export class FakeAgentCore implements Transport {
   listed: string[] = [];
   /** What `context.check` answers for an item's path or text. */
   contextNotes = new Map<string, ContextWarning>();
+  /** What `agents.checkpoints` answers. */
+  checkpoints: Checkpoint[] = [];
+  /** What `agents.go_back` and `agents.undo_go_back` report. */
+  wentBack: { restored: string[]; conflicts: string[] } = { restored: [], conflicts: [] };
   /** Makes the next call of this method fail with this error. */
   failNext = new Map<Request["method"], CoreError>();
   private listeners = new Set<(event: CoreEvent) => void>();
@@ -206,6 +211,12 @@ export class FakeAgentCore implements Transport {
       case "agents.stop":
         this.stopped.push(request.params.session);
         return { type: "ok" };
+      case "agents.checkpoints":
+        return { type: "agents.checkpoints", data: this.checkpoints };
+      case "agents.go_back":
+        return { type: "agents.went_back", data: { ...this.wentBack, can_undo: this.wentBack.restored.length > 0 } };
+      case "agents.undo_go_back":
+        return { type: "agents.undid_go_back", data: this.wentBack };
       case "agents.send":
       case "browser.attach":
       case "agents.interrupt":

@@ -33,6 +33,7 @@ import Icon from "../shell/Icon.svelte";
 import { menuTarget } from "../shell/menu";
 import ContextInput from "./ContextInput.svelte";
 import { agentAsks, contextDrafts, type Suggestion } from "./context.svelte";
+import { resultText, undoneTurns } from "./checkpoints";
 import { signedOutError } from "./errors";
 import FirstSteps from "./FirstSteps.svelte";
 import { hints } from "./hints.svelte";
@@ -869,6 +870,62 @@ const busyAgent = $derived(
   current !== null && (current.status.state === "working" || current.status.state === "waiting_for_approval"),
 );
 const canReply = $derived(current !== null && current.status.state === "idle");
+
+/**
+ * Going back to an earlier turn (`docs/specs/checkpoints.md`): for direct
+ * sessions only, not a task's coordinator, and while a box takes the
+ * message back.
+ */
+const goesBack = $derived(
+  current !== null &&
+    current.mode === "direct" &&
+    !sessions.roles.has(current.id) &&
+    (!isEnded(current.status) || current.resumable),
+);
+/** The open session's turns that can be gone back to. */
+let checkpoints = $state<{ session: SessionId; turns: Set<number> } | null>(null);
+// Asked again whenever a turn ends: a new checkpoint, or an old one dropped.
+$effect(() => {
+  const id = goesBack ? current?.id : undefined;
+  const idle = current !== null && !isBusy(current.status);
+  if (!id || !idle) return;
+  void messages?.length;
+  void sessions.checkpoints(id).then((turns) => {
+    if (current?.id === id) checkpoints = { session: id, turns };
+  });
+});
+/** What the last go-back or its undo did, until the transcript moves on. */
+let wentBack = $state<{ session: SessionId; text: string; at: number } | null>(null);
+const wentBackLine = $derived(
+  wentBack && current && wentBack.session === current.id && wentBack.at === (messages?.length ?? 0)
+    ? wentBack.text
+    : null,
+);
+const undone = $derived(
+  current ? undoneTurns(messages ?? [], current.undone_from, current.can_undo_go_back ?? false) : null,
+);
+
+function goBack(turn: number, text: string): Promise<void> {
+  const id = current?.id;
+  if (!id) return Promise.resolve();
+  return run(async () => {
+    const { restored, conflicts } = await sessions.goBack(id, turn);
+    wentBack = { session: id, text: resultText(restored, conflicts, false), at: messages?.length ?? 0 };
+    // The message comes back to be edited and sent again, or cleared.
+    reply = text;
+    await tick();
+    replyField?.focus();
+  });
+}
+
+function undoGoBack(): Promise<void> {
+  const id = current?.id;
+  if (!id) return Promise.resolve();
+  return run(async () => {
+    const { restored, conflicts } = await sessions.undoGoBack(id);
+    wentBack = { session: id, text: resultText(restored, conflicts, true), at: messages?.length ?? 0 };
+  });
+}
 /** Running, or a task whose workers still run: a Done session has nothing to stop, Close ends it. */
 const stoppable = $derived(current !== null && !isEnded(current.status) && sessions.status(current.id) !== "Done");
 </script>
@@ -1149,7 +1206,21 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
         partial={sessions.partial.get(current.id) ?? ""}
         onretry={retryTurn}
         denied={(use) => sessions.denied(current.id, use.name, use.input)}
+        checkpoints={checkpoints?.session === current.id ? checkpoints.turns : undefined}
+        goBackBlocked={isBusy(current.status) ? "Stop the agent first" : null}
+        {undone}
+        ongoback={goesBack ? (turn, text) => void goBack(turn, text) : undefined}
       />
+      {#if wentBackLine || (goesBack && current.can_undo_go_back)}
+        <div class="went-back" data-testid="go-back-result">
+          {#if wentBackLine}<p>{wentBackLine}</p>{/if}
+          {#if goesBack && current.can_undo_go_back}
+            <button type="button" class="quiet soft" disabled={busy || isBusy(current.status)} onclick={() => void undoGoBack()}
+              >Undo go back</button
+            >
+          {/if}
+        </div>
+      {/if}
       {#if !isEnded(current.status) && !signedOut}
         <form
           class="compose"
@@ -1835,6 +1906,20 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
   .strong {
     color: var(--text);
     font-weight: 500;
+  }
+  .went-back {
+    margin: 0 16px 4px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    color: var(--text-2);
+  }
+  .went-back p {
+    flex: 1;
+    min-width: 0;
+    margin: 0;
+    overflow-wrap: anywhere;
   }
 
   /* One session */

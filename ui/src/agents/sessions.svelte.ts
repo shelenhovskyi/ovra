@@ -371,6 +371,45 @@ export class AgentSessions {
   async send(session: SessionId, text: string, context: ContextItem[] = []): Promise<void> {
     const params = { session, text, ...(context.length > 0 ? { context } : {}) };
     await this.transport.call({ method: "agents.send", params });
+    this.patch(session, { can_undo_go_back: false });
+  }
+
+  /** The turns of a direct session that can be gone back to; none when the core no longer tracks it. */
+  async checkpoints(session: SessionId): Promise<Set<number>> {
+    try {
+      const { data } = await this.transport.call({ method: "agents.checkpoints", params: { session } });
+      return new Set(data.map((c) => c.turn));
+    } catch {
+      return new Set();
+    }
+  }
+
+  /** Sets the agent's changes since before `turn` back (`docs/specs/checkpoints.md`). */
+  async goBack(session: SessionId, turn: number): Promise<{ restored: string[]; conflicts: string[] }> {
+    const { data } = await this.transport.call({ method: "agents.go_back", params: { session, turn } });
+    if (data.can_undo) this.patch(session, { undone_from: turn, can_undo_go_back: true });
+    await this.reviewAgain(session);
+    return data;
+  }
+
+  /** Puts back what the last go-back restored. */
+  async undoGoBack(session: SessionId): Promise<{ restored: string[]; conflicts: string[] }> {
+    const { data } = await this.transport.call({ method: "agents.undo_go_back", params: { session } });
+    this.patch(session, { undone_from: null, can_undo_go_back: false });
+    await this.reviewAgain(session);
+    return data;
+  }
+
+  /** Files were set back: the review item's changed files are read again. */
+  private async reviewAgain(session: SessionId): Promise<void> {
+    const project = this.byId.get(session)?.project;
+    if (project) await this.loadReviews(project);
+  }
+
+  /** The core changed these fields without an event of their own. */
+  private patch(session: SessionId, fields: Partial<SessionInfo>): void {
+    const known = this.byId.get(session);
+    if (known) this.byId.set(session, { ...known, ...fields });
   }
 
   /** Ends the current turn; the agent's pending requests are denied and it waits for a message. */
@@ -381,7 +420,7 @@ export class AgentSessions {
   /** Continues an ended session with a new prompt; it keeps its id and transcript. */
   async resume(session: SessionId, prompt: string): Promise<void> {
     const { data } = await this.transport.call({ method: "agents.resume", params: { session, prompt } });
-    this.byId.set(data.id, { ...data, status: this.byId.get(data.id)?.status ?? data.status });
+    this.byId.set(data.id, { ...data, status: this.byId.get(data.id)?.status ?? data.status, can_undo_go_back: false });
   }
 
   async stop(session: SessionId): Promise<void> {
