@@ -1436,6 +1436,9 @@ pub trait Forge: Send + Sync + Debug {
 /// runs the git command line with the person's config, but never a file
 /// monitor, an external diff or textconv driver, or a terminal prompt.
 pub trait GitService: Send + Sync + Debug {
+    /// `git --version`, for the setup check: `None` when git is not
+    /// installed.
+    fn version(&self) -> BoxFuture<'_, Result<Option<String>>>;
     /// `None` when `root` is not in a git repository.
     fn status(&self, root: PathBuf) -> BoxFuture<'_, Result<Option<RepoStatus>>>;
     /// `git init` in `root`, nothing more: no commit, no remote. `Conflict`
@@ -1553,6 +1556,9 @@ impl Unavailable {
 }
 
 impl GitService for Unavailable {
+    fn version(&self) -> BoxFuture<'_, Result<Option<String>>> {
+        self.later()
+    }
     fn status(&self, _: PathBuf) -> BoxFuture<'_, Result<Option<RepoStatus>>> {
         self.later()
     }

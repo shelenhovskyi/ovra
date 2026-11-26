@@ -23,6 +23,7 @@ import type { ReviewEvent, ReviewRequest, ReviewResponse } from "./review";
 import type { SearchEvent, SearchRequest, SearchResponse } from "./search";
 import type { SecretsEvent, SecretsRequest, SecretsResponse } from "./secrets";
 import type { ServersEvent, ServersRequest, ServersResponse, ServersResponseFor } from "./servers";
+import type { SetupRequest, SetupResponse } from "./setup";
 import type { TerminalsEvent, TerminalsRequest, TerminalsResponse } from "./terminals";
 
 export type * from "./agents";
@@ -55,6 +56,7 @@ export type * from "./search";
 export type * from "./secrets";
 export type * from "./servers";
 export type { ServerId as DevServerId, ServerInfo as DevServerInfo } from "./servers";
+export type * from "./setup";
 export type * from "./terminals";
 
 export type Request =
@@ -80,7 +82,8 @@ export type Request =
   | PowerRequest
   | ContextRequest
   | BoardRequest
-  | RemoteRequest;
+  | RemoteRequest
+  | SetupRequest;
 
 export type Response =
   | InfoResponse
@@ -105,6 +108,7 @@ export type Response =
   | ContextResponse
   | BoardResponse
   | RemoteResponse
+  | SetupResponse
   | { type: "ok" };
 
 export type CoreEvent =
@@ -278,4 +282,6 @@ type LaterResponseFor<R extends Request> = R extends ServersRequest
               ? BoardResponseFor<R["method"]>
               : R extends RemoteRequest
                 ? RemoteResponseFor<R["method"]>
-                : never;
+                : R extends SetupRequest
+                  ? SetupResponse
+                  : never;

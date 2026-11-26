@@ -33,6 +33,7 @@ mod search;
 mod secrets;
 mod servers;
 pub mod services;
+mod setup;
 pub mod untrusted;
 
 pub use crate::core::{Client, Core, CoreBuilder};

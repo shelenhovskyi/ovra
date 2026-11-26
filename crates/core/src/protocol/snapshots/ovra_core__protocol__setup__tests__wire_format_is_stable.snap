@@ -1,0 +1,81 @@
+---
+source: crates/core/src/protocol/setup.rs
+expression: "serde_json::json!({\n    \"requests\":\n    [Request::Setup(SetupRequest::Check { project: None }),\n    Request::Setup(SetupRequest::Check\n    { project: Some(ProjectId(\"p1\".into())) }),], \"responses\":\n    [Response::Setup(SetupResponse::Report(report)),\n    Response::Setup(SetupResponse::Report(skipped)),],\n})"
+---
+{
+  "requests": [
+    {
+      "method": "setup.check",
+      "params": {
+        "project": null
+      }
+    },
+    {
+      "method": "setup.check",
+      "params": {
+        "project": "p1"
+      }
+    }
+  ],
+  "responses": [
+    {
+      "data": {
+        "agents": [
+          {
+            "id": "claude",
+            "name": "Claude",
+            "setup": {
+              "api_key_in_env": false,
+              "billing": null,
+              "executable": "/usr/local/bin/claude",
+              "path": null,
+              "state": {
+                "state": "signed_out"
+              },
+              "version": "2.1.331"
+            }
+          }
+        ],
+        "gh": {
+          "message": "gh --version timed out",
+          "state": "failed"
+        },
+        "git": {
+          "found": {
+            "installed": true,
+            "version": "2.47.1"
+          },
+          "state": "checked"
+        },
+        "sandbox": {
+          "reason": "bubblewrap is not installed",
+          "state": "unavailable"
+        }
+      },
+      "type": "setup.report"
+    },
+    {
+      "data": {
+        "agents": [],
+        "gh": {
+          "state": "skipped"
+        },
+        "git": {
+          "found": {
+            "installed": false,
+            "version": null
+          },
+          "state": "checked"
+        },
+        "sandbox": {
+          "gaps": [
+            "DNS lookups"
+          ],
+          "name": "bubblewrap",
+          "state": "available"
+        }
+      },
+      "type": "setup.report"
+    }
+  ]
+}

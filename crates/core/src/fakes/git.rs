@@ -28,6 +28,8 @@ pub struct MemoryGit {
     pub ancestry: Mutex<Ancestry>,
     /// When set, every changing call fails with `conflict` and this message.
     pub refuse: Mutex<Option<String>>,
+    /// What `version` answers; `None`: git is not installed.
+    pub version: Mutex<Option<String>>,
 }
 
 impl MemoryGit {
@@ -126,6 +128,10 @@ fn commit(summary: &str) -> CommitInfo {
 }
 
 impl GitService for MemoryGit {
+    fn version(&self) -> BoxFuture<'_, Result<Option<String>>> {
+        let version = lock(&self.version).clone();
+        Box::pin(async move { Ok(version) })
+    }
     fn status(&self, root: PathBuf) -> BoxFuture<'_, Result<Option<RepoStatus>>> {
         let status = lock(&self.status).clone();
         self.read("status", &root, "", status)

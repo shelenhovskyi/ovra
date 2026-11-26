@@ -131,6 +131,7 @@ async fn serve() -> anyhow::Result<()> {
         .resources(resources(&args))
         .keep_awake(keep_awake(&args))
         .remote(remote)
+        .sandbox(ovra_sandbox::for_this_os(&args.data_dir))
         .build();
     if let Some(server) = restore {
         server.restore(core.clone());

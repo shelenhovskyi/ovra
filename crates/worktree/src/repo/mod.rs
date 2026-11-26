@@ -812,6 +812,9 @@ fn commit_detail(record: &str) -> Option<CommitDetail> {
 }
 
 impl GitService for GitRepo {
+    fn version(&self) -> BoxFuture<'_, Result<Option<String>>> {
+        blocking(git::installed_version)
+    }
     fn status(&self, root: PathBuf) -> BoxFuture<'_, Result<Option<RepoStatus>>> {
         blocking(move || status::status(&root))
     }

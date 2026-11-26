@@ -61,6 +61,39 @@ pub(crate) fn program() -> &'static OsStr {
         .as_os_str()
 }
 
+/// The version `git --version` prints, such as `2.47.1`; `None` when
+/// there is no git to start. A git that starts but fails (the macOS stub
+/// without the developer tools) is an error with its first line.
+pub(crate) fn installed_version() -> Result<Option<String>> {
+    let started = Command::new(program())
+        .arg("--version")
+        .env(
+            "PATH",
+            ovra_core::child_path::absolute(std::env::var_os("PATH")),
+        )
+        .stdin(Stdio::null())
+        .output();
+    let out = match started {
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => return Err(internal(format!("git --version could not start: {e}"))),
+        Ok(out) => out,
+    };
+    if !out.status.success() {
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        let line = stderr.lines().find(|l| !l.trim().is_empty()).unwrap_or("");
+        let line: String = line.trim().chars().take(200).collect();
+        return Err(internal(format!("git --version failed: {line}")));
+    }
+    Ok(Some(version_of(&String::from_utf8_lossy(&out.stdout))))
+}
+
+/// `2.39.3` of `git version 2.39.3 (Apple Git-145)`.
+fn version_of(text: &str) -> String {
+    let text = text.trim();
+    let text = text.strip_prefix("git version ").unwrap_or(text);
+    text.split_whitespace().next().unwrap_or(text).to_owned()
+}
+
 /// `<prefix>/bin/git.exe` next to its libraries, found from the exec path
 /// `<prefix>/libexec/git-core`, if it runs.
 fn real_git() -> Option<PathBuf> {
@@ -715,6 +748,25 @@ fn forget_ignored(dir: &Path, index: &TempIndex) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn version_is_the_number_only() {
+        assert_eq!(super::version_of("git version 2.47.1\n"), "2.47.1");
+        assert_eq!(
+            super::version_of("git version 2.39.3 (Apple Git-145)\n"),
+            "2.39.3"
+        );
+        assert_eq!(
+            super::version_of("git version 2.45.2.windows.1"),
+            "2.45.2.windows.1"
+        );
+    }
+
+    #[test]
+    fn the_installed_git_has_a_version() {
+        let version = super::installed_version().ok().flatten();
+        assert!(version.is_some_and(|v| v.starts_with('2')));
+    }
+
     use super::*;
 
     /// Where hook-less calls look for hooks: no folder at all, or an empty

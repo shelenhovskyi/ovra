@@ -1,0 +1,33 @@
+---
+source: crates/core/src/setup/tests.rs
+expression: "report.unwrap_or_else(|e| panic!(\"{e:?}\"))"
+---
+{
+  "agents": [
+    {
+      "id": "claude",
+      "name": "Claude",
+      "setup": {
+        "path": null,
+        "executable": null,
+        "version": null,
+        "state": {
+          "state": "ready"
+        },
+        "billing": null,
+        "api_key_in_env": false
+      }
+    }
+  ],
+  "git": {
+    "state": "failed",
+    "message": "git is not available in this build"
+  },
+  "gh": {
+    "state": "skipped"
+  },
+  "sandbox": {
+    "state": "unavailable",
+    "reason": "this build of Ovra has no sandbox"
+  }
+}

@@ -283,6 +283,7 @@ fn main() {
                     None,
                 )))
                 .remote(remote.clone())
+                .sandbox(ovra_sandbox::for_this_os(&data_dir))
                 .build();
             let restored = core.clone();
             tauri::async_runtime::spawn(async move { remote.restore(restored) });

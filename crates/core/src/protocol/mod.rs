@@ -28,6 +28,7 @@ pub mod review;
 pub mod search;
 pub mod secrets;
 pub mod servers;
+pub mod setup;
 pub mod terminals;
 
 use serde::{Deserialize, Serialize};
@@ -59,6 +60,7 @@ pub enum Request {
     Power(power::PowerRequest),
     Context(context::ContextRequest),
     Remote(remote::RemoteRequest),
+    Setup(setup::SetupRequest),
 }
 
 /// The core's answer to a [`Request`]. Wire form: `{"type": "<domain>.<name>", "data": ...}`.
@@ -87,6 +89,7 @@ pub enum Response {
     Power(power::PowerResponse),
     Context(context::ContextResponse),
     Remote(remote::RemoteResponse),
+    Setup(setup::SetupResponse),
     /// The request succeeded and has nothing to return.
     Ok(OkResponse),
 }

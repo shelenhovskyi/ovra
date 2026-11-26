@@ -91,7 +91,8 @@ pub(crate) fn allows(request: &Request) -> bool {
         | Request::Pr(_)
         | Request::Context(_)
         | Request::Board(_)
-        | Request::Remote(_) => false,
+        | Request::Remote(_)
+        | Request::Setup(_) => false,
     }
 }
 

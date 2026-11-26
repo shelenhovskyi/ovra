@@ -7,7 +7,7 @@ use crate::protocol::pr::{PrRequest, PrResponse};
 use crate::protocol::{ErrorCode, ProtocolError, Response};
 
 /// The remote a request names none: the one `git clone` sets up.
-const DEFAULT_REMOTE: &str = "origin";
+pub(crate) const DEFAULT_REMOTE: &str = "origin";
 
 pub(crate) async fn handle(core: &Core, request: PrRequest) -> Result<Response, ProtocolError> {
     match request {

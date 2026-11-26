@@ -22,7 +22,7 @@ use crate::servers::DevServerState;
 use crate::services::{
     AgentRuntime, AuditLog, Browser, DevServers, EventSink, Forge, FsService, GitService, IdeTools,
     KeepAwake, LanguageServers, NetProxy, Opener, ProjectStore, RemoteAccess, ResourceMonitor,
-    Secrets, SessionStore, TerminalService, Unavailable, Worktrees,
+    Sandbox, Secrets, SessionStore, TerminalService, Unavailable, Worktrees,
 };
 
 const EVENT_CAPACITY: usize = 1024;
@@ -51,6 +51,7 @@ pub struct CoreBuilder {
     resources: Option<Arc<dyn ResourceMonitor>>,
     keep_awake: Arc<dyn KeepAwake>,
     remote: Arc<dyn RemoteAccess>,
+    sandbox: Option<Arc<dyn Sandbox>>,
 }
 
 impl CoreBuilder {
@@ -172,6 +173,13 @@ impl CoreBuilder {
         self
     }
 
+    /// The sandbox agents run in, for `setup.check` only: the runtimes
+    /// get their own.
+    pub fn sandbox(mut self, sandbox: Arc<dyn Sandbox>) -> Self {
+        self.sandbox = Some(sandbox);
+        self
+    }
+
     pub fn build(self) -> Core {
         let (events, _) = broadcast::channel(EVENT_CAPACITY);
         let kept = self.sessions.clone();
@@ -208,6 +216,7 @@ impl CoreBuilder {
                 audit_state: crate::audit::State::default(),
                 power: crate::power::State::new(self.keep_awake),
                 remote: self.remote,
+                sandbox: self.sandbox,
             }),
             events,
         };
@@ -257,6 +266,7 @@ struct Inner {
     resources: crate::resources::Resources,
     power: crate::power::State,
     remote: Arc<dyn RemoteAccess>,
+    sandbox: Option<Arc<dyn Sandbox>>,
 }
 
 /// A [`Core`] that does not keep it alive; sessions hold one so their IDE
@@ -363,6 +373,7 @@ impl Core {
             resources: None,
             keep_awake: Arc::new(Unavailable("keeping the computer awake")),
             remote: Arc::new(Unavailable("phone access")),
+            sandbox: None,
         }
     }
 
@@ -475,6 +486,7 @@ impl Core {
             Request::Power(r) => crate::power::handle(self, r),
             Request::Context(r) => crate::context::handle(self, r).await,
             Request::Remote(r) => crate::remote::handle(self, r),
+            Request::Setup(r) => crate::setup::handle(self, r).await,
         }
     }
 
@@ -541,6 +553,18 @@ impl Core {
 
     pub(crate) fn forge(&self) -> &dyn Forge {
         self.inner.forge.as_ref()
+    }
+
+    /// The services `setup.check` asks, each its own handle so the checks
+    /// can run at once.
+    pub(crate) fn setup_services(&self) -> crate::setup::Services {
+        crate::setup::Services {
+            agents: self.inner.agents.clone(),
+            projects: self.inner.projects.clone(),
+            git: self.inner.git.clone(),
+            forge: self.inner.forge.clone(),
+            sandbox: self.inner.sandbox.clone(),
+        }
     }
 
     pub(crate) fn dev_servers(&self) -> &DevServerState {
