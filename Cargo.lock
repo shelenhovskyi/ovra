@@ -3485,6 +3485,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "ovra-acp-client"
+version = "0.1.0"
+dependencies = [
+ "ovra-core",
+]
+
+[[package]]
 name = "ovra-agent-runtime"
 version = "0.1.0"
 dependencies = [

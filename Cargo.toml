@@ -32,6 +32,7 @@ ovra-forge = { path = "crates/forge" }
 ovra-resources = { path = "crates/resources" }
 ovra-power = { path = "crates/power" }
 ovra-remote = { path = "crates/remote" }
+ovra-acp-client = { path = "crates/acp-client" }
 anyhow = "1"
 axum = { version = "0.8", features = ["ws"] }
 futures-util = "0.3"

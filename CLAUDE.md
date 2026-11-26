@@ -38,6 +38,8 @@ Before every push: `just test && just e2e && just lint` must pass.
 - `crates/pty` - `TerminalService`: shells in pseudo-terminals.
 - `crates/agent-runtime` - `AgentRuntime`: Claude sessions through the
   user's installed `claude` CLI (ADR 0006).
+- `crates/acp-client` - `AgentRuntime` for agents that speak ACP, one
+  generic adapter with each agent described by data (ADR 0011; a stub).
 - `crates/worktree` - `Worktrees`: git worktrees, snapshots and review diffs.
 - `crates/netproxy` - `NetProxy`: per-session HTTP proxies with a host
   allowlist, the sandbox's only way out.
