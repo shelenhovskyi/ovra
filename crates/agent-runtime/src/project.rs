@@ -284,12 +284,8 @@ const SUBCOMMANDS: [(&str, &[&str]); 7] = [
             "switch",
             "restore",
             "stash",
-            "fetch",
-            "pull",
             "merge",
-            "rebase",
             "blame",
-            "grep",
             "rev-parse",
             "ls-files",
             "tag",
@@ -425,8 +421,12 @@ fn command_reaches(spec: &str) -> bool {
     if first.contains('=') && !first.starts_with('=') {
         return true;
     }
-    // `"curl"` is curl.
+    // `"curl"` is curl; `c''url` or `c\\url` could be anything.
     let first = first.trim_matches(['"', '\'']);
+    let windows_path = first.starts_with('\\') || first.as_bytes().get(1) == Some(&b':');
+    if first.contains(['"', '\'']) || (first.contains('\\') && !windows_path) {
+        return true;
+    }
     // A wildcard in the program's name could be any program.
     if first.contains(['*', '?', '[', '{', '$', '`']) {
         return true;
@@ -449,9 +449,14 @@ fn command_reaches(spec: &str) -> bool {
         .find(|(name, _)| *name == program)
         // `Bash(npm:*)`, `npm exec`, `git -c …`: not an everyday subcommand.
         .is_some_and(|(_, safe)| !safe.contains(&next));
+    // `git log:*` can add `--output=<anywhere>`; these take no such flag.
+    let open_git = program == "git"
+        && spec.contains('*')
+        && !["status", "rev-parse", "ls-files", "branch", "tag"].contains(&next);
     [program, base].iter().any(|name| {
         INTERPRETERS.contains(name) || REACH.contains(name) || POWERSHELL.contains(name)
     }) || unlisted
+        || open_git
 }
 
 /// Whether a path rule names something outside the project: absolute
@@ -467,6 +472,7 @@ fn outside(spec: &str) -> bool {
         || spec.starts_with('$')
         || spec.as_bytes().get(1) == Some(&b':')
         || spec.split(['/', '\\']).any(|part| part == "..")
+        || (spec.contains("..") && spec.contains(['{', '[']))
         || spec.split(['/', '\\']).any(|part| {
             part.contains(['{', '[']) && (part.contains("..") || part.starts_with(['.', '{', '[']))
         })
@@ -512,8 +518,12 @@ fn env(value: &Value) -> Vec<String> {
                 return format!("{name} = (hidden, #{})", digest(name, &text));
             }
             let shown = without_secret_words(&without_credentials(&text));
+            let whole = text.split_whitespace().collect::<Vec<_>>().join(" ");
+            // Masked or cut: the digest of the whole value shows any change.
+            let tag = || format!(" #{}", digest(name, &text));
             match shown.char_indices().nth(100) {
-                Some((cut, _)) => format!("{name} = {}… #{}", &shown[..cut], digest(name, &text)),
+                Some((cut, _)) => format!("{name} = {}…{}", &shown[..cut], tag()),
+                None if shown != whole => format!("{name} = {shown}{}", tag()),
                 None => format!("{name} = {shown}"),
             }
         })
@@ -779,6 +789,11 @@ mod tests {
             "Bash(\"curl\" x)",
             "Bash(python3.12 x.py)",
             "PowerShell(Set-Content x)",
+            "Bash(git fetch:*)",
+            "Bash(git log:*)",
+            "Bash(c''url x)",
+            "Bash(c\\url x)",
+            "Edit(x{/..,}/y)",
         ] {
             assert!(broad(rule), "{rule}");
         }
@@ -794,6 +809,9 @@ mod tests {
             "Read(./docs/**)",
             "Edit(src/**/*.{ts,svelte})",
             "Bash(git status)",
+            "Bash(git status:*)",
+            "Bash(git log --oneline)",
+            "Bash(C:\\tools\\fmt.exe x)",
             "WebFetch(domain:docs.rs)",
             "WebFetch(domain:example.com)",
             "Read",
@@ -829,17 +847,31 @@ mod tests {
             "{}",
             more[0]
         );
-        assert_eq!(more[1], "BASE_URL = https://***@h.example/v1 and ftp://h2");
-        assert_eq!(more[2], "OTEL = Authorization: *** ***");
+        assert!(
+            more[1].starts_with("BASE_URL = https://***@h.example/v1 and ftp://h2 #"),
+            "{}",
+            more[1]
+        );
+        assert!(
+            more[2].starts_with("OTEL = Authorization: *** *** #"),
+            "{}",
+            more[2]
+        );
+        // A change inside a masked part still changes the entry.
+        let one = |value: &str| entries(&format!(r#"{{"env": {{"N": "{value}"}}}}"#))[0].clone();
+        assert_ne!(one("--title token --a"), one("--title token --b"));
+        assert_ne!(one("https://a:b@h"), one("https://c:d@h"));
+        assert_eq!(one("plain value"), "N = plain value");
         // The masked part never hides where a URL points.
         let host = entries(
             r#"{"env": {"A": "https://evil.example?@good.example", "B": "https://evil.example\\@good.example", "C": "https://evil.example/?authorization=x token abc"}}"#,
         );
         assert_eq!(host[0], "A = https://evil.example?@good.example");
         assert_eq!(host[1], "B = https://evil.example\\@good.example");
-        assert_eq!(
-            host[2],
-            "C = https://evil.example/?authorization=*** token ***"
+        assert!(
+            host[2].starts_with("C = https://evil.example/?authorization=*** token *** #"),
+            "{}",
+            host[2]
         );
         // A change past the shown part still changes the entry.
         let long = |tail: &str| {
