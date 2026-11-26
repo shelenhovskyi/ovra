@@ -847,7 +847,7 @@ headless mode has no drops, and agents have no tool for it.
 | Task | Builds on 4.0                                                                                                               |
 | ---- | --------------------------------------------------------------------------------------------------------------------------- |
 | 4.A  | `Sandbox` for Linux in `crates/sandbox-linux`: bubblewrap, the helper (Landlock, seccomp), inbox marks for protected paths. |
-| 4.B  | `Sandbox` for macOS in `crates/sandbox-macos` (Seatbelt).                                                                   |
+| 4.B  | `Sandbox` for macOS in `crates/sandbox-macos` (Seatbelt; `docs/specs/sandbox-macos.md`, off until verified on a Mac).       |
 | 4.C  | `NetProxy` in `crates/netproxy`, project allowlists, `netproxy.*` methods.                                                  |
 | 4.D  | Its own short spec first (TLS for bound hosts), then `Secrets` in `crates/secrets`.                                         |
 | 4.E  | Writing `AuditEntry` from the core, the store in `ovra-store`, the viewer in `ui/src/audit`.                                |

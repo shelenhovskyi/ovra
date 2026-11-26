@@ -110,6 +110,10 @@ Mac Gemini and Codex refuse to start. Options: wait for a macOS sandbox
 sandbox Claude on a Mac (recommended); or let them run on a Mac in their
 worktree with only their own built-in sandbox, which loosens ADR 0011.
 
+Decided 2026-11-26: the owner chose Ovra's own macOS sandbox
+(`docs/specs/sandbox-macos.md`). Until it is verified on a Mac it reports
+itself unavailable, so Gemini and Codex still refuse there.
+
 ## Tests
 
 - Core: the router sends each session to its provider and refuses unknown

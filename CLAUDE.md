@@ -57,6 +57,8 @@ Before every push: `just test && just e2e && just lint` must pass.
   daemon or app itself, `helper_if_asked`) that applies Landlock and seccomp.
 - `crates/sandbox-windows` - the Windows sandbox: a sandbox user and a
   write-restricted token (`docs/specs/sandbox-windows.md`, in progress).
+- `crates/sandbox-macos` - the macOS sandbox: Seatbelt through
+  `sandbox-exec` (`docs/specs/sandbox-macos.md`; off until verified on a Mac).
 - `crates/lsp` - `LanguageServers`: language servers found on `PATH`, run
   through the sandbox (ADR 0007); the core filters their messages.
 - `crates/mcp-server` - `IdeTools`: Ovra's MCP tools for agents
@@ -80,8 +82,8 @@ A new OS-facing feature is a trait in `crates/core/src/services.rs`, a fake in
 and `app`. The core never calls the OS itself.
 
 Allowed crate dependencies are listed in `scripts/crate-graph.json`; CI
-rejects any other edge. Platform crates (`sandbox-macos`, `sandbox-windows`,
-when they exist) are changed only for issues labelled `platform:*`.
+rejects any other edge. Platform crates (`sandbox-macos`, `sandbox-windows`)
+are changed only for issues labelled `platform:*`.
 
 ## Parallel work
 
