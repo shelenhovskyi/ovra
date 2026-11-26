@@ -3510,6 +3510,7 @@ dependencies = [
  "ovra-store",
  "ovra-transport",
  "ovra-worktree",
+ "serde",
  "tauri",
  "tauri-build",
  "tauri-plugin-dialog",

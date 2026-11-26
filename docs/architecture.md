@@ -43,7 +43,9 @@ fans out events; only the wire under it differs.
 Things only a desktop window has stay outside the core and the frames: the
 system's folder dialog (`ovra_pick_folder`) and dropped paths. They are
 optional `Transport` members (`pickFolder`, `onDrop`) that headless mode
-lacks, and a path from them goes to `projects.add` like a typed one. Every
+lacks, and a path from them goes to `projects.add` like a typed one. A drop
+onto the file tree copies into the project by the drop's id
+(`importDrop`, `ovra_import_drop`); the paths stay in the app. Every
 window command is listed in `app/build.rs` and needs its own entry in
 `app/capabilities/`.
 

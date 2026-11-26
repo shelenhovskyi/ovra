@@ -6,6 +6,7 @@
   "permissions": [
     "allow-ovra-call",
     "allow-ovra-pick-folder",
+    "allow-ovra-import-drop",
     "core:event:allow-listen",
     "core:event:allow-unlisten",
     "core:window:allow-start-dragging",

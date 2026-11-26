@@ -5,14 +5,17 @@
 
 mod menu;
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, PoisonError};
+use std::time::Instant;
 
 use ovra_agent_runtime::ClaudeCli;
 use ovra_browser::ChromiumBrowser;
-use ovra_core::services::Secrets;
+use ovra_core::path::RelPath;
+use ovra_core::protocol::projects::ProjectId;
+use ovra_core::services::{ProjectStore, Secrets};
 use ovra_core::{Client, Core};
 use ovra_forge::GhForge;
-use ovra_fs_index::FsIndex;
+use ovra_fs_index::{Clash, Drops, FsIndex, Imported};
 use ovra_mcp_server::IdeServer;
 use ovra_opener::SystemOpener;
 use ovra_pty::Pty;
@@ -50,6 +53,124 @@ async fn ovra_pick_folder(window: tauri::WebviewWindow) -> Result<Option<String>
         .into_string()
         .map(Some)
         .map_err(|_| "Ovra cannot open folders whose path is not valid Unicode yet.".to_owned())
+}
+
+/// The paths of the last drop onto the window, kept in Rust: the window
+/// gets only their id (`ovra://drop`), so no text a page sends names a file
+/// outside a project. Headless mode has no drops.
+struct WindowDrops(Mutex<Drops>);
+
+/// The file service and project store `ovra_import_drop` copies with.
+struct Importer {
+    fs: Arc<FsIndex>,
+    projects: Arc<Store>,
+}
+
+/// What the window learns about a drop: its id, the paths (for opening a
+/// dropped folder as a project, through `projects.add` like a typed path)
+/// and where it landed, in CSS pixels.
+#[derive(Clone, serde::Serialize)]
+struct DropFrame {
+    id: String,
+    paths: Vec<String>,
+    x: f64,
+    y: f64,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum ClashAnswer {
+    Ask,
+    Replace,
+    KeepBoth,
+}
+
+#[derive(serde::Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+enum ImportReply {
+    Clashes {
+        names: Vec<String>,
+    },
+    Copied {
+        paths: Vec<String>,
+        skipped_links: Vec<String>,
+    },
+}
+
+/// Keeps a drop onto the main window under a new id and tells the window.
+fn on_drop(window: &tauri::Window, paths: &[std::path::PathBuf], at: tauri::PhysicalPosition<f64>) {
+    if window.label() != "main" {
+        return;
+    }
+    let drops = window.state::<WindowDrops>();
+    let id = drops
+        .0
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .put(paths.to_vec(), Instant::now());
+    let at = at.to_logical::<f64>(window.scale_factor().unwrap_or(1.0));
+    let frame = DropFrame {
+        id,
+        paths: paths
+            .iter()
+            .map(|p| p.to_string_lossy().into_owned())
+            .collect(),
+        x: at.x,
+        y: at.y,
+    };
+    let _ = window.emit("ovra://drop", frame);
+}
+
+/// Copies the drop `drop_id` into the folder `target_dir` of `project`
+/// (`FsIndex::import`). With `clash: "ask"` and a name that exists already,
+/// nothing is copied, the names come back and the drop stays for the
+/// person's answer until it expires; any other outcome uses it up.
+#[tauri::command]
+async fn ovra_import_drop(
+    drops: tauri::State<'_, WindowDrops>,
+    importer: tauri::State<'_, Importer>,
+    drop_id: String,
+    project: ProjectId,
+    target_dir: String,
+    clash: ClashAnswer,
+) -> Result<ImportReply, String> {
+    let into = RelPath::parse(&target_dir).map_err(|e| e.message)?;
+    let root = importer.projects.get(&project).map_err(|e| e.message)?.root;
+    let taken = drops
+        .0
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .take(&drop_id, Instant::now())
+        .ok_or("That drop is over. Drop the files again.")?;
+    let clash = match clash {
+        ClashAnswer::Ask => Clash::Ask,
+        ClashAnswer::Replace => Clash::Replace,
+        ClashAnswer::KeepBoth => Clash::KeepBoth,
+    };
+    let fs = Arc::clone(&importer.fs);
+    let (done, taken) = tauri::async_runtime::spawn_blocking(move || {
+        let done = fs.import(std::path::Path::new(&root), taken.paths(), &into, clash);
+        (done, taken)
+    })
+    .await
+    .map_err(|err| format!("Copying failed: {err}"))?;
+    match done.map_err(|e| e.message)? {
+        Imported::Clashes(names) => {
+            drops
+                .0
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .put_back(taken);
+            Ok(ImportReply::Clashes { names })
+        }
+        Imported::Copied {
+            paths,
+            skipped_links,
+        } => Ok(ImportReply::Copied {
+            paths: paths.iter().map(|p| p.as_str().to_owned()).collect(),
+            skipped_links,
+        }),
+    }
 }
 
 /// Tells the UI, before it starts, that the window draws its content under
@@ -100,12 +221,17 @@ fn main() {
             let store = Arc::new(Store::open(&data_dir)?);
             let secrets: Arc<dyn Secrets> = Arc::new(KeychainSecrets::new(&data_dir));
             let servers_dir = ovra_servers::servers_dir()?;
+            let fs = Arc::new(FsIndex::new());
+            app.manage(Importer {
+                fs: fs.clone(),
+                projects: store.clone(),
+            });
             let core = Core::builder("tauri")
                 .secrets(secrets.clone())
                 .projects(store.clone())
                 .sessions(store.clone())
                 .audit(store)
-                .fs(Arc::new(FsIndex::new()))
+                .fs(fs.clone())
                 .opener(Arc::new(SystemOpener::new()))
                 .worktrees(Arc::new(GitWorktrees::new()))
                 .git(Arc::new(GitRepo::new()))
@@ -146,7 +272,19 @@ fn main() {
             });
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![ovra_call, ovra_pick_folder])
+        .manage(WindowDrops(Mutex::new(Drops::new())))
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::DragDrop(tauri::DragDropEvent::Drop { paths, position }) =
+                event
+            {
+                on_drop(window, paths, *position);
+            }
+        })
+        .invoke_handler(tauri::generate_handler![
+            ovra_call,
+            ovra_pick_folder,
+            ovra_import_drop
+        ])
         .build(tauri::generate_context!());
     match result {
         Ok(app) => app.run(|app, event| {

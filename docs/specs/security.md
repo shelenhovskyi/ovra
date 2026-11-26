@@ -758,6 +758,21 @@ can redirect it outside the project. The full fix is resolving every path
 relative to the root's handle (`openat2` with `RESOLVE_BENEATH`, or
 `cap-std`), a later task.
 
+### Dropped files
+
+Files and folders dropped onto the window from the system's file manager
+are copied into the project only on the person's drop onto the file tree.
+The desktop app keeps the dropped paths in Rust under a random id that is
+used once and expires after 60 s (`ovra_fs_index::Drops`); the window gets
+the id and copies by it with the window-only command `ovra_import_drop`.
+No client frame names a source path, headless mode has no drops, and
+agents have no tool for it. The target folder is checked like `fs.copy`'s.
+The import looks at everything before copying: links are skipped and named,
+a device, pipe or socket refuses the drop, and so do more than 10,000
+entries or 1 GB. An existing name is replaced only after the person answers
+Replace, and the old entry goes to the trash first. Copies keep only the
+rwx bits.
+
 ## Tests
 
 - Unit and integration tests use the fake sandbox and the fake netproxy, as
