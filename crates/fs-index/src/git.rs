@@ -47,9 +47,10 @@ const INHERITED: &[&str] = &[
 /// only the repository of `dir`, whatever `GIT_*` variables Ovra inherited.
 fn command(dir: &Path, args: &[&str]) -> Command {
     let mut command = Command::new("git");
-    if let Some(path) = ovra_core::child_path::login() {
-        command.env("PATH", path);
-    }
+    command.env(
+        "PATH",
+        ovra_core::child_path::absolute(std::env::var_os("PATH")),
+    );
     command
         .args(["--no-optional-locks", "-c", "core.fsmonitor=false"])
         .args(NO_SUBMODULES)
@@ -255,14 +256,16 @@ u UU N... 100644 100644 100644 100644 e1 e2 e3 merge.txt\0\
     #[test]
     fn git_gets_the_login_shells_path() {
         // Each test runs in its own process (nextest), so this stays here.
-        ovra_core::child_path::set_login("/opt/homebrew/bin:/usr/bin".into());
+        // Only its absolute directories: `.` would find a `git-lfs` an
+        // agent wrote into the work dir.
+        let abs = std::env::temp_dir();
+        let login = std::env::join_paths([abs.as_path(), Path::new("."), Path::new("")])
+            .unwrap_or_else(|e| panic!("{e}"));
+        ovra_core::child_path::set_login(login);
         let command = command(Path::new("."), &["status"]);
         let envs: HashMap<_, _> = command.get_envs().collect();
         let path = envs.get(std::ffi::OsStr::new("PATH")).copied().flatten();
-        assert_eq!(
-            path,
-            Some(std::ffi::OsStr::new("/opt/homebrew/bin:/usr/bin"))
-        );
+        assert_eq!(path, Some(abs.as_os_str()));
     }
 
     #[test]
