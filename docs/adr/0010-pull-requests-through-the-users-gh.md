@@ -20,7 +20,13 @@ installed and signed in to, as ADR 0006 does for `claude`.
   itself"): while the git panel is open, Ovra fetches the current branch's
   upstream without a click (`git.fetch`: nothing is sent, only the
   tracking ref moves), and stops trying for a while after a failure, so a
-  sign-in prompt does not come back every few minutes.
+  sign-in prompt does not come back every few minutes. Amended
+  2026-11-26 on the owner's request (`docs/specs/task-context.md`, "GitHub
+  issues and failed checks"): when the person types `@#` in a message box,
+  Ovra reads `origin`'s open issues and the current branch's pull request
+  checks with `gh issue list/view`, `gh pr list/view` and
+  `gh run view --log-failed`. Nothing is sent and no click dialog is
+  shown; the text goes to the agent only as context the person chose.
 - Ovra never reads, copies or passes on GitHub credentials (`gh`'s hosts
   file, the keychain, `GH_TOKEN`, `GITHUB_TOKEN`, git credential stores),
   never calls GitHub's API itself and never passes `--show-token`. The

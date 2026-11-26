@@ -88,6 +88,44 @@ the file tree does.
   can be deleted from the tree); workers in their own worktrees do not get
   the copies; Windows device names (`NUL`, `COM1`) are not mapped yet.
 
+## GitHub issues and failed checks
+
+Added 2026-11-26 on the owner's request ("a task from a GitHub issue or a
+failed CI check, tucked away so it takes no room"). No panel or button of
+its own: it lives in the @ menu.
+
+- The plain @ menu's last row, **GitHub issue or failed check** (`@#`),
+  shows with nothing typed after `@` or a word that names it (`gi`,
+  `issue`, `check`, `ci`). Choosing it, or typing `@#`, switches the menu
+  to GitHub's rows; only then does Ovra ask the person's `gh` (ADR 0010).
+  The rows are read again each time the menu opens.
+- **Failed checks** come first: the failed GitHub Actions checks of the
+  open pull request from the main checkout's branch, found by the branch's
+  upstream (`pr.branch_checks`). Then the **open issues** of `origin`'s
+  repository, newest first, 30 at most (`pr.issues`). Typing after `@#`
+  filters them; a number no listed issue has gets a "Read issue #N" row.
+- Choosing a row reads the issue's text (`pr.issue`: the body, then the
+  latest 10 comments under their authors' logins) or the failed log's end
+  (`pr.check_log`), each cut to 15 KiB, and adds a chip: `#12` with the
+  title and first lines in its tooltip, or the check's name. The name
+  takes the `@#query`'s place, so "Fix @#12" reads "Fix #12".
+- When `gh` is missing or not signed in, the menu says so in its empty
+  row ("Install GitHub CLI (gh) and run `gh auth login` in a terminal").
+- Safety: anyone who can open an issue wrote its title, text and comments,
+  so the agent gets them inside `<untrusted origin="github issue">` with a
+  note that instructions in them are not the person's; a log goes inside
+  `<untrusted origin="ci">` with the same note; links go inside too (a
+  check's link is whatever the app that posted it set). Both get the usual
+  secret check (a token in an issue waits for Send anyway) and size caps.
+  URLs lose their user part in the forge. An issue or log that cannot be
+  read adds no chip and gives the typed `@#query` back. The agent gets no GitHub tool: the person's click reads, the
+  agent only gets the text.
+- A failed check of a pull request Ovra opened for a worker keeps its
+  **Send log** in Reviews (`docs/specs/pr-flow.md`); `@#` is for the
+  person's own branch and for new tasks. Not yet: a fork workflow (the
+  branch tracks the person's fork, the pull request is in the parent
+  repository) finds no pull request.
+
 ## Safety
 
 The core checks every item, when it is added (`context.check`) and again
@@ -120,7 +158,7 @@ when it is sent (`agents.start`, `agents.send`, `orchestration.start`):
 ## Protocol
 
 `protocol/context.rs`: `ContextItem` (`file`, `folder`, `selection`,
-`problem`, `terminal`, `page`, each with `confirmed`), `context.check
+`problem`, `terminal`, `page`, `issue`, `check`, each with `confirmed`), `context.check
 { project, session?, items }` answering `context.checked { notes }` (one `null` or a
 warning per item). `agents.start`, `agents.send` and `orchestration.start`
 take an optional `context: ContextItem[]`.
