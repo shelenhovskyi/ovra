@@ -266,22 +266,72 @@ const REACH: [&str; 22] = [
     "kubectl", "rm", "dd", "chmod", "chown", "open", "cp", "mv", "tee", "ln",
 ];
 
-/// Programs whose subcommands run code or publish (`npm exec`, `git push`,
-/// a build script): broad unless the rule names a harmless subcommand.
-/// The pairs are the subcommands that publish or push.
-const PUBLISH: [(&str, &str); 7] = [
-    ("git", "push"),
-    ("npm", "publish"),
-    ("pnpm", "publish"),
-    ("yarn", "publish"),
-    ("cargo", "publish"),
-    ("twine", "upload"),
-    ("gem", "push"),
+/// Programs whose subcommands can run anything or publish (`npm exec`,
+/// `git push`, `git -c core.sshCommand=…`): broad unless the rule names
+/// one of the everyday subcommands listed with them.
+const SUBCOMMANDS: [(&str, &[&str]); 7] = [
+    (
+        "git",
+        &[
+            "status",
+            "diff",
+            "log",
+            "show",
+            "add",
+            "commit",
+            "branch",
+            "checkout",
+            "switch",
+            "restore",
+            "stash",
+            "fetch",
+            "pull",
+            "merge",
+            "rebase",
+            "blame",
+            "grep",
+            "rev-parse",
+            "ls-files",
+            "tag",
+        ],
+    ),
+    ("npm", NODE_SAFE),
+    ("pnpm", NODE_SAFE),
+    ("yarn", NODE_SAFE),
+    (
+        "cargo",
+        &[
+            "build", "test", "check", "clippy", "fmt", "run", "doc", "bench", "tree", "metadata",
+            "nextest",
+        ],
+    ),
+    ("twine", &[]),
+    ("gem", &[]),
+];
+/// Package-manager subcommands that run the project's own scripts only.
+const NODE_SAFE: &[&str] = &[
+    "test",
+    "run",
+    "ls",
+    "list",
+    "outdated",
+    "audit",
+    "why",
+    "view",
+    "info",
+    "build",
+    "lint",
+    "typecheck",
+    "check",
+    "format",
+    "fmt",
+    "start",
+    "dev",
 ];
 
 /// PowerShell commands (compared in lower case) that run code, fetch,
 /// start programs or delete.
-const POWERSHELL: [&str; 16] = [
+const POWERSHELL: [&str; 25] = [
     "iex",
     "invoke-expression",
     "iwr",
@@ -298,6 +348,15 @@ const POWERSHELL: [&str; 16] = [
     "icm",
     "set-executionpolicy",
     "invoke-item",
+    "set-content",
+    "out-file",
+    "copy-item",
+    "move-item",
+    "rmdir",
+    "erase",
+    "add-type",
+    "start-job",
+    "new-item",
 ];
 
 /// Tools whose rule spec is a path.
@@ -360,11 +419,14 @@ fn command_reaches(spec: &str) -> bool {
             if c == ':' && !drive { ' ' } else { c }
         })
         .collect();
-    let mut words = spaced
-        .split_whitespace()
-        // `FOO=1 curl …` runs curl.
-        .skip_while(|w| w.contains('=') && !w.starts_with('='));
+    let mut words = spaced.split_whitespace();
     let first = words.next().unwrap_or_default();
+    // `PATH=./bin git …` or `LD_PRELOAD=./x.so ls` runs what the project chose.
+    if first.contains('=') && !first.starts_with('=') {
+        return true;
+    }
+    // `"curl"` is curl.
+    let first = first.trim_matches(['"', '\'']);
     // A wildcard in the program's name could be any program.
     if first.contains(['*', '?', '[', '{', '$', '`']) {
         return true;
@@ -380,19 +442,23 @@ fn command_reaches(spec: &str) -> bool {
         .find_map(|ext| program.strip_suffix(ext))
         .unwrap_or(&program);
     let next = words.next().unwrap_or_default().trim_end_matches('*');
-    let runs_code = ["git", "npm", "pnpm", "yarn", "cargo", "twine", "gem"].contains(&program);
-    INTERPRETERS.contains(&program)
-        || REACH.contains(&program)
-        || POWERSHELL.contains(&program)
-        || PUBLISH.contains(&(program, next))
-        // `Bash(npm:*)`: every subcommand, `npm exec` and `git push` too.
-        || (runs_code && next.is_empty())
+    // `python3.12` and `node20` are python and node.
+    let base = program.trim_end_matches(|c: char| c.is_ascii_digit() || c == '.');
+    let unlisted = SUBCOMMANDS
+        .iter()
+        .find(|(name, _)| *name == program)
+        // `Bash(npm:*)`, `npm exec`, `git -c …`: not an everyday subcommand.
+        .is_some_and(|(_, safe)| !safe.contains(&next));
+    [program, base].iter().any(|name| {
+        INTERPRETERS.contains(name) || REACH.contains(name) || POWERSHELL.contains(name)
+    }) || unlisted
 }
 
 /// Whether a path rule names something outside the project: absolute
-/// (`//etc`, `C:`), in the home folder (`~`), up from it (`..`), or a
-/// brace or class pattern that could spell `..`. In Claude's rules `/x` is
-/// relative to the settings file, so it stays inside.
+/// (`//etc`, `C:`), in the home folder (`~`), up from it (`..`), or a path
+/// part whose brace or class pattern could spell `..` (`{..,src}`; not
+/// `*.{ts,svelte}`). In Claude's rules `/x` is relative to the settings
+/// file, so it stays inside.
 fn outside(spec: &str) -> bool {
     let spec = spec.trim();
     spec.starts_with("//")
@@ -401,7 +467,9 @@ fn outside(spec: &str) -> bool {
         || spec.starts_with('$')
         || spec.as_bytes().get(1) == Some(&b':')
         || spec.split(['/', '\\']).any(|part| part == "..")
-        || (spec.contains('.') && spec.contains(['{', '[']))
+        || spec.split(['/', '\\']).any(|part| {
+            part.contains(['{', '[']) && (part.contains("..") || part.starts_with(['.', '{', '[']))
+        })
 }
 
 /// Names that look like they hold a secret: their values are not shown.
@@ -422,8 +490,8 @@ const SECRET: [&str; 14] = [
     "SIGN",
 ];
 
-/// Values that look like they hold a secret whatever their name.
-const SECRET_VALUES: [&str; 4] = ["bearer ", "basic ", "authorization", "token "];
+/// Words after which a value holds a secret, whatever the variable's name.
+const SECRET_WORDS: [&str; 4] = ["bearer", "basic", "token", "authorization"];
 
 /// `NAME = value` for every variable, so a changed value shows as a change.
 /// Secret-looking values are masked down to a short digest that still
@@ -439,15 +507,11 @@ fn env(value: &Value) -> Vec<String> {
                 .as_str()
                 .map_or_else(|| value.to_string(), str::to_owned);
             let upper = name.to_uppercase();
-            let lower = text.to_lowercase();
             // `GH_PAT` is a token; `PATH` is not.
-            if SECRET.iter().any(|s| upper.contains(s))
-                || upper.ends_with("_PAT")
-                || SECRET_VALUES.iter().any(|s| lower.contains(s))
-            {
+            if SECRET.iter().any(|s| upper.contains(s)) || upper.ends_with("_PAT") {
                 return format!("{name} = (hidden, #{})", digest(name, &text));
             }
-            let shown = without_credentials(&text).replace(['\n', '\r'], " ");
+            let shown = without_secret_words(&without_credentials(&text));
             match shown.char_indices().nth(100) {
                 Some((cut, _)) => format!("{name} = {}… #{}", &shown[..cut], digest(name, &text)),
                 None => format!("{name} = {shown}"),
@@ -471,7 +535,39 @@ fn digest(name: &str, value: &str) -> String {
         .collect()
 }
 
+/// The value on one line with the word after `Bearer`, `Basic`, `token` or
+/// `Authorization:` masked, and everything else (where a URL points) kept.
+fn without_secret_words(text: &str) -> String {
+    let mut masked = false;
+    text.split_whitespace()
+        .map(|word| {
+            // ASCII only, so byte positions match `word`.
+            let lower = word.to_ascii_lowercase();
+            let key = lower.trim_end_matches([':', '=']);
+            // `authorization=xyz` inside a word, a URL's query too.
+            let inner = SECRET_WORDS
+                .iter()
+                .flat_map(|w| [format!("{w}="), format!("{w}:")])
+                .filter_map(|w| lower.find(&w).map(|at| at + w.len()))
+                .filter(|end| *end < word.len())
+                .min();
+            let out = if masked {
+                "***".to_owned()
+            } else if let Some(end) = inner {
+                format!("{}***", &word[..end])
+            } else {
+                word.to_owned()
+            };
+            masked = SECRET_WORDS.contains(&key);
+            out
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
 /// `scheme://user:pass@host` as `scheme://***@host`, wherever it appears.
+/// The host part ends where a URL parser ends it (`/`, `?`, `#`, `\`), so
+/// `https://evil.example?@good.example` still shows `evil.example`.
 fn without_credentials(text: &str) -> String {
     let mut out = String::new();
     let mut rest = text;
@@ -479,7 +575,7 @@ fn without_credentials(text: &str) -> String {
         let (head, tail) = rest.split_at(start + 3);
         out.push_str(head);
         let end = tail
-            .find(|c: char| c == '/' || c.is_whitespace())
+            .find(|c: char| matches!(c, '/' | '?' | '#' | '\\') || c.is_whitespace())
             .unwrap_or(tail.len());
         match tail[..end].rfind('@') {
             Some(at) => {
@@ -673,13 +769,22 @@ mod tests {
             "Grep(../secrets)",
             "WebFetch(domain:*)",
             "Edit({..,src}/x)",
+            "Bash(PATH=./bin git status)",
+            "Bash(GIT_SSH_COMMAND=./x git fetch)",
+            "Bash(npm exec:*)",
+            "Bash(pnpm dlx x)",
+            "Bash(git -c x=y status)",
+            "Bash(git config:*)",
+            "Bash(npm install:*)",
+            "Bash(\"curl\" x)",
+            "Bash(python3.12 x.py)",
+            "PowerShell(Set-Content x)",
         ] {
             assert!(broad(rule), "{rule}");
         }
         for rule in [
             "Bash(npm test)",
             "Bash(git status:*)",
-            "Bash(git pushd)",
             "Bash(npm run publish-docs)",
             "Edit(src/**)",
             "Edit(/src/**)",
@@ -687,6 +792,8 @@ mod tests {
             "Bash(npm test:*)",
             "Bash(cargo build)",
             "Read(./docs/**)",
+            "Edit(src/**/*.{ts,svelte})",
+            "Bash(git status)",
             "WebFetch(domain:docs.rs)",
             "WebFetch(domain:example.com)",
             "Read",
@@ -723,7 +830,17 @@ mod tests {
             more[0]
         );
         assert_eq!(more[1], "BASE_URL = https://***@h.example/v1 and ftp://h2");
-        assert!(more[2].starts_with("OTEL = (hidden, #"), "{}", more[2]);
+        assert_eq!(more[2], "OTEL = Authorization: *** ***");
+        // The masked part never hides where a URL points.
+        let host = entries(
+            r#"{"env": {"A": "https://evil.example?@good.example", "B": "https://evil.example\\@good.example", "C": "https://evil.example/?authorization=x token abc"}}"#,
+        );
+        assert_eq!(host[0], "A = https://evil.example?@good.example");
+        assert_eq!(host[1], "B = https://evil.example\\@good.example");
+        assert_eq!(
+            host[2],
+            "C = https://evil.example/?authorization=*** token ***"
+        );
         // A change past the shown part still changes the entry.
         let long = |tail: &str| {
             entries(&format!(
