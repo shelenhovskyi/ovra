@@ -1,6 +1,8 @@
 import { flushSync, mount, unmount } from "svelte";
 import { afterEach, beforeEach, expect, it } from "vitest";
 import type { Worker } from "../lib/protocol";
+import { settings } from "../settings/panes.svelte";
+import { mainView } from "../shell/main-view.svelte";
 import { Workspace } from "../shell/workspace.svelte";
 import { FakeAgentCore } from "./fake-core";
 import TestHost from "./TestHost.svelte";
@@ -110,6 +112,29 @@ it("names a failed step with Retry and Start anyway", async () => {
     { session: docs, skip_setup: false },
     { session: docs, skip_setup: true },
   ]);
+});
+
+it("points out copied files that look like secrets and where tokens go instead", async () => {
+  const core = task(
+    {
+      name: "docs",
+      setup: { step: 0, steps: 1, command: "pnpm install", log: [], failed: null },
+      included: [".env", "README.local.md", "certs/dev.pem"],
+    },
+    { name: "tests", included: ["node_modules/a/index.js"] },
+  );
+  for (const s of core.sessions) if (s.id !== core.tasks[0]?.coordinator) s.status = { state: "preparing" };
+  await open(core);
+  const notes = [...target.querySelectorAll("[data-testid=worker-setup-secrets]")].map((n) =>
+    n.textContent?.replace(/\s+/g, " ").trim(),
+  );
+  // Only the worker with secret-looking copies gets the note.
+  expect(notes).toEqual([
+    "Copied into this worker's folder, where its agent can read them: .env, dev.pem. For tokens, use project secrets instead.",
+  ]);
+  button("project secrets")?.click();
+  expect([mainView.current, settings.pane]).toEqual(["settings", "network"]);
+  mainView.close();
 });
 
 it("shows each worktree's disk use, the project's total, and why a worker waits", async () => {

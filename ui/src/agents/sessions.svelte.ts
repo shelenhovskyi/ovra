@@ -50,6 +50,8 @@ export type SessionRole =
       setup: SetupProgress | null;
       /** Why it waits queued although a place may be free (low disk space). */
       waiting: string | null;
+      /** Paths copied into its worktree through `.worktreeinclude`. */
+      included: string[];
       coordinator: SessionId;
     };
 
@@ -213,6 +215,7 @@ export class AgentSessions {
             disk: w.disk ?? null,
             setup: w.setup ?? null,
             waiting: w.waiting ?? null,
+            included: w.included ?? [],
             coordinator: task.coordinator,
           });
       }

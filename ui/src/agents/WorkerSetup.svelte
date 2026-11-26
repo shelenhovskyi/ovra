@@ -1,21 +1,27 @@
 <script lang="ts">
 // A preparing worker's setup under its row (docs/specs/worktree-setup.md):
-// the end of the current step's output on request, and after a failed step
-// the reason with Retry and Start anyway.
+// the end of the current step's output on request, after a failed step
+// the reason with Retry and Start anyway, and a note on copied files that
+// look like secrets, which its agent can read.
 
 import type { SessionId, SetupProgress } from "../lib/protocol";
 import { CoreError } from "../lib/transport";
+import { openSettings } from "../settings/commands";
 import { useOvra } from "../shell/context";
 import { agentSessions } from "./sessions.svelte";
 import { stepLine } from "./worktrees";
 
-const { session, setup }: { session: SessionId; setup: SetupProgress } = $props();
+const {
+  session,
+  setup,
+  secrets = [],
+}: { session: SessionId; setup: SetupProgress | null; secrets?: string[] } = $props();
 
 const sessions = agentSessions(useOvra().transport);
 let open = $state(false);
 let busy = $state(false);
 let error = $state<string | null>(null);
-const failed = $derived(setup.failed !== null);
+const failed = $derived(setup !== null && setup.failed !== null);
 const logId = $derived(`setup-log-${session}`);
 
 async function retry(skip: boolean): Promise<void> {
@@ -32,11 +38,17 @@ async function retry(skip: boolean): Promise<void> {
 </script>
 
 <div class="setup" data-testid="worker-setup" role="group" aria-label="Worktree setup">
-  {#if failed}
+  {#if secrets.length > 0}
+    <p class="note" data-testid="worker-setup-secrets">
+      Copied into this worker's folder, where its agent can read them: {secrets.join(", ")}. For tokens, use
+      <button type="button" class="link" onclick={() => openSettings("network")}>project secrets</button> instead.
+    </p>
+  {/if}
+  {#if setup?.failed}
     <p class="why" data-testid="worker-setup-failed">Step {stepLine(setup)} {setup.failed}</p>
   {/if}
   <div class="actions">
-    {#if setup.log.length > 0}
+    {#if setup && setup.log.length > 0}
       <button type="button" class="quiet" aria-expanded={open} aria-controls={logId} onclick={() => (open = !open)}
         >{open ? "Hide output" : "Show output"}</button
       >
@@ -54,7 +66,7 @@ async function retry(skip: boolean): Promise<void> {
       </span>
     {/if}
   </div>
-  {#if open}
+  {#if open && setup}
     <pre id={logId} class="log" data-testid="worker-setup-log">{setup.log.join("\n")}</pre>
   {/if}
   {#if error}<p class="error" role="alert">{error}</p>{/if}
@@ -72,6 +84,18 @@ async function retry(skip: boolean): Promise<void> {
     font-size: 13px;
     color: var(--danger);
     overflow-wrap: anywhere;
+  }
+  .note {
+    margin: 0;
+    font-size: 13px;
+    color: var(--text-2);
+    overflow-wrap: anywhere;
+  }
+  .link {
+    padding: 0;
+    font: inherit;
+    color: var(--accent);
+    text-decoration: underline;
   }
   .actions {
     display: flex;

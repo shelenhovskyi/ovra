@@ -32,3 +32,12 @@ export function waitingReason(reason: string): string {
 export function folderName(path: string): string {
   return path.split(/[\\/]/).filter(Boolean).at(-1) ?? path;
 }
+
+/** Copied names that look like secrets (`.env*`, `*.pem`, `*.key`, `credentials*`), by file name, once each. */
+export function secretLooking(paths: string[]): string[] {
+  const names = paths.map(folderName).filter((n) => {
+    const name = n.toLowerCase();
+    return name.startsWith(".env") || name.endsWith(".pem") || name.endsWith(".key") || name.startsWith("credentials");
+  });
+  return [...new Set(names)];
+}

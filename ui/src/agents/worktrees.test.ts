@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { SetupProgress } from "../lib/protocol";
 import { diskLabel } from "./resources";
-import { diskTotal, folderName, preparingLabel, stepLine, waitingReason } from "./worktrees";
+import { diskTotal, folderName, preparingLabel, secretLooking, stepLine, waitingReason } from "./worktrees";
 
 const GB = 2 ** 30;
 
@@ -53,5 +53,22 @@ describe("worktrees", () => {
   it("shows a folder by its name", () => {
     expect(folderName("/data/worktrees/p1/old-docs/")).toBe("old-docs");
     expect(folderName("C:\\data\\worktrees\\x")).toBe("x");
+  });
+
+  it("picks the copied names that look like secrets, once each", () => {
+    expect(
+      secretLooking([
+        ".env",
+        "web/.env.local",
+        "certs/dev.PEM",
+        "keys/id.key",
+        "config/credentials.json",
+        "api/.env",
+        "node_modules/a/index.js",
+        "notes.env.md.bak",
+        "keyboard.ts",
+      ]),
+    ).toEqual([".env", ".env.local", "dev.PEM", "id.key", "credentials.json"]);
+    expect(secretLooking([])).toEqual([]);
   });
 });

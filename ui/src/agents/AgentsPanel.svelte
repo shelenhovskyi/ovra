@@ -53,6 +53,7 @@ import { providers } from "./providers.svelte";
 import { inFolder } from "./steps";
 import Transcript from "./Transcript.svelte";
 import WorkerSetup from "./WorkerSetup.svelte";
+import { secretLooking } from "./worktrees";
 import { REPORT_DIR, reportFile, reportOf, reportPath, taskPrompt } from "./report";
 import { rememberedMode, rememberMode, type TaskMode } from "./task-mode";
 
@@ -1382,8 +1383,10 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
               {/if}
             </li>
             {#if confirming === session.id}<li class="confirm-row">{@render confirmClose(session.id)}</li>{/if}
-            {#if role?.kind === "worker" && role.setup && session.status.state === "preparing"}
-              <li class="setup-row"><WorkerSetup session={session.id} setup={role.setup} /></li>
+            {#if role?.kind === "worker" && session.status.state === "preparing" && (role.setup || secretLooking(role.included).length > 0)}
+              <li class="setup-row">
+                <WorkerSetup session={session.id} setup={role.setup} secrets={secretLooking(role.included)} />
+              </li>
             {/if}
             {#each role?.kind === "coordinator" ? (sessions.failedStarts.get(session.id) ?? []) : [] as missed (missed.name)}
               <!-- A worker that never started has no conversation: its row says why. -->
