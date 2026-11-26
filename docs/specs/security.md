@@ -79,7 +79,16 @@ its changes on approve.
 
 **What the platform adds.** Each platform crate documents what it adds:
 
-- **The agent's own state.**
+- **The agent's own state.** It comes from the session's provider (ADR
+  0011): the profile's `agent_state` holds that provider's lists
+  (`ProviderLists` in `services.rs`: its configuration folder and state
+  file, the folders it writes, the files it rewrites, its transcripts
+  folder, its config-folder variable and environment names) and the
+  account's folder. The runtime of the provider sets it; Claude's lists
+  are `CLAUDE_LISTS` in `crates/agent-runtime/src/claude_lists.rs`. Pods,
+  the browser and language servers get none. The state of every known
+  agent (`AGENT_STATE_IN_HOME` in `crates/core/src/protected.rs`) is
+  never writable, whoever the sandbox is for. For Claude:
   - `~/.claude.json` and `~/.claude` stay readable, because `claude` needs
     its login and settings.
   - Writable: only the session data `claude` writes, and
@@ -153,7 +162,11 @@ its changes on approve.
   - a project can add names to it (not built yet: it needs a profile
     field).
 
-  On Linux the list is `ENV_KEPT` in `crates/sandbox-linux`. The wrapped
+  The names every session keeps are `ENV_PERSON` and `ENV_TOOLS` in
+  `crates/sandbox-linux` (and in `crates/sandbox-windows`); an agent's
+  session keeps its provider's names too (`ProviderLists::env`, for
+  Claude the `ANTHROPIC_*`, `CLAUDE_CODE_USE_*` and cloud-provider names,
+  and `fixture_var`), and no other provider's. The wrapped
   command line removes every other variable Ovra's environment holds when
   the session starts, so bubblewrap's own processes (whose environment
   the agent can read where Landlock does not hold) have none of them. The
@@ -195,21 +208,22 @@ the toolchains, Landlock and seccomp through the helper. It differs in:
   where they are, never the per-project copies agents get;
 - always a new, empty network namespace: `Proxy` and `Open` are refused
   (`bad_request`); loosening that needs the owner;
-- the environment allowlist `SERVER_ENV_KEPT`: `ENV_KEPT` without the
-  `ANTHROPIC_*`, `CLAUDE_CODE_USE_*`, cloud-provider and
-  `OVRA_FAKE_CLAUDE_FIXTURE` names; the server's own line (build and
-  cache folders, `CARGO_NET_OFFLINE`) is applied last.
+- the environment allowlist every session keeps (`ENV_PERSON` and
+  `ENV_TOOLS`), with no agent's names (`ANTHROPIC_*`,
+  `CLAUDE_CODE_USE_*`, cloud-provider and `OVRA_FAKE_CLAUDE_FIXTURE`);
+  the server's own line (build and cache folders, `CARGO_NET_OFFLINE`)
+  is applied last.
 
 **Server pods.** A profile with `expose` is a pod: an agent's sandbox
 (the same mounts, hidden paths, protected paths and `write` folders)
 without the agent's state. Nothing of `~/.claude` or `~/.claude.json` is
 bound (not its login `.credentials.json`, transcripts or history), and
-the environment allowlist is `SERVER_ENV_KEPT`, as for language servers:
-no `ANTHROPIC_*`, `CLAUDE_*` or cloud-provider names. The pod's folder is
-writable inside it; on Linux pod-init adds a Landlock layer for the
-servers it starts, so that only pod-init makes, removes or renames
-entries there, and Ovra connects to the sockets in it without following
-links and only to pod-init's (`docs/specs/servers-and-browser.md`).
+the environment allowlist is `ENV_PERSON` and `ENV_TOOLS`, as for
+language servers: no `ANTHROPIC_*`, `CLAUDE_*` or cloud-provider names.
+The pod's folder is writable inside it; on Linux pod-init adds a
+Landlock layer for the servers it starts, so that only pod-init makes,
+removes or renames entries there, and Ovra connects to the sockets in it
+without following links and only to pod-init's (`docs/specs/servers-and-browser.md`).
 
 **Protected paths.** They stay read-only. The list lives in
 `crates/sandbox`, so every platform uses the same one:
@@ -427,6 +441,12 @@ pub trait NetProxy: Send + Sync + Debug {
     `ANTHROPIC_BASE_URL`, read from the environment Ovra runs in.
     Telemetry hosts are left out: anyone with an account there can receive
     data.
+  - Each provider has its own base list (`crates/netproxy/src/base.rs`;
+    the list above is Claude's), and a session's proxy gets only its own
+    provider's (ADR 0011). A server pod's proxy, which belongs to no
+    agent, gets every provider's. `netproxy.get_allowlist` shows every
+    provider's together, and no secret is ever added for a host on any of
+    them.
   - An endpoint the user set in a `*_BASE_URL` variable may be on this
     machine or the local network (a gateway). Only that exact host and
     port may then reach a private address.

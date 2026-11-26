@@ -72,7 +72,7 @@ The person defines servers in `.ovra/servers.json` in the project:
   Servers run the project's code, not `claude`, so a pod gets none of
   `claude`'s state (`~/.claude` and `~/.claude.json` stay hidden: no
   login, transcripts or history) and the language servers' environment
-  allowlist (`SERVER_ENV_KEPT`: no `ANTHROPIC_*`, `CLAUDE_*` or
+  allowlist (`ENV_PERSON` and `ENV_TOOLS`: no `ANTHROPIC_*`, `CLAUDE_*` or
   cloud-provider names; `docs/specs/security.md`).
 - Inside the pod its supervisor (`ovra-servers` pod-init, the pod's only
   program) exposes each defined port: it listens on

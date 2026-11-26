@@ -199,12 +199,14 @@ Sessions report these gaps in their sandbox status (`GAPS` in
 (ADR 0008) have no Windows bridge yet: a pod profile is refused, and an
 agent's forwarded ports are left out, so it cannot reach its servers.
 
-**Environment.** `ENV_KEPT` as on Linux, plus `SystemRoot`, `windir`,
-`ComSpec`, `PATHEXT`, `USERPROFILE`, `HOMEDRIVE`, `HOMEPATH`, `APPDATA`,
-`LOCALAPPDATA`, `ProgramData`, `ProgramFiles`, `ProgramFiles(x86)`,
-`CommonProgramFiles`, `NUMBER_OF_PROCESSORS`, `PROCESSOR_ARCHITECTURE`,
-`OS`, and `TEMP`/`TMP` set to the session's own folder. `USERPROFILE`
-stays the person's, so `claude` finds its login.
+**Environment.** `ENV_PERSON` and `ENV_TOOLS` with the agent's own
+names as on Linux (`CLAUDE_CODE_GIT_BASH_PATH` too for Claude), plus
+`SystemRoot`, `windir`, `ComSpec`, `PATHEXT`, `USERPROFILE`,
+`HOMEDRIVE`, `HOMEPATH`, `APPDATA`, `LOCALAPPDATA`, `ProgramData`,
+`ProgramFiles`, `ProgramFiles(x86)`, `CommonProgramFiles`,
+`NUMBER_OF_PROCESSORS`, `PROCESSOR_ARCHITECTURE`, `OS`, and
+`TEMP`/`TMP` set to the session's own folder. `USERPROFILE` stays the
+person's, so `claude` finds its login.
 
 **Crates.** `crates/sandbox-windows` (`ovra-sandbox-windows`), picked by
 `for_this_os` on Windows. The plan (what to grant, deny, keep) is plain

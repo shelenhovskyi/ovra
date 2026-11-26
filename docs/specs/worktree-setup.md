@@ -82,7 +82,8 @@ The same file Claude Code and Codex read, so one file serves all three.
   `build.rs`), and that code may come from an agent's uncommitted work in
   the main checkout, so it gets no more than the worker will. A refused
   host shows in the log with the same "Allow" as for agents.
-- **Environment.** The pod's allowlist (`SERVER_ENV_KEPT`) plus:
+- **Environment.** The pod's allowlist (`ENV_PERSON` and `ENV_TOOLS`)
+  plus:
   - `OVRA_WORKTREE_ROOT`: the worktree's path;
   - `OVRA_MAIN_ROOT`: the main checkout's path, for scripts that print or
     compare it. On sandboxed platforms it is **not readable** from inside;
