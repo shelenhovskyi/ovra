@@ -165,6 +165,17 @@ it("gets and sends commits from the sync card, and says why it could not", async
   expect(core.methods()).toContain("git.push");
   expect($("[data-testid=git-sync]")).toBeNull();
   expect(text("[data-testid=git-announce]")).toBe("Sent 1 commit.");
+
+  // A new branch is only here until it is published once.
+  core.status = repo({ branch: "topic", publish_to: "origin" });
+  core.emit({ type: "fs.git_changed", data: { project: "p1" } });
+  await settle();
+  expect(text("[data-testid=git-publish-card] strong")).toBe("topic is only on this computer");
+  click("[data-testid=git-publish]");
+  await settle();
+  expect(core.methods()).toContain("git.publish");
+  expect($("[data-testid=git-publish-card]")).toBeNull();
+  expect(text("[data-testid=git-announce]")).toBe("Published topic to origin.");
 });
 
 it("says when the project is not a repository and sets up git in one press", async () => {

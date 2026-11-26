@@ -233,6 +233,29 @@ function ago(seconds: number, now = Date.now() / 1000): string {
         {/if}
       </div>
     {/if}
+    {#if !status.upstream && status.branch && status.head && status.publish_to}
+      {@const branch = status.branch}
+      {@const remote = status.publish_to}
+      <div class="sync" data-testid="git-publish-card">
+        <div class="line">
+          <p>
+            <strong>{branch} is only on this computer</strong>
+            <span>Publish it to {remote} to keep a copy there and share it.</span>
+          </p>
+          <button
+            type="button"
+            class="bordered"
+            data-testid="git-publish"
+            aria-disabled={model.busy}
+            onclick={() => void model.publish(branch, remote)}
+            >{model.syncing === "publish" ? "Publishing…" : "Publish branch"}</button
+          >
+        </div>
+        {#if model.error?.scope === "sync"}
+          <p class="error" role="alert" data-testid="git-sync-error">{model.error.message}</p>
+        {/if}
+      </div>
+    {/if}
     {#if model.got !== null}
       <div class="sync" data-testid="git-got">
         <p><strong>Got {plural(model.got, "commit")}</strong></p>

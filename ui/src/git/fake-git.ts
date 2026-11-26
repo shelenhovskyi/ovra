@@ -193,6 +193,10 @@ export class FakeGitCore implements Transport {
       case "git.push":
         status.ahead = 0;
         return { type: "ok" };
+      case "git.publish":
+        status.upstream = `${status.publish_to}/${status.branch}`;
+        status.publish_to = null;
+        return { type: "ok" };
       case "git.log":
         return { type: "git.log", data: { commits: this.commits.slice(0, request.params.limit ?? 50) } };
       default:

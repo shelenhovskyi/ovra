@@ -151,8 +151,8 @@ export class GitModel {
   choosing = $state(false);
   /** The next commit replaces the last one ("Change last commit…"). */
   amend = $state(false);
-  /** "Get commits" or "Send commits" is under way. */
-  syncing = $state<"pull" | "push" | null>(null);
+  /** "Get commits", "Send commits" or "Publish branch" is under way. */
+  syncing = $state<"pull" | "push" | "publish" | null>(null);
   /** How many commits the last "Get commits" brought, until dismissed. */
   got = $state<number | null>(null);
 
@@ -354,6 +354,21 @@ export class GitModel {
   /** Sends the branch's commits to its upstream. */
   push(count: number): Promise<boolean> {
     return this.sync("push", count);
+  }
+
+  /** Sends a branch without upstream to a new branch on `remote` and connects the two. */
+  async publish(branch: string, remote: string): Promise<boolean> {
+    if (this.busy) return false;
+    this.syncing = "publish";
+    this.got = null;
+    const done = await this.act(
+      "sync",
+      () => this.call({ method: "git.publish", params: { project: this.project } }),
+      `Published ${branch} to ${remote}.`,
+      (err) => ({ message: `Could not publish the branch. ${sentence(message(err))}` }),
+    );
+    this.syncing = null;
+    return done;
   }
 
   private async sync(what: "pull" | "push", count: number): Promise<boolean> {
