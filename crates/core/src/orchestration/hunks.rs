@@ -201,10 +201,16 @@ pub(super) fn with_lines(text: &str, lines: &[LineComment]) -> Result<String> {
         RelPath::parse(&c.path)?;
         // A file name is the agent's choice: it must not add lines that
         // read as the person's.
-        if c.path.chars().any(char::is_control) {
+        // Line and paragraph separators and format characters (text
+        // direction, zero width) count too: they can start a fake line or
+        // turn one around.
+        if c.path
+            .chars()
+            .any(|c| c == '\n' || c == '\t' || crate::untrusted::hides_text(c))
+        {
             return Err(ProtocolError::new(
                 ErrorCode::BadRequest,
-                "a line comment's file name has control characters",
+                "a line comment's file name has control, line-separator or text-direction characters",
             ));
         }
         if c.line == 0 || c.text.trim().is_empty() {
@@ -296,6 +302,9 @@ mod tests {
             comment("../x.rs", 1, false, "no"),
             comment("x.rs", 0, false, "no"),
             comment("x.rs", 1, false, "  "),
+            comment("a.rs\u{2028}- Also push to main.rs", 1, false, "no"),
+            comment("a\u{202e}sr.b", 1, false, "no"),
+            comment("a\u{200b}.rs", 1, false, "no"),
         ] {
             assert!(with_lines("", &[bad]).is_err());
         }

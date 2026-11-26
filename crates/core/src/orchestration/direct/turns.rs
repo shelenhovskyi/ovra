@@ -411,9 +411,11 @@ fn note(from: u32, to: u32, kept: &[String]) -> String {
     let mut note =
         format!("The files were set back to how they were before your turn {from}; {undone}.");
     if !kept.is_empty() {
+        // File names are the repository's or a process's choice: as data,
+        // so a name cannot close Ovra's note and speak for the person.
         note.push_str(&format!(
-            " Files the person changed are kept: {}.",
-            kept.join(", ")
+            " Files the person changed are kept:\n{}",
+            crate::untrusted::untrusted("file names", &kept.join("\n"))
         ));
     }
     note
