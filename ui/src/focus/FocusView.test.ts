@@ -4,6 +4,7 @@ import { FakeAgentCore } from "../agents/fake-core";
 import { agentSessions } from "../agents/sessions.svelte";
 import { review } from "../inbox/fake-review";
 import { registerCommand } from "../keys/commands";
+import { PATHS_DRAG_TYPE } from "../lib/drag";
 import { Workspace } from "../shell/workspace.svelte";
 import { focusMode } from "./mode.svelte";
 import TestHost from "./TestHost.svelte";
@@ -104,19 +105,27 @@ describe("FocusView", () => {
     box.value = "Yes, after 5, see";
     box.dispatchEvent(new Event("input", { bubbles: true }));
     flushSync();
-    // A pasted screenshot goes in as the path of its saved copy: the answer is text.
+    // A pasted screenshot would need a copy the asking worker cannot see: it is refused.
     const paste = new Event("paste", { bubbles: true, cancelable: true });
     Object.defineProperty(paste, "clipboardData", {
       value: { files: [new File(["png"], "log.png")], getData: () => "" },
     });
     box.dispatchEvent(paste);
-    await vi.waitFor(() => expect(box.value).toBe("Yes, after 5, see .ovra-attachments/log.png "));
+    flushSync();
+    expect(card?.querySelector("[role=alert]")?.textContent).toContain("reply box");
+    // A project file from the tree goes in as its path: the answer is text.
+    const drop = new Event("drop", { bubbles: true, cancelable: true });
+    Object.defineProperty(drop, "dataTransfer", {
+      value: { types: [PATHS_DRAG_TYPE], getData: () => "logs/retry.log", files: [] },
+    });
+    box.dispatchEvent(drop);
+    await vi.waitFor(() => expect(box.value).toBe("Yes, after 5, see logs/retry.log "));
     card?.querySelector<HTMLButtonElement>("button[type=submit]")?.click();
     await vi.waitFor(() => expect(target.querySelectorAll("[data-testid=focus-question]")).toHaveLength(0));
     expect(core.calls.find((c) => c.method === "board.answer")?.params).toEqual({
       task: "t1",
       question: "b1",
-      text: "Yes, after 5, see .ovra-attachments/log.png",
+      text: "Yes, after 5, see logs/retry.log",
     });
   });
 

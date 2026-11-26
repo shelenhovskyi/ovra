@@ -1,7 +1,7 @@
 <script lang="ts">
 // A question an agent asked the person on its task's board, in Focus. The
 // answer is text sent back to the board; it allows nothing.
-import { attachFiles, droppedPaths, dropZone, pastedFiles } from "../agents/attach";
+import { dropZone, insidePaths, pastedFiles } from "../agents/attach";
 import { taskBoards } from "../board/boards.svelte";
 import { authorName } from "../board/describe";
 import type { BoardEntry, TaskId } from "../lib/protocol";
@@ -44,9 +44,12 @@ let field = $state<HTMLTextAreaElement>();
 /** Files are dragged over the card. */
 let fileOver = $state(false);
 
-// A file dropped on the card or pasted into the answer goes in as its
-// project path (a copy in the attachments folder for one from elsewhere):
-// the answer is text, so the agent reads the file itself.
+// A project file dropped on the card goes into the answer as its path: the
+// answer is text, and the agent reads the file itself. Files from elsewhere
+// would need a copy in the project, which the asking worker's own worktree
+// does not get, so they go in a task's reply box instead.
+const ELSEWHERE = "Add files from elsewhere in the task's reply box: here only the project's files can go.";
+
 $effect(() => {
   const box = form;
   const input = field;
@@ -54,15 +57,18 @@ $effect(() => {
   if (!box || !input || !project) return;
   const off = dropZone(box, transport, {
     over: (on) => (fileOver = on),
-    window: (drop) => void insert(() => droppedPaths(transport, project.id, project.root, drop)),
-    rows: (paths) => void insert(async () => paths),
-    files: (files) => void insert(() => attachFiles(transport, project.id, files)),
+    window: (drop) => {
+      const paths = insidePaths(project.root, drop);
+      if (paths) void insert(project.id, paths);
+      else error = ELSEWHERE;
+    },
+    rows: (paths) => void insert(project.id, paths),
+    files: () => (error = ELSEWHERE),
   });
   const paste = (event: ClipboardEvent) => {
-    const files = pastedFiles(event.clipboardData);
-    if (files.length === 0) return;
+    if (pastedFiles(event.clipboardData).length === 0) return;
     event.preventDefault();
-    void insert(() => attachFiles(transport, project.id, files));
+    error = ELSEWHERE;
   };
   input.addEventListener("paste", paste);
   return () => {
@@ -71,11 +77,17 @@ $effect(() => {
   };
 });
 
-async function insert(get: () => Promise<string[]>): Promise<void> {
+/** Puts project paths into the answer, unless one looks like a secret store (as an amber chip would). */
+async function insert(project: string, paths: string[]): Promise<void> {
   error = null;
   try {
-    const paths = await get();
-    if (paths.length === 0) return;
+    const items = paths.map((path) => ({ kind: "file" as const, path }));
+    const checked = await transport.call({ method: "context.check", params: { project, items } });
+    const risky = paths.filter((_, i) => checked.data.notes[i] != null);
+    if (risky.length > 0) {
+      error = `${risky.join(", ")} may hold secrets: type the path if you mean it.`;
+      return;
+    }
     const gap = text === "" || /\s$/.test(text) ? "" : " ";
     text = `${text}${gap}${paths.join(" ")} `;
     field?.focus();

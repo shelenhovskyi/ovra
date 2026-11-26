@@ -10,7 +10,7 @@ import type { ContextWhat, ProjectId } from "../lib/protocol";
 import type { Transport, WindowDrop } from "../lib/transport";
 
 /** A pasted or dropped file can be this large at most (the core's limit). */
-const MAX_BYTES = 20 * 1024 * 1024;
+const MAX_BYTES = 10 * 1024 * 1024;
 
 /** `path` relative to the folder `root`, or null outside it. Separators may be `/` or `\`. */
 export function relativeTo(root: string, path: string): string | null {
@@ -35,30 +35,52 @@ export async function itemFor(transport: Transport, project: ProjectId, path: st
   }
 }
 
-/**
- * The project paths a drop onto the window stands for: its paths when all
- * are inside `root`, else copies of all of them in the attachments folder
- * (the drop is copied as one).
- */
-export async function droppedPaths(
-  transport: Transport,
-  project: ProjectId,
-  root: string,
-  drop: WindowDrop,
-): Promise<string[]> {
+/** A drop's paths relative to `root` when all are inside it, else null (it needs a copy). */
+export function insidePaths(root: string, drop: WindowDrop): string[] | null {
   const inside = drop.paths.map((path) => relativeTo(root, path));
-  if (inside.every((path) => path !== null)) return inside as string[];
+  return inside.every((path) => path !== null) ? (inside as string[]) : null;
+}
+
+/** Copies a drop into the attachments folder (as one: the drop is one id); the copies' paths. */
+export async function copyDrop(transport: Transport, project: ProjectId, drop: WindowDrop): Promise<string[]> {
   if (!transport.importDrop) throw new Error("Files from outside the project cannot be added here.");
   const dir = await transport.call({ method: "context.attachments", params: { project } });
   const done = await transport.importDrop(drop.id, project, dir.data.path, "keep_both");
   return done.kind === "copied" ? done.paths : [];
 }
 
+/**
+ * The names among `paths` (absolute, or bare file names) whose copy would
+ * be a secret store, by the core's chip check: those wait for the person's
+ * "Copy anyway", since a copy in the project is one every agent can read.
+ * The file's folder counts too (`.ssh/id_ed25519`).
+ */
+export async function secretLooking(transport: Transport, project: ProjectId, paths: string[]): Promise<string[]> {
+  if (paths.length === 0) return [];
+  const tail = (path: string) => {
+    const parts = path
+      .replaceAll("\\", "/")
+      .split("/")
+      .filter((p) => p && p !== "." && p !== "..");
+    return parts.slice(-2).join("/") || "file";
+  };
+  const items = paths.map((path) => ({ kind: "file" as const, path: `${ATTACHMENTS}/${tail(path)}` }));
+  const answer = await transport.call({ method: "context.check", params: { project, items } });
+  return paths.filter((_, i) => answer.data.notes[i] != null).map(baseName);
+}
+
+function baseName(path: string): string {
+  return path.replaceAll("\\", "/").replace(/\/+$/, "").split("/").at(-1) ?? path;
+}
+
+/** The project's attachments folder (the core's `context.attachments`). */
+const ATTACHMENTS = ".ovra-attachments";
+
 /** Saves pasted or dropped files in the attachments folder; their project paths. */
 export async function attachFiles(transport: Transport, project: ProjectId, files: File[]): Promise<string[]> {
   const paths: string[] = [];
   for (const file of files) {
-    if (file.size > MAX_BYTES) throw new Error(`${file.name || "The file"} is larger than 20 MB.`);
+    if (file.size > MAX_BYTES) throw new Error(`${file.name || "The file"} is larger than 10 MB.`);
     const data = await base64(file);
     const name = file.name || `pasted.${file.type.split("/")[1]?.replace(/[^a-z0-9]/gi, "") || "bin"}`;
     const saved = await transport.call({ method: "context.attach", params: { project, name, data } });

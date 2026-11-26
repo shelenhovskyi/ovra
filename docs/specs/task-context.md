@@ -49,34 +49,41 @@ adds one menu and compact chips, and nothing more.
 Added 2026-11-26: every box that talks to an agent takes files the way
 the file tree does.
 
-- **Dropping** files on the task box, the reply box or a question's answer
-  box in Focus adds them: rows from the file tree, and files from the
-  system's file manager (the desktop app reports those with their paths, as
-  for the tree; a browser in headless mode gives the page the files
-  themselves). The box shows an accent outline and "Drop to add to the
-  message" while files are over it.
+- **Dropping** files on the task box or the reply box adds them: rows
+  from the file tree, and files from the system's file manager (the
+  desktop app reports those with their paths, as for the tree; a browser in
+  headless mode gives the page the files themselves). The box shows an
+  accent outline and "Drop to add to the message" while files are over it.
 - **Pasting** (Cmd/Ctrl+V) a screenshot or a copied file adds it too; a
   paste that also carries other text pastes the text.
 - A file or folder **inside the project** becomes a chip as if picked with
-  @: named, not read. A file **from elsewhere**, and anything pasted, is
-  first copied into the project's attachments folder
-  (`.ovra-attachments/`, which holds a `.gitignore` of `*`, so git never
-  shows it), because the agent reads only the project. The drop or the
-  paste is the person's explicit action, as a drop on the tree is. One
-  file is 20 MiB at most; a name that is taken gets `-2`, `-3`. The chip
-  then names the copy, and the usual checks apply (a dropped `.env` is
-  still amber).
-- In Focus the answer is text to the board, so the path goes into the
-  answer instead of a chip.
+  @: named, not read, with the usual checks (a dropped `.env` is amber).
+- A file **from elsewhere**, and anything pasted, is copied into the
+  project's attachments folder (`.ovra-attachments/`, which holds a
+  `.gitignore` of `*`, so git never shows it), because the agent reads only
+  the project. The drop or the paste is the person's explicit action, as a
+  drop on the tree is. A copy in the project can be read by every agent, so
+  **before copying**, names that look like secret stores by the chip check
+  (the file and its folder: `.ssh/id_ed25519`, `credentials`, `.env`) wait
+  for "Copy anyway" or Cancel. A pasted file is 10 MiB at most (its base64
+  must fit one WebSocket frame); a desktop drop is copied like a drop on the
+  tree. A name that is taken gets `-2`, `-3` (`copy` for a desktop drop).
+  The core refuses to write when `.ovra-attachments` is not a folder (an
+  agent could make it a link into the code).
+- **Focus**: a question's answer is text to the board, and the asking
+  worker's worktree does not get the attachments folder, so only project
+  files can be dropped there; they go in as paths, and one that looks like a
+  secret store is refused ("type the path if you mean it"). Pasted files
+  and files from elsewhere get a note pointing to the reply box.
 - `context.attach { project, name, data }` (base64) saves one file under a
-  safe name (letters, digits, `.`, `_`, `-`, spaces; never only dots) and
-  answers `context.attached { path }`; `context.attachments { project }`
-  makes the folder for the desktop app's copy of a drop
-  (`ovra_import_drop`, clash "keep both"). The phone companion cannot call
-  either (`context.*` is not a phone method).
-- Not yet: workers in their own worktrees do not get the copies (the folder
-  is ignored, so a new worktree lacks it); a task started in the main
-  checkout does.
+  safe name (letters, digits, `.`, `_`, `-`, spaces; never only dots),
+  marks it as the person's change and answers `context.attached { path }`;
+  `context.attachments { project }` makes the folder for the desktop app's
+  copy of a drop (`ovra_import_drop`, clash "keep both"). The phone
+  companion cannot call either (`context.*` is not a phone method).
+- Not yet: copies stay after their chip is removed (they are ignored and
+  can be deleted from the tree); workers in their own worktrees do not get
+  the copies; Windows device names (`NUL`, `COM1`) are not mapped yet.
 
 ## Safety
 

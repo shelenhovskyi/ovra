@@ -2,7 +2,16 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { PATHS_DRAG_TYPE } from "../lib/drag";
 import type { Request } from "../lib/protocol";
 import type { Point, Transport, WindowDrop } from "../lib/transport";
-import { attachFiles, droppedPaths, dropZone, itemFor, pastedFiles, relativeTo } from "./attach";
+import {
+  attachFiles,
+  copyDrop,
+  dropZone,
+  insidePaths,
+  itemFor,
+  pastedFiles,
+  relativeTo,
+  secretLooking,
+} from "./attach";
 
 /** A transport that answers the calls these helpers make and records them. */
 function fake(withDrops = true) {
@@ -18,6 +27,15 @@ function fake(withDrops = true) {
           return { type: "fs.dir", data: { path: "src", entries: [] } };
         case "context.attachments":
           return { type: "context.attached", data: { path: ".ovra-attachments" } };
+        case "context.check":
+          return {
+            type: "context.checked",
+            data: {
+              notes: request.params.items.map((i) =>
+                "path" in i && /id_ed25519|\.env$/.test(i.path) ? "secret_file" : null,
+              ),
+            },
+          };
         case "context.attach":
           return { type: "context.attached", data: { path: `.ovra-attachments/${request.params.name}` } };
         default:
@@ -76,8 +94,8 @@ describe("files from a drop or a paste", () => {
   it("names project files and folders as they are", async () => {
     const { transport, calls } = fake();
     const drop = { id: "d1", x: 0, y: 0, paths: ["/work/app/src", "/work/app/src/lib.rs"] };
-    const paths = await droppedPaths(transport, "p1", "/work/app", drop);
-    expect(paths).toEqual(["src", "src/lib.rs"]);
+    expect(insidePaths("/work/app", drop)).toEqual(["src", "src/lib.rs"]);
+    expect(insidePaths("/work/app", { ...drop, paths: ["/work/app/a", "/tmp/b"] })).toBeNull();
     expect(await itemFor(transport, "p1", "src")).toEqual({ kind: "folder", path: "src" });
     expect(await itemFor(transport, "p1", "src/lib.rs")).toEqual({ kind: "file", path: "src/lib.rs" });
     expect(calls.some((c) => c.method === "context.attachments")).toBe(false);
@@ -87,8 +105,27 @@ describe("files from a drop or a paste", () => {
   it("copies files from elsewhere into the attachments folder", async () => {
     const { transport } = fake();
     const drop = { id: "d2", x: 0, y: 0, paths: ["/Users/me/Desktop/shot.png"] };
-    expect(await droppedPaths(transport, "p1", "/work/app", drop)).toEqual([".ovra-attachments/shot.png"]);
+    expect(await copyDrop(transport, "p1", drop)).toEqual([".ovra-attachments/shot.png"]);
     expect(transport.importDrop).toHaveBeenCalledWith("d2", "p1", ".ovra-attachments", "keep_both");
+  });
+
+  it("finds the names whose copy would look like a secret store, by the file and its folder", async () => {
+    const { transport, calls } = fake();
+    const risky = await secretLooking(transport, "p1", [
+      "/Users/me/.ssh/id_ed25519",
+      "/Users/me/Desktop/shot.png",
+      ".env",
+    ]);
+    expect(risky).toEqual(["id_ed25519", ".env"]);
+    expect(calls.at(-1)).toMatchObject({
+      params: {
+        items: [
+          { kind: "file", path: ".ovra-attachments/.ssh/id_ed25519" },
+          { kind: "file", path: ".ovra-attachments/Desktop/shot.png" },
+          { kind: "file", path: ".ovra-attachments/.env" },
+        ],
+      },
+    });
   });
 
   it("saves pasted files and names a nameless one by its type", async () => {
@@ -99,8 +136,8 @@ describe("files from a drop or a paste", () => {
       method: "context.attach",
       params: { project: "p1", name: "pasted.png", data: btoa("png") },
     });
-    const huge = { name: "big.mov", size: 21 * 1024 * 1024, type: "video/quicktime" } as File;
-    await expect(attachFiles(transport, "p1", [huge])).rejects.toThrow("big.mov is larger than 20 MB.");
+    const huge = { name: "big.mov", size: 11 * 1024 * 1024, type: "video/quicktime" } as File;
+    await expect(attachFiles(transport, "p1", [huge])).rejects.toThrow("big.mov is larger than 10 MB.");
   });
 
   it("takes a paste's files unless it carries other text", () => {

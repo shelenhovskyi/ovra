@@ -29,7 +29,7 @@ export type ContextRequest =
     }
   | {
       /**
-       * Saves a pasted or dropped file (`data` in base64, 20 MiB at most) as a new
+       * Saves a pasted or dropped file (`data` in base64, 10 MiB at most) as a new
        * file of the attachments folder, named `name` or like it. Answers `context.attached`.
        */
       method: "context.attach";

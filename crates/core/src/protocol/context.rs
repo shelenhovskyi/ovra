@@ -85,7 +85,7 @@ pub enum ContextRequest {
     /// Saves a file the person pasted or dropped into a message box as a
     /// new file of the project's attachments folder (`.ovra-attachments/`,
     /// which git ignores), named `name` or a name like it, so a chip can
-    /// name it. `data` is the file in standard base64, 20 MiB at most.
+    /// name it. `data` is the file in standard base64, 10 MiB at most.
     /// Answers `context.attached` with its path.
     #[serde(rename = "context.attach")]
     Attach {

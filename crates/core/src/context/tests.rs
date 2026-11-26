@@ -333,6 +333,15 @@ async fn attach_saves_a_pasted_file_under_a_safe_new_name() {
     )
     .await;
     assert!(matches!(bad, Err(e) if e.code == ErrorCode::BadRequest));
+    let big = base64::engine::general_purpose::STANDARD.encode(vec![0u8; (10 << 20) + 1]);
+    let big = call(
+        &core,
+        json!({"method": "context.attach", "params": {"project": "p1", "name": "a", "data": big}}),
+    )
+    .await;
+    assert!(
+        matches!(big, Err(e) if e.code == ErrorCode::BadRequest && e.message.contains("10 MiB"))
+    );
     let dir = call(
         &core,
         json!({"method": "context.attachments", "params": {"project": "p1"}}),
@@ -340,6 +349,32 @@ async fn attach_saves_a_pasted_file_under_a_safe_new_name() {
     .await
     .unwrap_or_else(|e| panic!("{e}"));
     assert_eq!(path(dir), ".ovra-attachments");
+}
+
+#[tokio::test]
+async fn attach_refuses_an_attachments_folder_that_is_not_a_folder() {
+    let fs = Arc::new(MemoryFs::default());
+    fs.put(
+        std::path::Path::new(ROOT),
+        ".ovra-attachments",
+        "a link, say",
+    );
+    let core = Core::builder("test")
+        .projects(Arc::new(MemoryProjects::default()))
+        .fs(fs)
+        .build();
+    call(
+        &core,
+        json!({"method": "projects.add", "params": {"root": ROOT}}),
+    )
+    .await
+    .unwrap_or_else(|e| panic!("{e}"));
+    let refused = call(
+        &core,
+        json!({"method": "context.attachments", "params": {"project": "p1"}}),
+    )
+    .await;
+    assert!(matches!(refused, Err(e) if e.code == ErrorCode::Conflict));
 }
 
 #[test]

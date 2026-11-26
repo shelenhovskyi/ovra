@@ -1358,6 +1358,25 @@ describe("@ context", () => {
       await settle();
       expect(chips()).toEqual(["lib.rs", "shot.png"]);
     });
+    // A key pasted from elsewhere is copied into the project only after Copy anyway.
+    const key2 = new File(["k"], "id_ed25519");
+    const paste2 = new Event("paste", { bubbles: true, cancelable: true });
+    Object.defineProperty(paste2, "clipboardData", { value: { files: [key2], getData: () => "" } });
+    core.contextNotes.set(".ovra-attachments/id_ed25519", "secret_file");
+    field()?.dispatchEvent(paste2);
+    await vi.waitFor(async () => {
+      await settle();
+      expect(target.querySelector("[data-testid=context-copy-ask]")?.textContent).toContain(
+        "id_ed25519 may hold secrets",
+      );
+    });
+    expect(core.calls.filter((c) => c.method === "context.attach")).toHaveLength(1);
+    [...target.querySelectorAll<HTMLButtonElement>("[data-testid=context-copy-ask] button")]
+      .find((b) => b.textContent === "Cancel")
+      ?.click();
+    await settle();
+    expect(target.querySelector("[data-testid=context-copy-ask]")).toBeNull();
+    expect(core.calls.filter((c) => c.method === "context.attach")).toHaveLength(1);
     type(field(), "What is wrong here?");
     key("Enter");
     await settle();

@@ -12,6 +12,7 @@ use crate::protocol::agents::SessionId;
 use crate::protocol::context::{
     ContextItem, ContextRequest, ContextResponse, ContextWarning, ContextWhat,
 };
+use crate::protocol::fs::EntryKind;
 use crate::protocol::projects::ProjectId;
 use crate::protocol::secrets::SecretValue;
 use crate::protocol::{ErrorCode, ProtocolError, Response};
@@ -114,12 +115,29 @@ pub(crate) async fn handle(core: &Core, request: ContextRequest) -> Result<Respo
 /// The folder of the project that pasted and dropped files are saved in.
 /// It holds a `.gitignore` that ignores everything in it.
 const ATTACHMENTS: &str = ".ovra-attachments";
-/// One attachment, at most.
-const MAX_ATTACHMENT: usize = 20 << 20;
+/// One attachment, at most: its base64 in a JSON frame stays under the
+/// WebSocket's 16 MiB frame limit.
+const MAX_ATTACHMENT: usize = 10 << 20;
 
 /// Makes the attachments folder and its `.gitignore`, unless it exists.
 async fn attachments(core: &Core, project: &ProjectId) -> Result<std::path::PathBuf> {
     let root = core.root(project)?;
+    // An agent could have swapped the folder for a link into the project's
+    // code: the person's files and the `.gitignore` would land there.
+    let top = core
+        .fs_service()
+        .list_dir(root.clone(), RelPath::parse("")?)
+        .await?;
+    if top
+        .entries
+        .iter()
+        .any(|e| e.name == ATTACHMENTS && e.kind != EntryKind::Dir)
+    {
+        return Err(ProtocolError::new(
+            ErrorCode::Conflict,
+            format!("{ATTACHMENTS} in the project is not a folder: remove it to add files"),
+        ));
+    }
     let ignore = RelPath::parse(&format!("{ATTACHMENTS}/.gitignore"))?;
     match core
         .fs_service()
@@ -154,7 +172,12 @@ async fn attach(core: &Core, project: &ProjectId, name: &str, data: &str) -> Res
             .create_file(root.clone(), path, bytes.clone())
             .await
         {
-            Ok(()) => return Ok(shown),
+            Ok(()) => {
+                if let Ok(saved) = RelPath::parse(&shown) {
+                    core.person_changed(project, &[saved]);
+                }
+                return Ok(shown);
+            }
             Err(e) if e.code == ErrorCode::Conflict => {}
             Err(e) => return Err(e),
         }

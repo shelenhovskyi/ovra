@@ -4,13 +4,13 @@
 // own handler and `refresh` on input, and this component keeps the typed
 // `@query`, the popup above the field and the chips under it.
 import type { ContextWhat, ProjectId } from "../lib/protocol";
-import { CoreError } from "../lib/transport";
+import { CoreError, type WindowDrop } from "../lib/transport";
 import { projectFiles } from "../palette/files";
 import { rank } from "../palette/fuzzy";
 import { recentFiles } from "../palette/recent-files.svelte";
 import { useOvra } from "../shell/context";
 import Icon from "../shell/Icon.svelte";
-import { attachFiles, droppedPaths, dropZone, itemFor, pastedFiles } from "./attach";
+import { attachFiles, copyDrop, dropZone, insidePaths, itemFor, pastedFiles, secretLooking } from "./attach";
 import {
   atQuery,
   contextDrafts,
@@ -181,15 +181,19 @@ $effect(() => {
       fileOver = on;
       box.toggleAttribute("data-file-over", on);
     },
-    window: (drop) => void addPaths(() => droppedPaths(transport, project, rootOf(), drop)),
-    rows: (paths) => void addPaths(async () => paths),
-    files: (files) => void addPaths(() => attachFiles(transport, project, files)),
+    window: (drop) => void addDrop(drop),
+    rows: (paths) =>
+      void addPaths(async () => {
+        rootOf();
+        return paths;
+      }),
+    files: (files) => void addFiles(files),
   });
   const paste = (event: ClipboardEvent) => {
     const files = pastedFiles(event.clipboardData);
     if (files.length === 0) return;
     event.preventDefault();
-    void addPaths(() => attachFiles(transport, project, files));
+    void addFiles(files);
   };
   input.addEventListener("paste", paste);
   return () => {
@@ -201,8 +205,60 @@ $effect(() => {
 
 function rootOf(): string {
   const open = workspace.project;
-  if (open?.id !== project) throw new Error("Open the task's project to add files from outside it.");
+  if (open?.id !== project) throw new Error("Open the task's project to add files to it.");
   return open.root;
+}
+
+function message(err: unknown): string {
+  return err instanceof CoreError ? err.error.message : err instanceof Error ? err.message : String(err);
+}
+
+/** Files from outside the project whose names look like secrets, waiting for Copy anyway. */
+let pendingCopy = $state<{ names: string[]; copy: () => Promise<string[]> } | null>(null);
+
+function addDrop(drop: WindowDrop): Promise<void> {
+  let inside: string[] | null;
+  try {
+    inside = insidePaths(rootOf(), drop);
+  } catch (err) {
+    error = message(err);
+    return Promise.resolve();
+  }
+  if (inside) {
+    const paths = inside;
+    return addPaths(async () => paths);
+  }
+  return copyChecked(drop.paths, () => copyDrop(transport, project, drop));
+}
+
+function addFiles(files: File[]): Promise<void> {
+  return copyChecked(
+    files.map((file) => file.name || "pasted"),
+    () => attachFiles(transport, project, files),
+  );
+}
+
+/** Copies into the project, after Copy anyway when a name looks like a secret: a copy is there for every agent. */
+async function copyChecked(names: string[], copy: () => Promise<string[]>): Promise<void> {
+  error = null;
+  pendingCopy = null;
+  try {
+    const risky = await secretLooking(transport, project, names);
+    if (risky.length > 0) {
+      pendingCopy = { names: risky, copy };
+      return;
+    }
+  } catch (err) {
+    error = message(err);
+    return;
+  }
+  await addPaths(copy);
+}
+
+function copyAnyway(): void {
+  const waiting = pendingCopy;
+  pendingCopy = null;
+  if (waiting) void addPaths(waiting.copy);
 }
 
 /** Adds the project paths `get` resolves to as chips; says what failed. */
@@ -213,7 +269,7 @@ async function addPaths(get: () => Promise<string[]>): Promise<void> {
     for (const path of paths) await drafts.add(project, target, await itemFor(transport, project, path));
     if (paths.length > 0) said = `Added ${paths.map((p) => p.slice(p.lastIndexOf("/") + 1)).join(", ")}`;
   } catch (err) {
-    error = err instanceof CoreError ? err.error.message : err instanceof Error ? err.message : String(err);
+    error = message(err);
   }
   field?.focus();
 }
@@ -355,6 +411,13 @@ function choose(option: Suggestion): void {
 {/if}
 {#if fileOver}
   <p class="ctx-drop" data-testid="context-drop">Drop to add to the message</p>
+{/if}
+{#if pendingCopy}
+  <p class="ctx-ask" role="alert" data-testid="context-copy-ask">
+    <span>{pendingCopy.names.join(", ")} may hold secrets. A copy in the project can be read by every agent.</span>
+    <button type="button" class="include" onclick={copyAnyway}>Copy anyway</button>
+    <button type="button" onclick={() => (pendingCopy = null)}>Cancel</button>
+  </p>
 {/if}
 {#if chips.length > 0}
   <ul class="ctx-chips" aria-label="Context sent with the message">
@@ -507,6 +570,27 @@ function choose(option: Suggestion): void {
     height: 1px;
     overflow: hidden;
     clip-path: inset(50%);
+  }
+  .ctx-ask {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    margin: 0;
+    font-size: 12px;
+    color: var(--warn);
+  }
+  .ctx-ask button {
+    height: 22px;
+    padding: 0 6px;
+    font-size: 12px;
+    color: var(--text);
+    background: var(--s3);
+    border: 0;
+    border-radius: var(--radius);
+  }
+  .ctx-ask .include {
+    color: var(--warn);
   }
   .ctx-drop {
     margin: 0;
