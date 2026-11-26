@@ -1055,6 +1055,16 @@ pub fn fake_pid(session: &SessionId) -> u32 {
 }
 
 impl AgentRuntime for ScriptedAgent {
+    /// Claude's saved calls, mapped as its runtime maps them.
+    fn tool_call(
+        &self,
+        _: crate::protocol::agents::AgentKind,
+        name: &str,
+        input: &serde_json::Value,
+    ) -> crate::protocol::agents::ToolCall {
+        tool(name, input.clone()).call
+    }
+
     /// Claude, able to do everything, like the runtime it stands in for.
     fn providers(&self) -> Vec<crate::protocol::agents::ProviderInfo> {
         use crate::protocol::agents::{AgentKind, Capabilities, ProviderInfo};

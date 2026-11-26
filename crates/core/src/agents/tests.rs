@@ -6,7 +6,8 @@ use tokio::sync::broadcast;
 use crate::Core;
 use crate::fakes::{EchoTerminals, MemoryFs, MemoryProjects, MemorySessions, ScriptedAgent, Step};
 use crate::protocol::agents::{
-    AgentMessage, AgentStatus, AgentsEvent, AgentsResponse, SessionInfo, SessionMode, TurnUsage,
+    AgentMessage, AgentStatus, AgentsEvent, AgentsResponse, SessionInfo, SessionMode, ToolCall,
+    ToolKind, TurnUsage,
 };
 use crate::protocol::agents::{ProjectAgentConfig, ProjectConfigReview, SetupState};
 use crate::protocol::permissions::{
@@ -949,6 +950,43 @@ async fn sessions_survive_a_restart_and_resume() {
         Response::Agents(AgentsResponse::Session(info)) => assert_eq!(info.id.0, "s2"),
         other => panic!("unexpected {other:?}"),
     }
+}
+
+#[tokio::test]
+async fn tool_calls_saved_before_calls_had_terms_get_them_when_loaded() {
+    let projects = Arc::new(MemoryProjects::default());
+    let kept = Arc::new(MemorySessions::default());
+    let first = restartable(ScriptedAgent::new(vec![vec![]]), &projects, &kept);
+    project(&first).await;
+    let mut rx = first.subscribe();
+    ok(&first, start("go")).await;
+    until(&mut rx, AgentStatus::Idle).await;
+    // A transcript line written before `call` existed.
+    let old: AgentMessage = serde_json::from_value(
+        json!({"kind": "tool_use", "id": "t1", "name": "Bash", "input": {"command": "ls"}}),
+    )
+    .unwrap_or_else(|e| panic!("bad message: {e}"));
+    host(&first).message(old);
+    host(&first).status(AgentStatus::Idle);
+    drop(first);
+
+    let second = restartable(ScriptedAgent::new(vec![]), &projects, &kept);
+    let calls: Vec<_> = transcript(&second)
+        .await
+        .into_iter()
+        .filter_map(|m| match m {
+            AgentMessage::ToolUse { call, .. } => Some(call),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        calls,
+        [ToolCall {
+            kind: ToolKind::Execute,
+            command: Some("ls".into()),
+            ..ToolCall::default()
+        }]
+    );
 }
 
 #[tokio::test]

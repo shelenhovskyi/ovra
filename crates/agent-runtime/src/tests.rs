@@ -262,6 +262,28 @@ fn recorded_sessions_hold_no_local_paths_or_keys() {
     }
 }
 
+#[test]
+fn a_saved_claude_tool_call_gets_its_terms() {
+    let sandbox = ovra_core::fakes::FakeSandbox {
+        status: SandboxStatus::Unavailable {
+            reason: "none".into(),
+        },
+        fails: false,
+        wrapped: Default::default(),
+        servers: Default::default(),
+    };
+    let runtime = ClaudeCli::new(None, Arc::new(sandbox));
+    let call = runtime.tool_call(AgentKind::Claude, "Bash", &json!({"command": "ls"}));
+    assert_eq!(
+        call,
+        ToolCall {
+            kind: ovra_core::protocol::agents::ToolKind::Execute,
+            command: Some("ls".into()),
+            ..ToolCall::default()
+        }
+    );
+}
+
 #[tokio::test]
 async fn an_allowed_edit_and_an_allowed_command_over_two_turns() {
     let (transcript, ended) = replay(EDIT_ALLOWED).await;

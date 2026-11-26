@@ -25,8 +25,8 @@ use crate::protocol::policy::PolicyAction;
 use crate::protocol::projects::ProjectId;
 use crate::protocol::{ErrorCode, ProtocolError};
 use crate::services::{
-    EventSink, IdeTools, NetProxy, ProfileNetwork, RunningAgent, SessionStore, StoredSession,
-    ToolCaller, ToolRole, Worktrees,
+    AgentRuntime, EventSink, IdeTools, NetProxy, ProfileNetwork, RunningAgent, SessionStore,
+    StoredSession, ToolCaller, ToolRole, Worktrees,
 };
 
 pub(crate) use permissions::Permissions;
@@ -122,11 +122,14 @@ struct IdeLink {
 
 impl Sessions {
     /// Loads the kept sessions. Those that ran when the core last quit have
-    /// no process any more, so they show as stopped.
+    /// no process any more, so they show as stopped. Tool calls saved
+    /// before transcripts carried their shared terms get them from
+    /// `runtime`.
     pub(crate) fn new(
         store: Arc<dyn SessionStore>,
         worktrees: Arc<dyn Worktrees>,
         net: Option<Arc<dyn NetProxy>>,
+        runtime: &dyn AgentRuntime,
     ) -> Self {
         let mut started = 0;
         let mut list = Vec::new();
@@ -138,6 +141,13 @@ impl Sessions {
                 .strip_prefix('s')
                 .and_then(|n| n.parse().ok());
             started = started.max(number.unwrap_or(0));
+            let agent = stored.info.agent;
+            let messages = messages
+                .into_iter()
+                .map(|m| {
+                    transcript::with_call(m, |name, input| runtime.tool_call(agent, name, input))
+                })
+                .collect();
             let mut session = Session {
                 transcript: Transcript::restore(messages, stored.info.usage.clone()),
                 info: stored.info,

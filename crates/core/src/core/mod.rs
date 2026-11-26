@@ -175,6 +175,7 @@ impl CoreBuilder {
     pub fn build(self) -> Core {
         let (events, _) = broadcast::channel(EVENT_CAPACITY);
         let kept = self.sessions.clone();
+        let runtime = self.agents.clone();
         let core = Core {
             inner: Arc::new(Inner {
                 mode: self.mode,
@@ -191,6 +192,7 @@ impl CoreBuilder {
                     self.sessions,
                     self.worktrees.clone(),
                     self.netproxy,
+                    &*runtime,
                 )),
                 worktrees: self.worktrees,
                 git: self.git,

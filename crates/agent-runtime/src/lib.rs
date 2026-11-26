@@ -20,7 +20,7 @@ use std::sync::Arc;
 
 use ovra_core::protocol::agents::{
     AgentKind, AgentSetup, AgentStatus, Capabilities, ProjectAgentConfig, ProviderInfo,
-    SandboxNetwork, SandboxReport,
+    SandboxNetwork, SandboxReport, ToolCall,
 };
 use ovra_core::protocol::{ErrorCode, ProtocolError};
 use ovra_core::services::{
@@ -132,6 +132,12 @@ impl AgentRuntime for ClaudeCli {
         Box::pin(async move {
             detect::setup(chosen, config_dir.as_deref(), &detect::Env::current()).await
         })
+    }
+
+    fn tool_call(&self, agent: AgentKind, name: &str, input: &serde_json::Value) -> ToolCall {
+        match agent {
+            AgentKind::Claude => tools::tool(name, input.clone()).call,
+        }
     }
 
     fn config_dirs(&self) -> BoxFuture<'_, Vec<PathBuf>> {

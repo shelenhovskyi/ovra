@@ -4,7 +4,7 @@
 
 use std::collections::VecDeque;
 
-use crate::protocol::agents::{AgentMessage, TurnUsage};
+use crate::protocol::agents::{AgentMessage, ToolCall, TurnUsage};
 
 /// Messages kept per session; the oldest go first.
 pub(crate) const MAX_MESSAGES: usize = 5_000;
@@ -65,6 +65,23 @@ impl Transcript {
     pub(crate) fn usage(&self) -> &TurnUsage {
         &self.usage
     }
+}
+
+/// `message` with the shared terms of its tool call, from `map(name, input)`
+/// when it has none: a call saved before transcripts carried them loads as
+/// `other`. Mapping a call that is `other` again changes nothing.
+pub(crate) fn with_call(
+    mut message: AgentMessage,
+    map: impl FnOnce(&str, &serde_json::Value) -> ToolCall,
+) -> AgentMessage {
+    if let AgentMessage::ToolUse {
+        name, input, call, ..
+    } = &mut message
+        && *call == ToolCall::default()
+    {
+        *call = map(name, input);
+    }
+    message
 }
 
 /// A user text after anything but another one: the next message to the
