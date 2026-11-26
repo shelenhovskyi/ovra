@@ -7,6 +7,7 @@ import {
   entries,
   foldLabel,
   inFolder,
+  keepSame,
   liveStep,
   noteLine,
   stepIcon,
@@ -95,6 +96,25 @@ describe("steps", () => {
     expect(liveStep({ state: "waiting_for_approval" }, [edit], false)).toBeNull();
     expect(liveStep({ state: "idle" }, [], false)).toBeNull();
     expect([elapsed(4200), elapsed(125_000)]).toEqual(["4s", "2m 05s"]);
+  });
+});
+
+describe("keepSame", () => {
+  it("keeps the earlier entry object where the same messages show, and takes changed ones", () => {
+    const text: AgentMessage = { kind: "assistant_text", text: "Looking." };
+    const read = use("t1", "Read", { file_path: "/p/a.rs" });
+    const note: AgentMessage = { kind: "user_text", text: "Ovra: Files changed", from: "ovra" };
+    const before = entries([text, note, read]);
+    const after = keepSame(
+      before,
+      entries([text, note, read, result("t1"), { kind: "assistant_text", text: "Done." }]),
+    );
+    expect(after[0]).toBe(before[0]);
+    expect(after[1]).toBe(before[1]);
+    // The read got its result: a new entry, so its row shows it.
+    expect(after[2]).not.toBe(before[2]);
+    expect(after[2]?.kind === "steps" && after[2].steps[0]?.result?.kind).toBe("tool_result");
+    expect(after).toHaveLength(4);
   });
 });
 

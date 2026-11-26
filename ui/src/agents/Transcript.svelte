@@ -19,6 +19,7 @@ import {
   entries,
   foldLabel,
   inFolder,
+  keepSame,
   noteLine,
   notesLabel,
   type Step,
@@ -110,15 +111,20 @@ function fileOf(step: Step): string | null {
 
 const capital = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
 
+/** The entries last shown: their rows need no update when a message comes. */
+let previous: ReturnType<typeof entries> = [];
 /**
  * Without usage (a fake agent, say) a turn's end line would say nothing;
  * Claude's copy of the error its turn ended with would say it twice.
+ * Entries that did not change stay the same objects (`keepSame`).
  */
-const shown = $derived(
-  entries(
+const shown = $derived.by(() => {
+  const next = entries(
     withoutEchoes(messages).filter((m) => m.kind !== "turn_end" || m.usage.input_tokens + m.usage.output_tokens > 0),
-  ),
-);
+  );
+  previous = keepSame(previous, next);
+  return previous;
+});
 
 const turnOf = $derived(turnsOf(messages));
 const latest = $derived(Math.max(0, ...turnOf.values()));

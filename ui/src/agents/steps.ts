@@ -140,6 +140,35 @@ export function entries(messages: AgentMessage[]): Entry[] {
   return out;
 }
 
+/**
+ * `next` with each entry that shows the same messages as `previous`'s at its
+ * place replaced by that earlier object. A transcript gets new entries for
+ * every message; the rows of unchanged ones then need no update at all,
+ * which keeps a new message cheap in a long transcript.
+ */
+export function keepSame(previous: readonly Entry[], next: Entry[]): Entry[] {
+  return next.map((entry, i) => {
+    const old = previous[i];
+    return old && same(old, entry) ? old : entry;
+  });
+}
+
+function same(a: Entry, b: Entry): boolean {
+  if (a.kind === "message" && b.kind === "message") return a.message === b.message;
+  if (a.kind === "steps" && b.kind === "steps")
+    return (
+      a.steps.length === b.steps.length &&
+      a.steps.every((step, i) => step.use === b.steps[i]?.use && step.result === b.steps[i]?.result)
+    );
+  if (a.kind === "notes" && b.kind === "notes")
+    return (
+      a.first === b.first &&
+      a.notes.length === b.notes.length &&
+      a.notes.every((n, i) => n.line === b.notes[i]?.line && n.rest === b.notes[i]?.rest)
+    );
+  return false;
+}
+
 /** `Read 6 files, searched 2 times`, for a fold of reads and searches. */
 export function foldLabel(steps: Step[]): string {
   const reads = steps.filter((s) => kindOf(s) === "read").length;
