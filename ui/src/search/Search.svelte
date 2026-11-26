@@ -3,6 +3,7 @@
 // "Replace in files" commands.
 import { tick, untrack } from "svelte";
 import { focusMain, tabs } from "../editor/open-files.svelte";
+import { leaveFocus } from "../focus/mode.svelte";
 import { registerCommand } from "../keys/commands";
 import { useOvra } from "../shell/context";
 import { handleFindInFolder } from "./find-in";
@@ -13,18 +14,21 @@ const { transport, workspace } = useOvra();
 let panel = $state<SearchPanel | null>(null);
 
 async function show(): Promise<void> {
+  leaveFocus();
   workspace.sidebar = "search";
   await tick();
   panel?.focus();
 }
 
 async function showReplace(): Promise<void> {
+  leaveFocus();
   workspace.sidebar = "search";
   await tick();
   await panel?.focusReplace();
 }
 
 async function findIn(include: string): Promise<void> {
+  leaveFocus();
   workspace.sidebar = "search";
   await tick();
   panel?.limitTo(include);

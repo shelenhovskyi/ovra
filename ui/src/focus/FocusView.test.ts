@@ -269,6 +269,16 @@ describe("FocusView", () => {
     });
   });
 
+  it("adds context with a button as well as with @", async () => {
+    await setup(() => {});
+    target.querySelector<HTMLButtonElement>("[data-testid=focus-add-context]")?.click();
+    await Promise.resolve();
+    flushSync();
+    expect(target.querySelector<HTMLTextAreaElement>("#focus-task")?.value).toBe("@");
+    expect(document.activeElement?.id).toBe("focus-task");
+    expect(target.querySelector("#focus-task")?.getAttribute("aria-expanded")).toBe("true");
+  });
+
   it("takes files dropped on the task box as context chips", async () => {
     const core = await setup(() => {});
     const box = target.querySelector<HTMLTextAreaElement>("#focus-task");

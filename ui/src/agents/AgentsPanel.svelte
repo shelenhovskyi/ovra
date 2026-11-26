@@ -22,6 +22,7 @@ import { approvalQueue } from "../approvals/queue.svelte";
 import Board from "../board/Board.svelte";
 import { type WorkerChanges, whoChanges } from "../board/describe";
 import { taskBoards } from "../board/boards.svelte";
+import { focusMode } from "../focus/mode.svelte";
 import { sessionBrowsers } from "../browser/browser.svelte";
 import { browserPicks, pickLabel } from "../browser/picks.svelte";
 import { listCommands, registerCommand } from "../keys/commands";
@@ -590,6 +591,11 @@ async function showBox(field: () => HTMLTextAreaElement | undefined): Promise<vo
 
 /** From a folded Agents column, New task unfolds it first, through the shell's own command. */
 async function newTask(): Promise<void> {
+  // In Focus the panel is hidden: its own task box takes the new task.
+  if (focusMode.on) {
+    document.getElementById("focus-task")?.focus();
+    return;
+  }
   selected = null;
   await showBox(() => promptField);
 }

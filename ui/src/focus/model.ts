@@ -39,18 +39,27 @@ export type FocusSections = {
   done: FocusRow[];
   /** Sessions whose changes wait for the person's review, oldest first. */
   reviews: SessionId[];
+  /**
+   * Done rows with nothing left for the person: not waiting for review, and
+   * not a task's coordinator, whose work is its workers'.
+   */
+  finished: number;
 };
 
 type Part = "progress" | "next" | "done";
 
 export function focusSections(sessions: FocusSource, project: ProjectId): FocusSections {
-  const out: FocusSections = { progress: [], next: [], done: [], reviews: [] };
+  const out: FocusSections = { progress: [], next: [], done: [], reviews: [], finished: 0 };
   const planned: FocusRow[] = [];
   for (const info of sessions.shown(project)) {
     const where = part(sessions, info.id, info.status);
     const name = sessions.name(info.id);
-    out[where].push({ id: info.id, name, status: sessions.status(info.id) });
-    if (sessions.waitsForReview(info.id)) out.reviews.push(info.id);
+    const waits = sessions.waitsForReview(info.id);
+    // Finished, but its changes are not kept yet: it still waits for the person.
+    const status = where === "done" && waits ? "Waiting for review" : sessions.status(info.id);
+    out[where].push({ id: info.id, name, status });
+    if (waits) out.reviews.push(info.id);
+    if (where === "done" && !waits && sessions.roles.get(info.id)?.kind !== "coordinator") out.finished++;
     // What an agent at work plans to do next, from its own to-do list.
     if (where === "progress")
       for (const [step, text] of pendingSteps(sessions.transcripts.get(info.id) ?? []).entries())
@@ -85,12 +94,13 @@ export function pendingSteps(messages: AgentMessage[]): string[] {
   return [];
 }
 
-/** "2 working · 1 next · 3 done", leaving out what is empty. */
+/** "2 working · 1 next · 3 to review · 1 done", leaving out what is empty. */
 export function countLine(sections: FocusSections): string {
   const parts = [
     sections.progress.length ? `${sections.progress.length} working` : "",
     sections.next.length ? `${sections.next.length} next` : "",
-    sections.done.length ? `${sections.done.length} done` : "",
+    sections.reviews.length ? `${sections.reviews.length} to review` : "",
+    sections.finished ? `${sections.finished} done` : "",
   ].filter(Boolean);
   return parts.length ? parts.join(" · ") : "No agents yet";
 }

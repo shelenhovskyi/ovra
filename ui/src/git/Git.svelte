@@ -20,6 +20,7 @@ registerContextKeys(
 // the panel, set up git, stage all, commit, get and send commits, new
 // branch, switch branch, and the agent actions.
 import { tick } from "svelte";
+import { leaveFocus } from "../focus/mode.svelte";
 import { registerCommand } from "../keys/commands";
 import { useOvra } from "../shell/context";
 import { ACTION_LABEL } from "./AgentActions.svelte";
@@ -33,6 +34,7 @@ const { workspace } = useOvra();
 
 /** Shows the panel and waits for its first status, so focus lands on something visible. */
 async function showPanel(): Promise<GitModel | undefined> {
+  leaveFocus();
   workspace.sidebar = "git";
   await tick();
   const model = workspace.project ? gitModel(workspace.project.id) : undefined;

@@ -166,7 +166,7 @@ function onkeydown(event: KeyboardEvent): void {
   }
   .who {
     font-size: 12px;
-    color: var(--text-3);
+    color: var(--text-2);
   }
   h3 {
     font-size: 14px;

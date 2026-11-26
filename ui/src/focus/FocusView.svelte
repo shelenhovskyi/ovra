@@ -199,7 +199,7 @@ function seeChanges(id: SessionId): void {
   .quiet {
     margin: 0;
     padding: 2px 2px 0;
-    color: var(--text-3);
+    color: var(--text-2);
   }
   .focus-compose {
     grid-area: compose;
@@ -229,7 +229,7 @@ function seeChanges(id: SessionId): void {
   .who,
   .facts {
     font-size: 12px;
-    color: var(--text-3);
+    color: var(--text-2);
   }
   .summary {
     color: var(--text-2);
@@ -251,7 +251,7 @@ function seeChanges(id: SessionId): void {
   }
   .n {
     font-weight: 400;
-    color: var(--text-3);
+    color: var(--text-2);
     font-variant-numeric: tabular-nums;
   }
   ul {

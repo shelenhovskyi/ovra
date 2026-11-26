@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { FocusMode } from "./mode.svelte";
+import { FocusMode, focusMode, leaveFocus } from "./mode.svelte";
 
 afterEach(() => localStorage.removeItem("ovra.focus"));
 
@@ -13,5 +13,13 @@ describe("FocusMode", () => {
     mode.toggle();
     expect(localStorage.getItem("ovra.focus")).toBeNull();
     expect(new FocusMode().on).toBe(false);
+  });
+
+  it("is left by a command that shows a panel Focus hides", () => {
+    focusMode.set(true);
+    leaveFocus();
+    expect(focusMode.on).toBe(false);
+    leaveFocus();
+    expect(focusMode.on).toBe(false);
   });
 });

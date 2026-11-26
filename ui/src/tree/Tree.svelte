@@ -6,6 +6,7 @@
 // a drop on the file tree copies into it (FileTree).
 import { tick, untrack } from "svelte";
 import { forgetTabs, modeOf, renameTabs, tabs } from "../editor/open-files.svelte";
+import { leaveFocus } from "../focus/mode.svelte";
 import { registerCommand } from "../keys/commands";
 import { useOvra } from "../shell/context";
 import FileTree from "./FileTree.svelte";
@@ -32,6 +33,7 @@ $effect(() => {
     title: "Show files",
     keys: "Mod+Shift+E",
     run: async () => {
+      leaveFocus();
       workspace.sidebar = "files";
       await tick();
       document.querySelector<HTMLElement>('[role="tree"]')?.focus();

@@ -10,6 +10,7 @@ import { agentSessions } from "../agents/sessions.svelte";
 import { rememberedMode, rememberMode, type TaskMode } from "../agents/task-mode";
 import { CoreError } from "../lib/transport";
 import { useOvra } from "../shell/context";
+import Icon from "../shell/Icon.svelte";
 
 const MODES: { id: TaskMode; label: string }[] = [
   { id: "here", label: "One agent, here" },
@@ -101,6 +102,15 @@ function onkeydown(event: KeyboardEvent): void {
     />
   {/if}
   <div class="acts">
+    <!-- The same @ as typing it, for whoever cannot drag or would not guess it. -->
+    <button
+      type="button"
+      class="add-context"
+      aria-label="Add context"
+      title="Add a file, selection, problem or terminal output (@)"
+      data-testid="focus-add-context"
+      onclick={() => context?.start()}><Icon name="at" small /></button
+    >
     <label class="visually-hidden" for="focus-mode">How</label>
     <select id="focus-mode" bind:value={mode} data-testid="focus-mode">
       {#each MODES as option (option.id)}<option value={option.id}>{option.label}</option>{/each}
@@ -144,6 +154,14 @@ function onkeydown(event: KeyboardEvent): void {
     border: 1px solid transparent;
     border-radius: var(--radius-sm);
     font: inherit;
+  }
+  .add-context {
+    width: var(--control-h);
+    margin-right: auto;
+    padding: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
   }
   .primary:not(:disabled) {
     color: var(--accent-ink);

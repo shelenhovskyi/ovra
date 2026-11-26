@@ -1,6 +1,7 @@
 import { flushSync, mount, unmount } from "svelte";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { browserPicks } from "../browser/picks.svelte";
+import { focusMode } from "../focus/mode.svelte";
 import { handleOpenFor } from "../inbox/open";
 import { listCommands, registerCommand } from "../keys/commands";
 import type { BoardEntry, FileChange, Pick, ReviewItem } from "../lib/protocol";
@@ -1337,6 +1338,20 @@ describe("AgentsPanel", () => {
     expect(unfold).toHaveBeenCalledOnce();
     off();
     column.remove();
+  });
+
+  it("puts New task in Focus's own task box while Focus is on", async () => {
+    await setup();
+    const box = document.createElement("textarea");
+    box.id = "focus-task";
+    document.body.append(box);
+    focusMode.set(true);
+    await listCommands()
+      .find((c) => c.id === "agents.new_session")
+      ?.run();
+    expect(document.activeElement).toBe(box);
+    focusMode.set(false);
+    box.remove();
   });
 });
 

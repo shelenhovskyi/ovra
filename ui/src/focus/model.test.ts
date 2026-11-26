@@ -44,7 +44,9 @@ describe("focusSections", () => {
     sessions.closed.add("s2");
     const sections = focusSections(sessions, "p1");
     expect(sections.reviews).toEqual(["s1"]);
-    expect(sections.done.map((r) => r.name)).toEqual(["Offline banner"]);
+    // Finished but not kept yet: it waits for the person, so it is not "done".
+    expect(sections.done.map((r) => [r.name, r.status])).toEqual([["Offline banner", "Waiting for review"]]);
+    expect(countLine(sections)).toBe("1 to review");
   });
 
   it("keeps a task in progress while its workers run", async () => {
@@ -61,8 +63,12 @@ describe("focusSections", () => {
         spent_micro_usd: 0,
       },
     ];
-    const sections = focusSections(await loaded(core), "p1");
+    const sessions = await loaded(core);
+    const sections = focusSections(sessions, "p1");
     expect(sections.progress.map((r) => r.status)).toEqual(["Workers are on it", "Working"]);
+    // Once the worker is done, the coordinator, which only made workers, is not counted.
+    sessions.byId.set(worker.id, { ...worker, status: { state: "idle" } });
+    expect(countLine(focusSections(sessions, "p1"))).toBe("1 done");
   });
 
   it("adds the pending steps of an agent at work to Next, after the agents that wait", async () => {
@@ -102,6 +108,6 @@ describe("focusSections", () => {
   });
 
   it("says when there is nothing yet", () => {
-    expect(countLine({ progress: [], next: [], done: [], reviews: [] })).toBe("No agents yet");
+    expect(countLine({ progress: [], next: [], done: [], reviews: [], finished: 0 })).toBe("No agents yet");
   });
 });

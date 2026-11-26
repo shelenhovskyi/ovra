@@ -31,3 +31,8 @@ function read(): boolean {
 }
 
 export const focusMode = new FocusMode();
+
+/** A command that shows an IDE panel Focus hides (Git, Search, Files) leaves Focus first, rather than doing nothing. */
+export function leaveFocus(): void {
+  if (focusMode.on) focusMode.set(false);
+}
