@@ -149,6 +149,10 @@ export function connectTauri(): Transport {
     void event.listen<WindowDrop>("ovra://drop", (e) => {
       for (const listener of dropListeners) listener(e.payload);
     });
+    // The app follows the drag too, so its position is in CSS pixels on every platform.
+    void event.listen<Point | null>("ovra://drag-over", (e) => {
+      for (const listener of overListeners) listener(e.payload);
+    });
     return core.invoke;
   });
   router = new FrameRouter((frame) => {
@@ -157,18 +161,6 @@ export function connectTauri(): Transport {
       .then((reply) => router.deliver(reply))
       .catch((err: unknown) => router.failAll(err instanceof Error ? err : new Error(String(err))));
   });
-  // The drop itself comes from the app (`ovra://drop`), which keeps its paths; this only follows the drag.
-  import("@tauri-apps/api/webview")
-    .then(({ getCurrentWebview }) =>
-      getCurrentWebview().onDragDropEvent((e) => {
-        const p = e.payload;
-        const scale = window.devicePixelRatio || 1;
-        const at =
-          p.type === "enter" || p.type === "over" ? { x: p.position.x / scale, y: p.position.y / scale } : null;
-        for (const listener of overListeners) listener(at);
-      }),
-    )
-    .catch((err: unknown) => console.error("dragging files onto the window is unavailable", err));
   return Object.assign(router, {
     pickFolder: () => ready.then((invoke) => invoke<string | null>("ovra_pick_folder")),
     onDrop: (listener: (drop: WindowDrop) => void) => {
