@@ -22,6 +22,7 @@
     "ovra-resources": ["ovra-core"],
     "ovra-power": ["ovra-core"],
     "ovra-remote": ["ovra-core", "ovra-transport"],
+    "ovra-acp-client": ["ovra-core"],
     "ovra-security-tests": ["ovra-sandbox"],
     "ovra-daemon": [
       "ovra-core",
@@ -87,6 +88,7 @@
     "ovra-browser": ["tauri", "wry", "axum", "hyper", "tokio-tungstenite"],
     "ovra-forge": ["tauri", "wry", "axum", "hyper", "tokio-tungstenite"],
     "ovra-resources": ["tauri", "wry", "axum", "hyper", "tokio-tungstenite"],
+    "ovra-acp-client": ["tauri", "wry", "axum", "hyper", "tokio-tungstenite"],
     "ovra-remote": ["tauri", "wry"]
   }
 }
