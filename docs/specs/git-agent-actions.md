@@ -1,6 +1,7 @@
 # Agent actions in the git panel
 
-Status: draft, 2026-11-25. Asked for by the owner: "let an agent commit my
+Status: approved by the owner on 2026-11-25 (the agent proposes commits, the
+person commits them with Commit all). Asked for by the owner: "let an agent commit my
 changes, tell me what is new in the pulled commits, and keep the interface
 simple".
 
@@ -53,18 +54,22 @@ makes them one by one: unstage what is staged, stage the commit's files,
 as the Commit button does. A failing hook stops there and shows its output
 like a normal commit; the commits made so far stay. Files the agent left out
 stay as changes, and the card says how many. **Dismiss** throws the
-proposal away. A proposal whose files changed since it was made is marked
-"Changed since suggested" and asks again before it commits.
+proposal away. A proposal whose changes moved on since it was made (other files, or
+more edits) says so, and the first press of Commit all only asks to press
+"Commit anyway". Commit all stages whole files: a partly staged file goes
+in whole, and the card says so.
 
 **Write commit message.** Fills an empty message box, or replaces its text
 with an Undo line when it is not empty. The person commits as usual.
 
 **Summarize what's new / Explain conflicts.** A card with at most about
-eight short lines, Dismiss, and "Open in Agents" to ask follow-up questions
-in the same session.
+eight short lines and Dismiss (or Escape).
 
 ## How it works
 
+- Prompts stay under the 64 KiB message limit counted in UTF-8: at most
+  300 files listed, 40 KiB of diffs, 48 KiB of pulled commits (bodies and
+  file lists go first, then older commits), and a last cut.
 - The UI collects what the agent needs through the existing `git.*` calls
   (status, diffs of changed files) plus one new read-only call, and writes
   a prompt: a one-line title the Agents list shows ("Suggest commits for 7
@@ -73,14 +78,18 @@ in the same session.
 - It starts a **Research** session (`docs/specs/research.md`): the main
   checkout read-only, read tools only, its own small limit, no worktree.
   So the agent cannot change files or run commands, and nothing asks for
-  approval. The session shows in the Agents column like any other, so its
-  billing and transcript stay visible, and it can be stopped there too.
+  approval. It uses the project's account, sandbox and research limit like
+  any research session. The panel hides it from the Agents list (as a
+  person's "close" does), because the result is in the git panel; Stop is
+  on the panel's working line.
+- The panel stops the session once it has its answer.
 - The agent answers with a short sentence and, for commits, one fenced
   `json` block: `{"commits": [{"message": "...", "files": ["..."]}]}`. The
   git panel reads the session's last answer. A proposal is checked before
   it is shown: every file must be one of the changed files, no file twice,
   a message is non-empty and at most 4 KiB, at most 20 commits. Anything
-  else is "The agent's answer could not be read" with "Open in Agents".
+  else is "The agent's answer could not be used" with the reason and Try
+  again.
 - The agent's text is shown as plain text, never as HTML, and commit
   messages go to `git.commit` as data (no shell).
 
@@ -99,9 +108,16 @@ no `ORIG_HEAD`. Implemented in `GitRepo` with `git log` and
   `git.switch` rules unchanged).
 - Diffs go to the agent as the person's message, so they reach the model
   like anything an agent reads in the checkout. Binary files and files whose
-  name looks like a secret (`.env*`, `*.pem`, `*.key`, `id_*`, the secret
-  patterns of `docs/specs/security.md`) are named in the prompt without
-  their contents.
+  name looks like a secret (`.env*`, `.envrc`, `.git-credentials`,
+  `*.pem`, `*.key`, `*.tfvars`, `id_*`, `service-account*.json`, ...; also
+  the old name of a rename), and diffs holding a string that looks like a
+  token (the audit log's list in `docs/specs/security.md`), are named in
+  the prompt without their contents.
+- Pulled commits and diffs can hold other people's text, which now reaches
+  an agent that has web search (research mode). A prompt injection there
+  could try to read a file and leak it in a search query. The research
+  sandbox's protected and hidden paths are the boundary; turning web
+  search off for these sessions is an open question for the owner.
 
 ## Steps
 
