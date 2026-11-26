@@ -17,7 +17,9 @@ use crate::protocol::orchestration::{
 };
 use crate::protocol::permissions::PermissionsEvent;
 use crate::protocol::projects::ProjectId;
-use crate::protocol::review::{ChangeKind, ReviewEvent, ReviewItem, ReviewResponse, ReviewState};
+use crate::protocol::review::{
+    ChangeKind, ReviewEvent, ReviewId, ReviewItem, ReviewResponse, ReviewState,
+};
 use crate::protocol::{ErrorCode, Event, ProtocolError, Request, Response};
 use crate::services::{
     AgentHost, AgentRuntime, AgentSpec, AuditLog, RunningAgent, ToolCaller, ToolRole,
@@ -1191,6 +1193,39 @@ async fn the_coordinator_hears_when_a_worker_asks_for_review_or_stops() {
     assert!(
         notes.iter().all(|n| !n.contains("done")),
         "the worker's own words stay out"
+    );
+}
+
+#[tokio::test]
+async fn asking_for_review_says_so_once_after_the_change() {
+    let f = fx(say()).await;
+    let mut rx = f.core.subscribe();
+    start_task(&f.core, 3).await;
+    let boss = caller("s1", ToolRole::Coordinator);
+    let worker = f.core.spawn_agent(&boss, "w", "x", false).await;
+    let worker = worker.unwrap_or_else(|e| panic!("{e}"));
+    until(&mut rx, "s2", AgentStatus::Idle).await;
+    f.wt.put(&worker.worktree, "b.rs", "new\n");
+    let mut seen = f.core.subscribe();
+    let me = caller("s2", ToolRole::Worker);
+    assert!(f.core.request_review(&me, None, "done").await.is_ok());
+    let mut review = Vec::new();
+    while let Ok(event) = seen.try_recv() {
+        if let Event::Review(e) = event {
+            review.push(e);
+        }
+    }
+    let (project, id) = (ProjectId("p1".into()), ReviewId("r1".into()));
+    assert_eq!(
+        review,
+        [
+            ReviewEvent::Changed {
+                project: project.clone(),
+                id: id.clone()
+            },
+            ReviewEvent::Requested { project, id },
+        ],
+        "a phone is told once, after the list changed"
     );
 }
 

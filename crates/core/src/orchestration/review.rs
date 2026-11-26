@@ -1264,11 +1264,16 @@ pub(super) fn request(core: &Core, session: &SessionId, summary: String) -> Resu
         entry = open_after(core, &entry);
     }
     let state = entry.state;
-    update(core, &entry.id, |e| {
+    let entry = update(core, &entry.id, |e| {
         e.summary = Some(summary);
         e.requested = true;
         e.state = state;
-    })
+    })?;
+    core.emit(ReviewEvent::Requested {
+        project: entry.project.clone(),
+        id: entry.id.clone(),
+    });
+    Ok(entry)
 }
 
 /// Opens a new item for what each session of `project` changed since its
