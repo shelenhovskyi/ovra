@@ -252,6 +252,60 @@ async fn a_failed_step_keeps_the_worker_from_starting_until_it_is_skipped() {
 }
 
 #[tokio::test]
+async fn running_setups_take_the_places_of_working_agents() {
+    let f = fx().await;
+    f.dev.hold_setup.store(true, Ordering::SeqCst);
+    let mut rx = f.core.subscribe();
+    for (n, name) in ["a", "b", "c"].into_iter().enumerate() {
+        setup_file(&f, name, SETUP);
+        let core = f.core.clone();
+        tokio::spawn(async move { core.spawn_agent(&boss(), name, "do it", false).await });
+        until(&mut rx, &format!("s{}", n + 2), AgentStatus::Preparing).await;
+    }
+    tokio::task::yield_now().await;
+    assert_eq!(working(&f.core), 3);
+    // Another task's worker waits for a place, as behind three working agents.
+    ok(
+        &f.core,
+        json!({"method": "orchestration.start", "params": {
+            "project": "p1", "prompt": "more", "limits": {"max_workers": 3}}}),
+    )
+    .await;
+    let other = ToolCaller {
+        session: SessionId("s5".into()),
+        ..boss()
+    };
+    let waits = f.core.spawn_agent(&other, "d", "do it", false).await;
+    let waits = waits.unwrap_or_else(|e| panic!("{e}")).session;
+    assert_eq!(status(&f.core, &waits), AgentStatus::Queued);
+    assert_eq!(f.dev.setups.lock().map(|s| s.len()).unwrap_or_default(), 3);
+}
+
+#[test]
+fn a_workers_record_shows_the_shallowest_copied_paths_first() {
+    let file = |path: &str| IncludedFile {
+        path: path.into(),
+        bytes: 1,
+        hash: "h".into(),
+    };
+    let mut copied: Vec<IncludedFile> = (0..150)
+        .map(|n| file(&format!("node_modules/m{n:03}/index.js")))
+        .collect();
+    copied.push(file("config/credentials.json"));
+    copied.push(file(".env"));
+    let shown = super::shown(&copied);
+    assert_eq!(shown.len(), 100);
+    assert_eq!(
+        &shown[..3],
+        [
+            ".env",
+            "config/credentials.json",
+            "node_modules/m000/index.js"
+        ]
+    );
+}
+
+#[tokio::test]
 async fn the_person_retries_a_failed_setup() {
     let f = fx().await;
     setup_file(&f, "w", SETUP);
@@ -359,6 +413,8 @@ async fn workers_get_ports_of_their_own_and_their_copies_go_with_them() {
         f.wt.files(dir("a")).get(".env").map(String::as_str),
         Some("A=1\n")
     );
+    // The worker names what was copied, for the person.
+    assert_eq!(worker(&f.core, "a").await.included, vec![".env".to_owned()]);
 
     // The task ends with nothing left to review: both worktrees go.
     for session in ["s2", "s3"] {

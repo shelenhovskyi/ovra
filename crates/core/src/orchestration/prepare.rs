@@ -93,6 +93,18 @@ impl Prep {
     }
 }
 
+/// At most this many copied paths are in a worker's record.
+const INCLUDED_SHOWN: usize = 100;
+
+/// The paths of `included` a worker's record shows: shallowest first, so
+/// that a `.env` is not lost among a cloned folder's files.
+pub(super) fn shown(included: &[IncludedFile]) -> Vec<String> {
+    let mut paths: Vec<&str> = included.iter().map(|f| f.path.as_str()).collect();
+    paths.sort_by_key(|p| (p.matches('/').count(), *p));
+    paths.truncate(INCLUDED_SHOWN);
+    paths.into_iter().map(str::to_owned).collect()
+}
+
 /// A worktree made by [`make`].
 pub(super) struct Made {
     pub(super) path: PathBuf,
@@ -360,7 +372,8 @@ async fn launch(core: &Core, session: &SessionId) -> Result<()> {
                 return Err(err);
             }
         };
-        with_prep(core, session, |t, _, p| {
+        with_prep(core, session, |t, w, p| {
+            t.workers[w].included = shown(&made.included);
             let prep = &mut t.prep[p];
             prep.made = true;
             prep.included = made.included;
