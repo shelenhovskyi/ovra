@@ -94,7 +94,9 @@ export type PrRequest =
   | { method: "pr.update"; params: { id: ReviewId; fingerprint: string | null } }
   | { method: "pr.refresh"; params: { id: ReviewId } }
   /** Sends a failed check's log to the worker as a comment. Answers `ok`. */
-  | { method: "pr.send_log"; params: { id: ReviewId; run: number } };
+  | { method: "pr.send_log"; params: { id: ReviewId; run: number } }
+  /** Asks the worker to merge the base branch its changes conflict with. Answers `ok`. */
+  | { method: "pr.ask_update"; params: { id: ReviewId; remote?: string | null; base?: string | null } };
 
 export type PrResponse =
   | { type: "pr.status"; data: GhStatus }
@@ -110,6 +112,6 @@ export type PrResponseFor<M extends PrRequest["method"]> = M extends "pr.status"
   ? Extract<PrResponse, { type: "pr.status" }>
   : M extends "pr.prepare"
     ? Extract<PrResponse, { type: "pr.prepared" }>
-    : M extends "pr.send_log"
+    : M extends "pr.send_log" | "pr.ask_update"
       ? { type: "ok" }
       : Extract<PrResponse, { type: "pr.pull_request" }>;

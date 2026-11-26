@@ -103,6 +103,17 @@ group("describe", () => {
       "Always allowed from an approval, by a person.",
     ]);
     expect(line({ kind: "review_decided", review: "r1", action: "partly_approved" }).title).toBe("Review partly kept");
+    const pushed = {
+      kind: "branch_pushed",
+      review: "r1",
+      remote: "origin",
+      branch: "ovra/t1/w",
+      commit: "c9",
+    } as const;
+    expect(line(pushed).title).toBe("Pushed to origin/ovra/t1/w");
+    const url = "https://github.com/o/r/pull/7";
+    const opened = { kind: "pull_request_opened", review: "r1", remote: "origin", number: 7, url } as const;
+    expect([line(opened).title, line(opened).input]).toEqual(["Pull request #7 opened", url]);
     expect(line({ kind: "network_refused", host: "evil.test", reason: "not allowed" })).toMatchObject({
       title: "Network refused: evil.test",
       tone: "refused",

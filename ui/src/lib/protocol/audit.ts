@@ -35,6 +35,10 @@ export type AuditEvent =
   | { kind: "language_server_started"; server: LspServerId; name: string; language: string; sandbox: string | null }
   /** `reason` says why it failed; null when it was stopped or exited cleanly. */
   | { kind: "language_server_stopped"; server: LspServerId; name: string; language: string; reason: string | null }
+  /** The person pushed a worker's reviewed changes (`pr.create`, `pr.update`). */
+  | { kind: "branch_pushed"; review: ReviewId; remote: string; branch: string; commit: string }
+  /** The person opened a pull request of a worker's item. */
+  | { kind: "pull_request_opened"; review: ReviewId; remote: string; number: number; url: string }
   /** Whether the session's browser may load an origin that is not a granted server. */
   | { kind: "browser_navigation"; origin: string; allowed: boolean; by: NavigationBy };
 

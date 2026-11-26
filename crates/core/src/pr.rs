@@ -20,7 +20,8 @@ pub(crate) async fn handle(core: &Core, request: PrRequest) -> Result<Response, 
         | PrRequest::Create { .. }
         | PrRequest::Update { .. }
         | PrRequest::Refresh { .. }
-        | PrRequest::SendLog { .. } => Err(ProtocolError::new(
+        | PrRequest::SendLog { .. }
+        | PrRequest::AskUpdate { .. } => Err(ProtocolError::new(
             ErrorCode::Unavailable,
             "pull requests are not available yet",
         )),

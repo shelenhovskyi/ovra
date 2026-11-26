@@ -172,6 +172,18 @@ pub enum PrRequest {
     /// output. Answers `ok`.
     #[serde(rename = "pr.send_log")]
     SendLog { id: ReviewId, run: u64 },
+    /// "Ask the worker to update": when the worker's changes conflict with
+    /// the fetched base branch, sends the worker a comment asking it to
+    /// merge that branch and name the files. `None` picks as for
+    /// `pr.prepare`. Answers `ok`.
+    #[serde(rename = "pr.ask_update")]
+    AskUpdate {
+        id: ReviewId,
+        #[serde(default)]
+        remote: Option<String>,
+        #[serde(default)]
+        base: Option<String>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -262,5 +274,16 @@ mod tests {
                 ..
             })
         ));
+        let ask: Request = serde_json::from_value(serde_json::json!({
+            "method": "pr.ask_update", "params": {"id": "r1", "base": "dev"}}))
+        .unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(
+            ask,
+            Request::Pr(PrRequest::AskUpdate {
+                id: id(),
+                remote: None,
+                base: Some("dev".into())
+            })
+        );
     }
 }

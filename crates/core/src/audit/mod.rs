@@ -60,6 +60,8 @@ fn kind(event: &AuditEvent) -> &'static str {
         AuditEvent::LanguageServerStarted { .. } => "language_server_started",
         AuditEvent::LanguageServerStopped { .. } => "language_server_stopped",
         AuditEvent::BrowserNavigation { .. } => "browser_navigation",
+        AuditEvent::BranchPushed { .. } => "branch_pushed",
+        AuditEvent::PullRequestOpened { .. } => "pull_request_opened",
     }
 }
 
