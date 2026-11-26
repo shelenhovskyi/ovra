@@ -3,9 +3,10 @@ use std::sync::Arc;
 use serde_json::json;
 
 use crate::Core;
-use crate::fakes::{MemoryGit, MemoryProjects, MemoryWorktrees, ScriptedAgent};
+use crate::fakes::{MemoryForge, MemoryGit, MemoryProjects, MemoryWorktrees, ScriptedAgent};
 use crate::protocol::git::{GitResponse, RepoStatus};
 use crate::protocol::{ErrorCode, OkResponse, ProtocolError, Request, Response};
+use crate::services::Ancestry;
 use crate::test_path;
 
 const ROOT: &str = test_path!("/work/a");
@@ -14,12 +15,15 @@ struct Fixture {
     core: Core,
     git: Arc<MemoryGit>,
     worktrees: Arc<MemoryWorktrees>,
+    forge: Arc<MemoryForge>,
 }
 
 async fn fixture() -> Fixture {
     let git = Arc::new(MemoryGit::repo());
     let worktrees = Arc::new(MemoryWorktrees::default());
+    let forge = Arc::new(MemoryForge::default());
     let core = Core::builder("test")
+        .forge(forge.clone())
         .projects(Arc::new(MemoryProjects::default()))
         .agents(Arc::new(ScriptedAgent::default()))
         .worktrees(worktrees.clone())
@@ -35,6 +39,7 @@ async fn fixture() -> Fixture {
         core,
         git,
         worktrees,
+        forge,
     }
 }
 
@@ -351,5 +356,116 @@ async fn without_a_git_service_requests_are_unavailable() {
     assert_eq!(
         code(&core, git("status", json!({}))).await,
         ErrorCode::Unavailable
+    );
+}
+
+/// `main` tracking `origin/main`, at `head`; the remote's `main` at `there`.
+fn tracking(f: &Fixture, head: &str, there: &str) {
+    *f.git.status.lock().unwrap_or_else(|e| e.into_inner()) = Some(RepoStatus {
+        branch: Some("main".into()),
+        head: Some(head.into()),
+        upstream: Some("origin/main".into()),
+        ..RepoStatus::default()
+    });
+    f.forge
+        .branches
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .insert(("origin".into(), "main".into()), there.into());
+}
+
+#[tokio::test]
+async fn pull_fetches_the_upstream_through_the_forge_and_fast_forwards_only() {
+    let f = fixture().await;
+    tracking(&f, "c0", "c7");
+    let done = call(&f.core, git("pull", json!({}))).await;
+    assert_eq!(done, Ok(Response::Ok(OkResponse::Ok)));
+    assert_eq!(
+        f.git.calls(),
+        [
+            format!("upstream {ROOT} "),
+            format!("status {ROOT} "),
+            format!("record_upstream {ROOT} c7"),
+            format!("fast_forward {ROOT} c7"),
+        ]
+    );
+    // Both sides moved: nothing is merged.
+    *f.git.ancestry.lock().unwrap_or_else(|e| e.into_inner()) = Ancestry::Diverged;
+    assert_eq!(
+        code(&f.core, git("pull", json!({}))).await,
+        ErrorCode::Conflict
+    );
+    assert!(
+        !f.git.calls()[4..]
+            .iter()
+            .any(|c| c.starts_with("fast_forward"))
+    );
+    // A branch that follows another upstream than the one asked for: nothing moves.
+    let other = crate::services::RemoteBranch {
+        remote: "origin".into(),
+        branch: "topic".into(),
+    };
+    let moved = crate::services::GitService::fast_forward(&*f.git, ROOT.into(), other, "c7".into());
+    assert_eq!(moved.await.map_err(|e| e.code), Err(ErrorCode::Conflict));
+    // Not under a direct session, which writes the same files.
+    call(
+        &f.core,
+        json!({"method": "agents.start", "params": {
+            "project": "p1", "agent": "claude", "mode": "direct", "prompt": "go"}}),
+    )
+    .await
+    .unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(
+        code(&f.core, git("pull", json!({}))).await,
+        ErrorCode::Conflict
+    );
+}
+
+#[tokio::test]
+async fn push_goes_on_top_of_the_remote_branch_and_needs_an_upstream() {
+    let f = fixture().await;
+    tracking(&f, "c2", "c0");
+    *f.git.ancestry.lock().unwrap_or_else(|e| e.into_inner()) = Ancestry::Has;
+    let done = call(&f.core, git("push", json!({}))).await;
+    assert_eq!(done, Ok(Response::Ok(OkResponse::Ok)));
+    let pushed = f
+        .forge
+        .pushed
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clone();
+    assert_eq!(pushed, [("origin".into(), "c2".into(), "main".into())]);
+    assert_eq!(
+        f.git.calls().last(),
+        Some(&format!("record_upstream {ROOT} c2"))
+    );
+
+    // The remote has commits this branch lacks: nothing is sent.
+    *f.git.ancestry.lock().unwrap_or_else(|e| e.into_inner()) = Ancestry::Behind;
+    tracking(&f, "c3", "c9");
+    let refused = call(&f.core, git("push", json!({}))).await;
+    assert_eq!(refused.map_err(|e| e.code), Err(ErrorCode::Conflict));
+    assert_eq!(
+        f.forge
+            .pushed
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .len(),
+        1
+    );
+
+    // Without an upstream there is nowhere to send to.
+    *f.git.status.lock().unwrap_or_else(|e| e.into_inner()) = Some(RepoStatus {
+        branch: Some("topic".into()),
+        head: Some("c4".into()),
+        ..RepoStatus::default()
+    });
+    assert_eq!(
+        code(&f.core, git("push", json!({}))).await,
+        ErrorCode::BadRequest
+    );
+    assert_eq!(
+        code(&f.core, git("pull", json!({}))).await,
+        ErrorCode::BadRequest
     );
 }

@@ -1,6 +1,8 @@
 //! `git.*`: the git panel and the editor's change markers and blame for the
-//! project's main checkout (`docs/specs/git-panel.md`). Push, pull and fetch
-//! are not here: they need the person's credentials and run in a terminal.
+//! project's main checkout (`docs/specs/git-panel.md`). `git.pull` and
+//! `git.push` are the person's buttons for the current branch's upstream;
+//! they reach the remote only through the `Forge` (the person's own `git`
+//! and sign-in), never forced.
 //!
 //! Paths are relative to the project root. The panel refreshes on
 //! `fs.git_changed`; there are no `git.*` events.
@@ -151,6 +153,20 @@ pub enum GitRequest {
     /// Read-only; for the git panel's "Summarize what's new".
     #[serde(rename = "git.pulled")]
     Pulled { project: ProjectId },
+    /// Fetches the current branch's upstream and fast-forwards to it; the
+    /// panel's "Get commits". `bad_request` for a branch without upstream,
+    /// `conflict` when the branch and its upstream both have new commits,
+    /// when changes would be overwritten, and while an agent session writes
+    /// the main checkout. A person's action, not an agent tool.
+    #[serde(rename = "git.pull")]
+    Pull { project: ProjectId },
+    /// Sends the current branch's commits to its upstream, never forced and
+    /// without hooks (`Forge::push`); the panel's "Send commits".
+    /// `bad_request` for a branch without upstream, `conflict` when the
+    /// upstream has commits the branch lacks. A person's action, not an
+    /// agent tool.
+    #[serde(rename = "git.push")]
+    Push { project: ProjectId },
 }
 
 fn default_log_limit() -> u32 {

@@ -77,7 +77,14 @@ export type GitRequest =
    * Commits HEAD gained since the last pull, merge, rebase or reset (`ORIG_HEAD..HEAD`),
    * newest first, at most 100 (MAX_PULLED in Rust), with messages and changed files.
    */
-  | { method: "git.pulled"; params: { project: ProjectId } };
+  | { method: "git.pulled"; params: { project: ProjectId } }
+  /**
+   * Fetches the current branch's upstream and fast-forwards to it ("Get commits").
+   * `conflict` when both have new commits, changes would be overwritten, or an agent writes the checkout.
+   */
+  | { method: "git.pull"; params: { project: ProjectId } }
+  /** Sends the current branch's commits to its upstream, never forced ("Send commits"). */
+  | { method: "git.push"; params: { project: ProjectId } };
 
 export type GitOperation = "merge" | "rebase" | "cherry_pick" | "revert" | "bisect";
 

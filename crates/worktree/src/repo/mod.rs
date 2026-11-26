@@ -25,7 +25,7 @@ use ovra_core::protocol::git::{
     GitRev, Hunk, MAX_GIT_FILE, MAX_PULLED, MAX_PULLED_BODY, MAX_PULLED_FILES, Pulled, RepoStatus,
 };
 use ovra_core::protocol::{ErrorCode, ProtocolError};
-use ovra_core::services::{BoxFuture, GitService, Result};
+use ovra_core::services::{Ancestry, BoxFuture, GitService, RemoteBranch, Result};
 
 use crate::blocking;
 use crate::files::{self, OnDisk};
@@ -445,6 +445,108 @@ fn switch(root: &Path, name: &str, watch: Watch) -> Result<()> {
     Ok(())
 }
 
+/// Whether commit `a` is an ancestor of (or is) commit `b`.
+fn is_ancestor(root: &Path, a: &str, b: &str) -> Result<bool> {
+    let out = Git::new(root, "merge-base")
+        .args(["--is-ancestor", "--end-of-options", a, b])
+        .output()?;
+    match out.status.code() {
+        Some(0) => Ok(true),
+        Some(1) => Ok(false),
+        _ => Err(internal(format!("git merge-base: {}", printed(&out)))),
+    }
+}
+
+/// The current branch's upstream on a remote and its tracking ref
+/// (`refs/remotes/...`), all as git's own config names them.
+fn tracking(root: &Path) -> Result<Option<(RemoteBranch, String)>> {
+    git::dirs(root)?;
+    let Some(branch) = Git::new(root, "symbolic-ref")
+        .args(["--quiet", "HEAD"])
+        .try_text()?
+    else {
+        return Ok(None);
+    };
+    let format = "--format=%(upstream:remotename)%00%(upstream:remoteref)%00%(upstream)";
+    let line = Git::new(root, "for-each-ref")
+        .args([format, "--", branch.trim()])
+        .text()?;
+    let mut fields = line.trim_end_matches('\n').split('\0');
+    let (Some(remote), Some(remote_ref), Some(local)) =
+        (fields.next(), fields.next(), fields.next())
+    else {
+        return Ok(None);
+    };
+    let (Some(name), true) = (
+        remote_ref.strip_prefix("refs/heads/"),
+        local.starts_with("refs/remotes/"),
+    ) else {
+        return Ok(None);
+    };
+    // A local upstream (`.`) or a URL is no remote of this repository.
+    let remotes = Git::new(root, "remote").text()?;
+    if remote.is_empty() || !remotes.lines().any(|r| r == remote) {
+        return Ok(None);
+    }
+    let found = RemoteBranch {
+        remote: remote.to_owned(),
+        branch: name.to_owned(),
+    };
+    Ok(Some((found, local.to_owned())))
+}
+
+fn check_commit_id(commit: &str) -> Result<()> {
+    let hex = |c: char| c.is_ascii_digit() || ('a'..='f').contains(&c);
+    if !matches!(commit.len(), 40 | 64) || !commit.chars().all(hex) {
+        return Err(bad("not a commit id"));
+    }
+    Ok(())
+}
+
+/// See [`GitService::record_upstream`].
+/// The tracking ref of the current branch's upstream, if that is still `expect`.
+fn tracking_of(root: &Path, expect: &RemoteBranch) -> Result<String> {
+    match tracking(root)? {
+        Some((found, local)) if &found == expect => Ok(local),
+        _ => Err(conflict(format!(
+            "the branch changed meanwhile; it no longer follows {}/{}",
+            expect.remote, expect.branch
+        ))),
+    }
+}
+
+fn record_upstream(root: &Path, expect: &RemoteBranch, commit: &str) -> Result<Ancestry> {
+    check_commit_id(commit)?;
+    let local = tracking_of(root, expect)?;
+    Git::without_hooks(root, "update-ref")
+        .args(["--end-of-options", &local, commit])
+        .run()?;
+    let Some(head) = git::head(root)? else {
+        return Ok(Ancestry::Behind);
+    };
+    Ok(if is_ancestor(root, commit, &head)? {
+        Ancestry::Has
+    } else if is_ancestor(root, &head, commit)? {
+        Ancestry::Behind
+    } else {
+        Ancestry::Diverged
+    })
+}
+
+/// See [`GitService::fast_forward`].
+fn fast_forward(root: &Path, expect: &RemoteBranch, commit: &str, watch: Watch) -> Result<()> {
+    check_commit_id(commit)?;
+    tracking_of(root, expect)?;
+    // Never more than a fast-forward; git refuses to overwrite changes.
+    let run =
+        Git::with_hooks(root, "merge").args(["--ff-only", "--quiet", "--end-of-options", commit]);
+    let out = watch.output(run, "git merge")?;
+    if !out.status.success() {
+        return Err(conflict(refused_switch(&printed(&out))));
+    }
+    Ok(())
+}
+
 /// Files named in a refused switch before "and N more".
 const NAMED_FILES: usize = 5;
 
@@ -725,5 +827,26 @@ impl GitService for GitRepo {
     }
     fn pulled(&self, root: PathBuf) -> BoxFuture<'_, Result<Pulled>> {
         blocking(move || pulled(&root))
+    }
+    fn upstream(&self, root: PathBuf) -> BoxFuture<'_, Result<Option<RemoteBranch>>> {
+        blocking(move || Ok(tracking(&root)?.map(|(remote, _)| remote)))
+    }
+    fn record_upstream(
+        &self,
+        root: PathBuf,
+        expect: RemoteBranch,
+        commit: String,
+    ) -> BoxFuture<'_, Result<Ancestry>> {
+        blocking(move || record_upstream(&root, &expect, &commit))
+    }
+    fn fast_forward(
+        &self,
+        root: PathBuf,
+        expect: RemoteBranch,
+        commit: String,
+    ) -> BoxFuture<'_, Result<()>> {
+        self.watched(root, move |root, watch| {
+            fast_forward(root, &expect, &commit, watch)
+        })
     }
 }

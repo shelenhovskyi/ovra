@@ -1,13 +1,16 @@
 //! `git.*`: checks requests from the git panel and hands them to the
 //! [`GitService`](crate::services::GitService). The core adds what needs
-//! its state: path checks, the discard snapshot (through `Worktrees`) and
-//! refusing to switch branches under a direct session.
+//! its state: path checks, the discard snapshot (through `Worktrees`),
+//! refusing to switch branches or pull under a direct session, and pull and
+//! push through the `Forge` (the only way to the remote).
 
 use crate::Core;
 use crate::path::RelPath;
 use crate::protocol::fs::FsEvent;
 use crate::protocol::git::{GitRequest, GitResponse, MAX_LOG};
+use crate::protocol::projects::ProjectId;
 use crate::protocol::{ErrorCode, OkResponse, ProtocolError, Response};
+use crate::services::{Ancestry, RemoteBranch};
 
 /// The longest commit message, in bytes.
 const MAX_MESSAGE: usize = 64 * 1024;
@@ -131,7 +134,113 @@ pub(crate) async fn handle(core: &Core, request: GitRequest) -> Result<Response,
         GitRequest::Pulled { project } => {
             answer(GitResponse::Pulled(git.pulled(core.root(&project)?).await?))
         }
+        GitRequest::Pull { project } => {
+            refuse_under_direct_session(core, &project)?;
+            let root = core.root(&project)?;
+            let (expect, _) = upstream(core, &root).await?;
+            let RemoteBranch { remote, branch } = expect.clone();
+            let commit = core
+                .forge()
+                .fetch(root.clone(), remote.clone(), branch.clone())
+                .await?;
+            match git
+                .record_upstream(root.clone(), expect.clone(), commit.clone())
+                .await?
+            {
+                Ancestry::Has => {}
+                Ancestry::Diverged => return Err(diverged(&remote, &branch)),
+                Ancestry::Behind => {
+                    // The fetch may have taken a while: a session may have started.
+                    refuse_under_direct_session(core, &project)?;
+                    git.fast_forward(root, expect, commit).await?;
+                }
+            }
+            ok()
+        }
+        GitRequest::Push { project } => {
+            let root = core.root(&project)?;
+            let (expect, head) = upstream(core, &root).await?;
+            let RemoteBranch { remote, branch } = expect.clone();
+            let forge = core.forge();
+            // Where the remote branch is now: the push goes only on top of it.
+            let there = forge
+                .fetch(root.clone(), remote.clone(), branch.clone())
+                .await?;
+            let ancestry = git.record_upstream(root.clone(), expect.clone(), there.clone());
+            if ancestry.await? != Ancestry::Has {
+                return Err(ProtocolError::new(
+                    ErrorCode::Conflict,
+                    format!(
+                        "{remote}/{branch} has new commits that this branch lacks: \
+                         get them first, then send"
+                    ),
+                ));
+            }
+            let pushed = forge
+                .push(
+                    root.clone(),
+                    remote.clone(),
+                    head.clone(),
+                    branch.clone(),
+                    Some(there),
+                )
+                .await;
+            if let Err(e) = pushed {
+                return Err(match e.code {
+                    ErrorCode::Conflict => ProtocolError::new(
+                        ErrorCode::Conflict,
+                        format!(
+                            "{remote}/{branch} changed while sending: get its new commits, \
+                             then send again"
+                        ),
+                    ),
+                    _ => e,
+                });
+            }
+            git.record_upstream(root, expect, head).await?;
+            ok()
+        }
     })
+}
+
+fn refuse_under_direct_session(core: &Core, project: &ProjectId) -> Result<(), ProtocolError> {
+    if core.sessions().direct_writer(project, None) {
+        return Err(ProtocolError::new(
+            ErrorCode::Conflict,
+            "an agent session is changing this project's files; \
+             get new commits when it has ended",
+        ));
+    }
+    Ok(())
+}
+
+fn diverged(remote: &str, branch: &str) -> ProtocolError {
+    ProtocolError::new(
+        ErrorCode::Conflict,
+        format!(
+            "this branch and {remote}/{branch} both have new commits: \
+             merge or rebase them in a terminal"
+        ),
+    )
+}
+
+/// The current branch's upstream on its remote, and HEAD's commit.
+async fn upstream(
+    core: &Core,
+    root: &std::path::Path,
+) -> Result<(RemoteBranch, String), ProtocolError> {
+    let git = core.git_service();
+    let not_connected = || {
+        bad("this branch is not connected to a branch on a remote; \
+             send it once in a terminal (git push -u)")
+    };
+    let upstream = git
+        .upstream(root.to_path_buf())
+        .await?
+        .ok_or_else(not_connected)?;
+    let status = git.status(root.to_path_buf()).await?;
+    let head = status.and_then(|s| s.head).ok_or_else(not_connected)?;
+    Ok((upstream, head))
 }
 
 fn bad(message: impl Into<String>) -> ProtocolError {

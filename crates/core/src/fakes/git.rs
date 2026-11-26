@@ -11,7 +11,7 @@ use crate::protocol::git::{
     RepoStatus,
 };
 use crate::protocol::{ErrorCode, ProtocolError};
-use crate::services::{BoxFuture, GitService, Result};
+use crate::services::{Ancestry, BoxFuture, GitService, RemoteBranch, Result};
 
 /// Answers `status` with [`MemoryGit::status`] (`None`: not a repository)
 /// and the other reads with defaults; every call is recorded in
@@ -24,6 +24,8 @@ pub struct MemoryGit {
     /// What `pulled` answers.
     pub pulled: Mutex<Pulled>,
     pub calls: Mutex<Vec<String>>,
+    /// What `record_upstream` answers; `Behind` at first.
+    pub ancestry: Mutex<Ancestry>,
     /// When set, every changing call fails with `conflict` and this message.
     pub refuse: Mutex<Option<String>>,
 }
@@ -72,6 +74,37 @@ impl MemoryGit {
     ) -> BoxFuture<'static, Result<T>> {
         self.record(method, root, args);
         Box::pin(async move { Ok(value) })
+    }
+}
+
+impl MemoryGit {
+    /// The status's upstream, split at its first slash.
+    fn remote_branch(&self) -> Option<RemoteBranch> {
+        let upstream = lock(&self.status)
+            .as_ref()
+            .and_then(|s| s.upstream.clone())?;
+        let (remote, branch) = upstream.split_once('/')?;
+        Some(RemoteBranch {
+            remote: remote.to_owned(),
+            branch: branch.to_owned(),
+        })
+    }
+
+    /// A change that needs the upstream to still be `expect`.
+    fn on_upstream<T: Send + 'static>(
+        &self,
+        method: &str,
+        root: &Path,
+        expect: RemoteBranch,
+        commit: &str,
+        value: T,
+    ) -> BoxFuture<'static, Result<T>> {
+        if self.remote_branch() != Some(expect) {
+            self.record(method, root, commit);
+            let changed = ProtocolError::new(ErrorCode::Conflict, "the branch changed");
+            return Box::pin(async move { Err(changed) });
+        }
+        self.change(method, root, commit, value)
     }
 }
 
@@ -189,5 +222,26 @@ impl GitService for MemoryGit {
     fn pulled(&self, root: PathBuf) -> BoxFuture<'_, Result<Pulled>> {
         let pulled = lock(&self.pulled).clone();
         self.read("pulled", &root, "", pulled)
+    }
+    fn upstream(&self, root: PathBuf) -> BoxFuture<'_, Result<Option<RemoteBranch>>> {
+        let found = self.remote_branch();
+        self.read("upstream", &root, "", found)
+    }
+    fn record_upstream(
+        &self,
+        root: PathBuf,
+        expect: RemoteBranch,
+        commit: String,
+    ) -> BoxFuture<'_, Result<Ancestry>> {
+        let ancestry = *lock(&self.ancestry);
+        self.on_upstream("record_upstream", &root, expect, &commit, ancestry)
+    }
+    fn fast_forward(
+        &self,
+        root: PathBuf,
+        expect: RemoteBranch,
+        commit: String,
+    ) -> BoxFuture<'_, Result<()>> {
+        self.on_upstream("fast_forward", &root, expect, &commit, ())
     }
 }

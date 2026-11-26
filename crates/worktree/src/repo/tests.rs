@@ -686,3 +686,95 @@ async fn pulled_in_a_project_folder_lists_only_its_commits_and_paths() {
     assert_eq!(shown, [("Inside", "a.txt")]);
     assert_eq!(pulled.truncated, 0);
 }
+
+#[tokio::test]
+async fn the_upstream_is_read_from_config_recorded_and_only_fast_forwarded() {
+    use ovra_core::services::{Ancestry, RemoteBranch};
+    let repo = Repo::new(&[("a.txt", "a\n")]);
+    let root = &repo.root;
+    let g = GitRepo::new();
+    let id = |rev: &str| git(root, &["rev-parse", rev]).trim().to_owned();
+    // A local upstream is no remote.
+    git(root, &["branch", "base"]);
+    git(root, &["branch", "--set-upstream-to=base"]);
+    assert_eq!(ok(g.upstream(root.clone()).await), None);
+    // A remote whose name has a slash, tracking a branch of another name.
+    git(
+        root,
+        &["remote", "add", "team/x", "https://example.invalid/r.git"],
+    );
+    git(
+        root,
+        &[
+            "config",
+            "remote.team/x.fetch",
+            "+refs/heads/*:refs/remotes/t/*",
+        ],
+    );
+    git(root, &["update-ref", "refs/remotes/t/trunk", "HEAD"]);
+    git(root, &["config", "branch.main.remote", "team/x"]);
+    git(root, &["config", "branch.main.merge", "refs/heads/trunk"]);
+    let found = RemoteBranch {
+        remote: "team/x".into(),
+        branch: "trunk".into(),
+    };
+    assert_eq!(ok(g.upstream(root.clone()).await), Some(found.clone()));
+    let f = || found.clone();
+
+    let first = id("HEAD");
+    // What the remote gained: two commits on top of HEAD, made elsewhere.
+    git(root, &["switch", "--quiet", "-c", "elsewhere"]);
+    put(root, "a.txt", "b\n");
+    git(root, &["commit", "--quiet", "-am", "b"]);
+    git(root, &["commit", "--quiet", "--allow-empty", "-m", "c"]);
+    let there = id("HEAD");
+    git(root, &["switch", "--quiet", "main"]);
+
+    let ancestry = ok(g.record_upstream(root.clone(), f(), there.clone()).await);
+    assert_eq!((ancestry, id("t/trunk")), (Ancestry::Behind, there.clone()));
+    // Changes the fast-forward would overwrite: refused, nothing moves.
+    put(root, "a.txt", "mine\n");
+    let refused = g.fast_forward(root.clone(), f(), there.clone()).await;
+    assert_eq!(code(refused), ErrorCode::Conflict);
+    assert_eq!(
+        (id("HEAD"), read(root, "a.txt").as_deref()),
+        (first.clone(), Some("mine\n"))
+    );
+    put(root, "a.txt", "a\n");
+    ok(g.fast_forward(root.clone(), f(), there.clone()).await);
+    assert_eq!(
+        (id("HEAD"), read(root, "a.txt").as_deref()),
+        (there.clone(), Some("b\n"))
+    );
+    // After a push: the remote is where HEAD is.
+    assert_eq!(
+        ok(g.record_upstream(root.clone(), f(), first.clone()).await),
+        Ancestry::Has
+    );
+
+    // Both sides moved.
+    git(root, &["switch", "--quiet", "-c", "other", &first]);
+    git(root, &["commit", "--quiet", "--allow-empty", "-m", "other"]);
+    let other = id("HEAD");
+    git(root, &["switch", "--quiet", "main"]);
+    assert_eq!(
+        ok(g.record_upstream(root.clone(), f(), other.clone()).await),
+        Ancestry::Diverged
+    );
+    assert_eq!(
+        code(g.fast_forward(root.clone(), f(), other).await),
+        ErrorCode::Conflict
+    );
+    assert_eq!(
+        code(g.record_upstream(root.clone(), f(), "HEAD".into()).await),
+        ErrorCode::BadRequest
+    );
+    // Switched meanwhile to a branch that follows something else: refused.
+    git(root, &["switch", "--quiet", "other"]);
+    let moved = g.record_upstream(root.clone(), f(), there.clone()).await;
+    assert_eq!(code(moved), ErrorCode::Conflict);
+    assert_eq!(
+        code(g.fast_forward(root.clone(), f(), there).await),
+        ErrorCode::Conflict
+    );
+}

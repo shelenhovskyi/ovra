@@ -1470,6 +1470,48 @@ pub trait GitService: Send + Sync + Debug {
     fn log(&self, root: PathBuf, limit: u32) -> BoxFuture<'_, Result<Vec<CommitInfo>>>;
     /// `ORIG_HEAD..HEAD`, as `git.pulled` describes it.
     fn pulled(&self, root: PathBuf) -> BoxFuture<'_, Result<Pulled>>;
+    /// Where the current branch's upstream lives on a remote, as git's
+    /// config says (`%(upstream:remotename)`, `%(upstream:remoteref)`);
+    /// `None` without one, or when it is a local branch.
+    fn upstream(&self, root: PathBuf) -> BoxFuture<'_, Result<Option<RemoteBranch>>>;
+    /// Records that the upstream is at `commit` (already fetched), as
+    /// `git fetch` would, and says where HEAD stands next to it. `Conflict`
+    /// when the current branch's upstream is no longer `expect` (the person
+    /// switched branches meanwhile).
+    fn record_upstream(
+        &self,
+        root: PathBuf,
+        expect: RemoteBranch,
+        commit: String,
+    ) -> BoxFuture<'_, Result<Ancestry>>;
+    /// `git merge --ff-only commit` with the person's hooks; `Conflict` when
+    /// the upstream is no longer `expect`, it is no fast-forward or changes
+    /// would be overwritten.
+    fn fast_forward(
+        &self,
+        root: PathBuf,
+        expect: RemoteBranch,
+        commit: String,
+    ) -> BoxFuture<'_, Result<()>>;
+}
+
+/// A branch on a remote: `git push <remote> HEAD:<branch>` reaches it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RemoteBranch {
+    pub remote: String,
+    pub branch: String,
+}
+
+/// Where HEAD stands next to a commit.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Ancestry {
+    /// HEAD is that commit, or has it: nothing to get.
+    Has,
+    /// The commit has HEAD and more: a fast-forward gets it.
+    #[default]
+    Behind,
+    /// Both have commits the other lacks.
+    Diverged,
 }
 
 /// Placeholder for services a front end has not wired in.
@@ -1539,6 +1581,20 @@ impl GitService for Unavailable {
         self.later()
     }
     fn pulled(&self, _: PathBuf) -> BoxFuture<'_, Result<Pulled>> {
+        self.later()
+    }
+    fn upstream(&self, _: PathBuf) -> BoxFuture<'_, Result<Option<RemoteBranch>>> {
+        self.later()
+    }
+    fn record_upstream(
+        &self,
+        _: PathBuf,
+        _: RemoteBranch,
+        _: String,
+    ) -> BoxFuture<'_, Result<Ancestry>> {
+        self.later()
+    }
+    fn fast_forward(&self, _: PathBuf, _: RemoteBranch, _: String) -> BoxFuture<'_, Result<()>> {
         self.later()
     }
 }
