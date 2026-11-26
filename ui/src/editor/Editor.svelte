@@ -278,7 +278,7 @@ function discard(path: string): void {
     </div>
     {#if buffer.deleted}
       <div class="notice" role="alert">
-        {buffer.path} was deleted on disk.
+        {buffer.path} {buffer.trashed ? "was moved to Trash" : "was deleted on disk"}.
         <button type="button" onclick={() => save(true)}>Save as a new file</button>
         <button type="button" onclick={() => buffer && discard(buffer.path)}>Close without saving</button>
       </div>

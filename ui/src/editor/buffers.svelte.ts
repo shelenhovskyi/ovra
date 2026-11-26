@@ -159,6 +159,8 @@ export class Buffer {
   unsaved = $state<string | null>(null);
   /** The file is gone from disk; saving recreates it. */
   deleted = $state(false);
+  /** It is gone because the person moved it to the Trash, not because something else deleted it. */
+  trashed = $state(false);
   /** The text is too large or has too long a line: no highlighting (see `isHeavy`). */
   heavy = $state(false);
   /** The file's line breaks; CodeMirror keeps "\n" inside, saving writes these. */
@@ -320,6 +322,7 @@ export class Buffer {
       this.saved = doc;
       this.conflict = false;
       this.deleted = false;
+      this.trashed = false;
       this.error = null;
       this.changed();
       this.git.changed();
@@ -341,16 +344,19 @@ export class Buffer {
     if (file?.body.kind === "text") this.replace(file.body.text, file.mtime_ms);
   }
 
-  /** Called when the file may have changed on disk. */
-  async diskChanged(): Promise<void> {
+  /** Called when the file may have changed on disk; `trashed` when the person moved it to the Trash. */
+  async diskChanged(trashed = false): Promise<void> {
     if (this.status !== "ready") return;
     const file = await this.read(true);
     if (file === "not_found") {
       this.deleted = true;
+      // The watcher's later report of the same removal does not make it a stranger's.
+      if (trashed) this.trashed = true;
       this.conflict = this.dirty;
       return;
     }
     this.deleted = false;
+    this.trashed = false;
     if (file) this.error = null;
     if (file?.body.kind !== "text" || file.mtime_ms === this.mtime) return;
     if (this.dirty) this.conflict = true;
@@ -411,6 +417,7 @@ export class Buffer {
     this.lineEnding = lineEndingOf(text);
     this.conflict = false;
     this.deleted = false;
+    this.trashed = false;
     this.error = null;
     if (this.view) {
       const scroll = this.view.scrollDOM.scrollTop;

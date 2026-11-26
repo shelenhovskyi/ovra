@@ -260,6 +260,19 @@ describe("Buffer", () => {
     expect([a.deleted, a.conflict]).toEqual([false, false]);
   });
 
+  test("a file the person moved to the Trash says so, also after the watcher reports it", async () => {
+    const { core, show, type } = setup();
+    core.put("a.txt", "one");
+    const a = await show("a.txt");
+    type(" mine");
+    core.files.delete("a.txt");
+    await a.diskChanged(true);
+    await a.diskChanged();
+    expect([a.deleted, a.trashed]).toEqual([true, true]);
+    expect(await a.save(true)).toBe(true);
+    expect([a.deleted, a.trashed]).toEqual([false, false]);
+  });
+
   test("binary files and read errors are not editable", async () => {
     const { core, buffers } = setup();
     core.files.set("img.png", { body: { kind: "binary", mime: "image/png", base64: "" }, mtime: 1 });

@@ -26,6 +26,8 @@ test("copy the open file's path and open it in another app, saying why that fail
 
   await run("file.copy_path");
   expect(writeText).toHaveBeenCalledWith("/demo/src/a.sh");
+  await run("file.copy_relative_path");
+  expect(writeText).toHaveBeenLastCalledWith("src/a.sh");
   await run("file.open_external");
   expect(call).toHaveBeenCalledWith({
     method: "open.external",
