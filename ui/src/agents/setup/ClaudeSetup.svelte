@@ -8,15 +8,17 @@ import { tick, untrack } from "svelte";
 import type { AgentSetup } from "../../lib/protocol";
 import { CoreError } from "../../lib/transport";
 import { useOvra } from "../../shell/context";
+import { providers } from "../providers.svelte";
 import Accounts from "./Accounts.svelte";
 import { setupAsks } from "./asks.svelte";
 import { claudeAccounts } from "./claude-accounts.svelte";
-import { advice, billingText, INSTALL_COMMANDS, paidShort, SETUP_DOCS } from "./texts";
+import { advice, billingText, INSTALL_COMMANDS, paidShort, SETUP_DOCS } from "./claude-texts";
 
 let { open = false }: { open?: boolean } = $props();
 
 const { transport } = useOvra();
 const accounts = claudeAccounts(transport);
+const names = providers(transport);
 
 let setup = $state<AgentSetup | null>(null);
 let error = $state<string | null>(null);
@@ -28,7 +30,7 @@ let first = $state(true);
 let editing = $state(false);
 let path = $state("");
 
-const tip = $derived(setup ? advice(setup) : null);
+const tip = $derived(setup ? advice(setup, names.name()) : null);
 const ready = $derived(setup?.state.state === "ready");
 const compact = $derived(ready && !editing);
 const billing = $derived(setup && ready ? billingText(setup) : null);
@@ -120,7 +122,7 @@ function openDocs(): void {
     <!-- The check usually answers within a moment: one quiet line, as tall
          as the ready card's, instead of a status and links that flash. -->
     <div class="row">
-      <h3 id="claude-setup-heading" class="pending">Claude</h3>
+      <h3 id="claude-setup-heading" class="pending">{names.name()}</h3>
     </div>
   {:else if compact}
     <div class="row">
@@ -132,7 +134,7 @@ function openDocs(): void {
     </div>
   {:else}
     <div class="row">
-      <h3 id="claude-setup-heading">{tip?.title ?? "Could not check Claude"}</h3>
+      <h3 id="claude-setup-heading">{tip?.title ?? `Could not check ${names.name()}`}</h3>
       <button type="button" class:primary={!tip?.findAutomatically} disabled={busy} onclick={check}>Check again</button>
     </div>
   {/if}

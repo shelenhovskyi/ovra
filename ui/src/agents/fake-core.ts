@@ -15,6 +15,7 @@ import type {
   Project,
   ProjectAgentConfig,
   ProjectId,
+  ProviderInfo,
   Request,
   ResponseFor,
   ReviewItem,
@@ -47,6 +48,28 @@ export class FakeAgentCore implements Transport {
     billing: { kind: "subscription" },
     api_key_in_env: false,
   };
+  /** What `agents.providers` answers. */
+  providers: ProviderInfo[] = [
+    {
+      id: "claude",
+      name: "Claude",
+      capabilities: {
+        approvals: true,
+        enforced_policy: true,
+        ide_tools: true,
+        read_only_role: true,
+        resume: true,
+        fork: true,
+        interrupt: true,
+        text_deltas: true,
+        subagents: true,
+        usage: true,
+        cost: true,
+        billing: true,
+        accounts: true,
+      },
+    },
+  ];
   /** The accounts `agents.accounts` reports; the default one first. */
   accounts: AccountState[] = [
     {
@@ -192,6 +215,8 @@ export class FakeAgentCore implements Transport {
         this.message(info.id, { kind: "user_text", text: request.params.prompt, from: "person" });
         return { type: "agents.session", data: { ...info } };
       }
+      case "agents.providers":
+        return { type: "agents.providers", data: this.providers.map((p) => ({ ...p })) };
       case "agents.setup":
         return { type: "agents.setup", data: { ...this.setup } };
       case "agents.set_path":

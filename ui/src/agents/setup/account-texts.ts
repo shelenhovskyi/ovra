@@ -1,16 +1,7 @@
 // Words for Claude accounts: how each one stands, and how to sign in to it.
 
 import type { AccountState } from "../../lib/protocol";
-import { paidShort } from "./texts";
-
-/** The terminal command that signs in to an account; Ovra never sees the sign-in. */
-export function signInCommand(configDir: string | null): string {
-  return configDir ? `CLAUDE_CONFIG_DIR=${quote(configDir)} claude auth login` : "claude auth login";
-}
-
-function quote(path: string): string {
-  return /^[\w@%+=:,./~-]+$/.test(path) ? path : `'${path.replaceAll("'", `'\\''`)}'`;
-}
+import { paidShort, signInCommand } from "./claude-texts";
 
 /** One line on whether the account can run sessions, and a command if one fixes it. */
 export function accountStatus({ account, setup }: AccountState): { text: string; ok: boolean; command?: string } {

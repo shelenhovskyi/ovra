@@ -6,7 +6,8 @@ import { CoreError } from "../../lib/transport";
 import { Workspace } from "../../shell/workspace.svelte";
 import { FakeAgentCore } from "../fake-core";
 import TestHost from "../TestHost.svelte";
-import { accountStatus, nameFromFolder, signInCommand } from "./account-texts";
+import { accountStatus, nameFromFolder } from "./account-texts";
+import { signInCommand } from "./claude-texts";
 
 let app: Record<string, unknown> | null = null;
 let target: HTMLElement;
