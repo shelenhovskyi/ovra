@@ -19,7 +19,8 @@ import { exitNotice, LOST_NOTICE, type TerminalSession, TerminalSessions } from 
 import TerminalView from "./TerminalView.svelte";
 
 const { transport, workspace } = useOvra();
-const sessions = new TerminalSessions(transport, tabStore());
+const savedTabs = tabStore();
+const sessions = new TerminalSessions(transport, savedTabs);
 
 const TOGGLE_KEYS = "Ctrl+`";
 const NEW_KEYS = "Ctrl+Shift+`";
@@ -203,6 +204,15 @@ function status(session: TerminalSession): string {
 }
 
 $effect(() => sessions.listen());
+// Leaving the window (closing or reloading it) lets the next new window take its tabs.
+$effect(() => {
+  const leave = () => savedTabs.leave();
+  window.addEventListener("pagehide", leave);
+  return () => {
+    window.removeEventListener("pagehide", leave);
+    leave();
+  };
+});
 // A project's tabs from before a reload come back when it opens, the panel too if it was shown.
 $effect(() => {
   const id = project?.id;

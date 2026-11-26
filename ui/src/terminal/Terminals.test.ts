@@ -93,6 +93,7 @@ afterEach(() => {
   xterms.length = 0;
   // Tabs and the panel's state are saved for a reload; each test starts without them.
   localStorage.clear();
+  sessionStorage.clear();
 });
 
 const settle = async () => {
