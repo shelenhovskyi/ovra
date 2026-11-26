@@ -435,7 +435,8 @@ export class FileActions {
     this.infoTimer = setTimeout(() => (this.info = null), NOTICE_MS);
   }
 
-  private fail(err: unknown, prefix = ""): void {
+  /** Shows a failure for a while. */
+  fail(err: unknown, prefix = ""): void {
     const message = err instanceof CoreError ? err.error.message : err instanceof Error ? err.message : String(err);
     this.notice = prefix + message;
     clearTimeout(this.timer);

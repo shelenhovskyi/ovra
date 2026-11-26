@@ -39,6 +39,8 @@ import Icon from "../shell/Icon.svelte";
 import type { MainMode } from "../shell/workspace.svelte";
 import { FileActions } from "./actions.svelte";
 import { folderFor, registerFileCommands } from "./commands";
+import DropClash from "./DropClash.svelte";
+import { DropImporter } from "./drop-import.svelte";
 import { HoverExpander } from "./hover-expand";
 import { rootMenu, rowMenu, selectionMenu } from "./menu";
 import { ancestorsOf, type Filter, isGone, parentOf, type Row, TreeModel, typeaheadMatch, visibleRange } from "./model";
@@ -346,7 +348,49 @@ function ondragstart(e: DragEvent): void {
   if (e.dataTransfer) e.dataTransfer.effectAllowed = "move";
 }
 
-// Drops from outside the tree (files from the system) are not taken yet.
+// Files dragged in from the system's file manager: the window reports them
+// (`onDragOver`, `onDrop`), not the page's drag events.
+// svelte-ignore state_referenced_locally
+const importer = new DropImporter({
+  transport,
+  project,
+  dirAt: outsideDirAt,
+  copied: (paths) => void showImported(paths),
+  fail: (message) => actions.fail(new Error(message)),
+  tell: (message) => actions.tell(message),
+});
+$effect(() => {
+  if (!importer.available) return;
+  const offOver = transport.onDragOver?.((at) => importer.hover(at));
+  const offDrop = transport.onDrop?.((drop) => void importer.drop(drop));
+  return () => {
+    offOver?.();
+    offDrop?.();
+  };
+});
+/** Where the drag lands: from inside the tree, else from outside the window. */
+const dropShown = $derived(dropDir ?? importer.over);
+
+/** The folder a drop from outside at `at` goes into: the row's folder, the project folder below the rows, or null off the tree. */
+function outsideDirAt(at: { x: number; y: number }): string | null {
+  const el = document.elementFromPoint?.(at.x, at.y);
+  if (!el || !viewport?.contains(el)) return null;
+  const row = el.closest<HTMLElement>("[data-path]");
+  const path = row?.dataset.path;
+  if (path?.endsWith("/")) return null; // the draft row
+  return !row || !path ? "" : row.hasAttribute("aria-expanded") ? path : parentOf(path);
+}
+
+/** Selects and shows what a drop copied. */
+async function showImported(paths: string[]): Promise<void> {
+  const last = paths.at(-1);
+  if (last === undefined) return;
+  await model.reload(parentOf(last));
+  for (const path of paths) await model.reveal(path);
+  selectPath(last);
+  if (paths.length > 1) picked = paths;
+}
+
 function ondragover(e: DragEvent): void {
   if (dragging === null) return;
   dropDir = dropDirAt(e.target);
@@ -690,6 +734,9 @@ function onkeydown(e: KeyboardEvent): void {
       oncancel={(refocus) => actions.cancelTrash(refocus)}
     />
   {/if}
+  {#if importer.asking}
+    <DropClash question={importer.asking.text} onanswer={(clash) => void importer.answer(clash)} />
+  {/if}
   {#if actions.notice}<p class="note error" role="alert">{actions.notice}</p>{/if}
   {#if actions.info}<p class="note" role="status">{actions.info}</p>{/if}
   <!-- Outside the tree, whose children are its rows. -->
@@ -726,7 +773,7 @@ function onkeydown(e: KeyboardEvent): void {
     {ondragend}
     {ondragleave}
     {oncontextmenu}
-    class:drop-root={dropDir === ""}
+    class:drop-root={dropShown === ""}
   >
     {#if error}
       <p class="note error" role="alert">{error}</p>
@@ -746,7 +793,7 @@ function onkeydown(e: KeyboardEvent): void {
             class:active={index === activeIndex}
             class:ignored={row.ignored}
             class:cut={isCut(row.path)}
-            class:drop={dropDir === row.path}
+            class:drop={dropShown === row.path}
             draggable={!row.draft && actions.edit === null}
             role="treeitem"
             aria-label={row.draft ? (row.kind === "dir" ? "New folder" : "New file") : row.name}
