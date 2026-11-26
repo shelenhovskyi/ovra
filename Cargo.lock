@@ -3800,6 +3800,7 @@ name = "ovra-security-tests"
 version = "0.1.0"
 dependencies = [
  "insta",
+ "ovra-acp-client",
  "ovra-core",
  "ovra-netproxy",
  "ovra-sandbox",
