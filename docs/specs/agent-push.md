@@ -61,12 +61,12 @@ Update does not fail on the lease.
 
 `push` (IDE tool, workers only; a coordinator has no changes of its own):
 
-| Input     | Meaning                                                                   |
-| --------- | ------------------------------------------------------------------------- |
-| `message` | Required. Commit message: a title line of at most 72 characters, a body.  |
-| `branch`  | Optional. Default the worker's own branch, `ovra/<task>/<name>`.          |
-| `remote`  | Optional, a remote's name. Default `origin`.                              |
-| `base`    | Optional. What a new branch builds on.                                    |
+| Input     | Meaning                                                                  |
+| --------- | ------------------------------------------------------------------------ |
+| `message` | Required. Commit message: a title line of at most 72 characters, a body. |
+| `branch`  | Optional. Default the worker's own branch, `ovra/<task>/<name>`.         |
+| `remote`  | Optional, a remote's name. Default `origin`.                             |
+| `base`    | Optional. What a new branch builds on.                                   |
 
 It answers when the push is done or refused, so the agent waits as for any
 approval. Names are checked like the pull request dialog's (`ref_name`,

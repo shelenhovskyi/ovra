@@ -996,6 +996,31 @@ describe("Always allow", () => {
     expect(always()?.hasAttribute("aria-describedby")).toBe(false);
   });
 
+  it("puts a push rule in words, with what goes out on the card", async () => {
+    const core = await setup();
+    const plan = {
+      remote: "origin",
+      branch: "ovra/t1/w",
+      new_branch: true,
+      base: "main",
+      onto: "c1",
+      commit: "c2",
+      message: "Add b",
+      files: [{ path: "b.rs", kind: "added", additions: 1, deletions: 0 }],
+      protected_branch: false,
+    };
+    core.ask({
+      ...bash("perm1"),
+      tool: "Push",
+      input: plan,
+      always: { tool: "Push", match: "origin ovra/*", action: "auto", from_approval: true },
+    });
+    await settle();
+    expect(words(cards()[0]?.querySelector("h3") ?? undefined)).toBe("Push to origin/ovra/t1/w");
+    expect(words(always() ?? undefined)).toBe("Always allow pushes to ovra/… on origin");
+    expect(always()?.querySelector("code")?.textContent).toBe("ovra/…");
+  });
+
   it("is not offered in Focus, which says where it is", async () => {
     const core = await setup(() => {}, false);
     core.ask({ ...bash("perm1", "npm test"), always: rule });

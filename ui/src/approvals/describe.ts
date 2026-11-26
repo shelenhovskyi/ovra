@@ -2,7 +2,7 @@
 // transcripts and notifications, by the call's kind (any agent's). Unknown
 // tools show their raw input.
 
-import type { ToolCall } from "../lib/protocol";
+import type { PushPlan, ToolCall } from "../lib/protocol";
 
 type Detail = { label: string; text: string };
 
@@ -56,6 +56,10 @@ export function describeTool(tool: string, input: unknown, call: ToolCall | unde
     details,
   });
 
+  if (tool === PUSH_TOOL) {
+    const push = describePush(input);
+    if (push) return push;
+  }
   const ide = isIdeTool(tool) ? describeIdeTool(tool.slice(IDE_PREFIX.length), input) : null;
   if (ide) return { action: ide, object: "", details: pick("task", "text", "summary", "path") };
   if (kind === "execute" && call?.command !== undefined) {
@@ -86,6 +90,46 @@ export function describeTool(tool: string, input: unknown, call: ToolCall | unde
     return done("Fetch", oneLine(call.url), [{ label: "url", text: call.url }, ...pick("prompt")]);
   }
   return { action: `Use ${tool}`, object: "", details: [raw(input)] };
+}
+
+/** The tool name of a worker's push put to the person (`docs/specs/agent-push.md`); its input is a `PushPlan`. */
+export const PUSH_TOOL = "Push";
+
+const KIND_LETTER: Record<string, string> = { added: "A", modified: "M", deleted: "D", renamed: "R" };
+
+/** A worker's push: where it goes, what it builds on, its files and message. `null` for input of another shape. */
+function describePush(input: unknown): ToolSummary | null {
+  const plan = input as Partial<PushPlan> | null;
+  const remote = str(input, "remote");
+  const branch = str(input, "branch");
+  if (remote === undefined || branch === undefined || !Array.isArray(plan?.files)) return null;
+  const host = str(input, "host");
+  const base = str(input, "base");
+  const on = host ? ` on ${host}` : "";
+  const where = plan.new_branch
+    ? `A new branch from ${remote}/${base ?? "?"}${on}`
+    : `One new commit on top of ${remote}/${branch}${on}`;
+  const details: Detail[] = [{ label: "where", text: where }];
+  if (plan.protected_branch === true) {
+    details.push({ label: "shared branch", text: "People and CI use this branch; the push lands there for everyone." });
+  }
+  const files = plan.files.map((f) => {
+    const letter = KIND_LETTER[f.kind] ?? "?";
+    const path = f.from ? `${f.from} → ${f.path}` : f.path;
+    return `${letter} ${path}  +${f.additions} −${f.deletions}`;
+  });
+  details.push({ label: files.length === 1 ? "1 file" : `${files.length} files`, text: files.join("\n") });
+  const message = str(input, "message");
+  if (message) details.push({ label: "commit message", text: message });
+  const object = `${remote}/${branch}`;
+  return { action: `Push to ${object}`, object, details };
+}
+
+/** "Always allow" of a push rule (`origin ovra/*`) in words: the branches and the remote. */
+export function pushScope(match: string): { branches: string; remote: string } | null {
+  const [remote, branch, ...rest] = match.split(" ");
+  if (!remote || !branch || rest.length > 0) return null;
+  return { remote, branches: branch.endsWith("/*") ? `${branch.slice(0, -1)}…` : branch };
 }
 
 const IDE_PREFIX = "mcp__ovra__";

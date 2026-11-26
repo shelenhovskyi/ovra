@@ -7,7 +7,28 @@ import type { PolicyAction, PolicyRule } from "../lib/protocol";
 const FILE_TOOLS = ["Read", "Edit", "MultiEdit", "Write", "NotebookEdit"];
 
 /** Tool names offered while typing; any other name is allowed too. */
-export const KNOWN_TOOLS = ["Bash", ...FILE_TOOLS, "Grep", "Glob", "WebFetch", "WebSearch"];
+export const KNOWN_TOOLS = ["Bash", ...FILE_TOOLS, "Grep", "Glob", "WebFetch", "WebSearch", "Push"];
+
+/** A branch name the core pushes to (`ref_name` in `crates/core/src/pr.rs`). */
+function branchName(name: string): boolean {
+  return (
+    name.length > 0 &&
+    name.length <= 200 &&
+    /^[A-Za-z0-9._/-]+$/.test(name) &&
+    !/^[-/.]/.test(name) &&
+    !/[/.]$/.test(name) &&
+    !name.endsWith(".lock") &&
+    !["..", "//", "/."].some((part) => name.includes(part))
+  );
+}
+
+/** A Push match: a remote's name and a branch, or every branch below a folder (`origin ovra/*`), as the core checks it. */
+function pushMatch(match: string): boolean {
+  const [remote, branch, ...rest] = match.split(" ");
+  if (remote === undefined || branch === undefined || rest.length > 0) return false;
+  const name = branch.endsWith("/*") ? branch.slice(0, -2) : branch;
+  return /^[A-Za-z0-9_][A-Za-z0-9._-]*$/.test(remote) && branchName(name);
+}
 
 /** The order in which the core looks at rules: the first action that matches decides. */
 const PRECEDENCE: PolicyAction[] = ["deny", "ask", "auto"];
@@ -33,7 +54,7 @@ function toolName(tool: string): string {
 /** Whether rules for `tool` may have a match; the core refuses one for any other tool. */
 export function takesMatch(tool: string): boolean {
   const name = toolName(tool);
-  return name === "Bash" || name === "WebFetch" || FILE_TOOLS.includes(name);
+  return name === "Bash" || name === "WebFetch" || name === "Push" || FILE_TOOLS.includes(name);
 }
 
 /**
@@ -52,6 +73,8 @@ export function matchHint(tool: string): string {
   if (FILE_TOOLS.includes(name)) return "A glob on the path inside the folder the agent works in, such as docs/**.";
   if (name === "WebFetch")
     return "One host, such as docs.rs. Deny and Ask also cover its subdomains and URLs whose host is unclear; Auto covers that host only. With a deny rule present, URLs Ovra cannot read, including private addresses such as 192.168.1.1, are denied too.";
+  if (name === "Push")
+    return "A remote and a branch, such as origin fix-login, or origin ovra/* for every branch below ovra/. Shared branches such as main are pushed to without asking only by an Auto rule that names them exactly.";
   if (name !== "") return `${name} takes no match: the rule covers every call.`;
   return `Only Bash, WebFetch and the file tools (${FILE_TOOLS.join(", ")}) take a match.`;
 }
@@ -79,6 +102,10 @@ export function formProblem(rule: PolicyRule): FormProblem | null {
     return /^[a-z0-9-]+(\.[a-z0-9-]+)*$/.test(rule.match)
       ? null
       : match("Write one host in lower case, such as docs.rs: no scheme, path or wildcard.");
+  if (rule.tool === "Push")
+    return pushMatch(rule.match)
+      ? null
+      : match("Write a remote and a branch, such as origin fix-login or origin ovra/*: names only, no URL.");
   if (!takesMatch(rule.tool))
     return match(
       `${rule.tool} takes no match: a rule for it covers every call. Clear Match, or choose Bash, WebFetch or a file tool.`,
@@ -123,7 +150,7 @@ export function caveats(rule: PolicyRule): string[] {
       }
     } else if (FILE_TOOLS.includes(rule.tool)) {
       notes.push(`Advisory: Grep, Glob or cat in Bash still reach these files. ${BOUNDARY}`);
-    } else {
+    } else if (rule.tool !== "Push") {
       notes.push("Only this tool is refused; others such as Bash can do the same.");
     }
   }
@@ -141,6 +168,11 @@ export function caveats(rule: PolicyRule): string[] {
     notes.push(
       "Applies only to an agent in the sandbox with limited network access. Otherwise the call is decided as if this rule were not there.",
     );
+    if (rule.tool === "Push") {
+      notes.push(
+        "Shared branches such as main still ask unless the rule names the branch exactly. Changes to protected files, such as workflows, never go out this way.",
+      );
+    }
     if (rule.tool === "Bash") {
       const what = rule.match === undefined ? "Every command" : rule.match;
       notes.push(`${what} also runs whatever it calls, such as package.json scripts, and the agent can edit those.`);

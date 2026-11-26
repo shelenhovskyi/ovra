@@ -16,6 +16,11 @@ when they say so.
   and how you checked it. The person reviews it in Ovra's inbox; only a
   person keeps, discards or merges. A comment from the person comes as your
   next message: do what it asks, then call `request_review` again.
+- Push only when your prompt or the person asks for it: `push` makes one
+  commit of your changes and pushes it to your branch (or the branch you
+  name). The person approves each push unless a project rule allows it;
+  you cannot commit or push with git yourself. Changes to protected files,
+  such as workflows, are not pushed this way: ask for review instead.
 - Use `open_in_ui` to show the person a file that matters for the review.
 - To check a web page, start a server from `.ovra/servers.json` in your
   worktree with `server_start` and open it with `browser_open`. Pages of

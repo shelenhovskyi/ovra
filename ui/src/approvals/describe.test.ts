@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { claudeCall } from "./claude-calls";
-import { describeTool } from "./describe";
+import { describeTool, pushScope } from "./describe";
 
 const describeClaude = (tool: string, input: unknown) => describeTool(tool, input, claudeCall(tool, input));
 
@@ -57,5 +57,48 @@ describe("describeTool", () => {
 
   it("cuts long one-line actions", () => {
     expect(describeClaude("Bash", { command: "x".repeat(500) }).action.length).toBeLessThanOrEqual(124);
+  });
+});
+
+describe("a worker's push", () => {
+  const plan = {
+    remote: "origin",
+    host: "github.com",
+    branch: "ovra/t1/w",
+    new_branch: true,
+    base: "main",
+    onto: "c1",
+    commit: "c2",
+    message: "Add b\n\nThe second file.",
+    files: [
+      { path: "b.rs", kind: "added", additions: 1, deletions: 0 },
+      { path: "c.rs", kind: "renamed", from: "a.rs", additions: 2, deletions: 1 },
+    ],
+    protected_branch: false,
+  };
+
+  it("says where it goes, what it builds on, its files and message", () => {
+    const summary = describeTool("Push", plan, { kind: "other" });
+    expect([summary.action, summary.object]).toEqual(["Push to origin/ovra/t1/w", "origin/ovra/t1/w"]);
+    expect(summary.details).toEqual([
+      { label: "where", text: "A new branch from origin/main on github.com" },
+      { label: "2 files", text: "A b.rs  +1 −0\nR a.rs → c.rs  +2 −1" },
+      { label: "commit message", text: "Add b\n\nThe second file." },
+    ]);
+    const shared = describeTool(
+      "Push",
+      { ...plan, branch: "main", new_branch: false, protected_branch: true },
+      undefined,
+    );
+    expect(shared.details.slice(0, 2).map((d) => d.label)).toEqual(["where", "shared branch"]);
+    expect(shared.details[0]?.text).toBe("One new commit on top of origin/main on github.com");
+    // Input of another shape shows raw, as for any tool.
+    expect(describeTool("Push", { remote: "origin" }, undefined).action).toBe("Use Push");
+  });
+
+  it("puts a push rule in words", () => {
+    expect(pushScope("origin ovra/*")).toEqual({ remote: "origin", branches: "ovra/…" });
+    expect(pushScope("up fix-login")).toEqual({ remote: "up", branches: "fix-login" });
+    expect(pushScope("origin")).toBeNull();
   });
 });

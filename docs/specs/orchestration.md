@@ -52,11 +52,12 @@ Defined in `crates/mcp-server/src/tools.json`, reviewed and approved by the
 owner on 2026-11-24; changes need an independent reviewer agent's verdict,
 and a tool that gives agents more reach needs the owner. Who may call what:
 
-| Tool                                                                      | Coordinator               | Worker     |
-| ------------------------------------------------------------------------- | ------------------------- | ---------- |
-| `spawn_agent`, `list_agents`, `read_output`, `send_message`, `stop_agent` | yes                       | no         |
-| `request_review`                                                          | for a worker (`agent_id`) | for itself |
-| `open_in_ui`                                                              | yes                       | yes        |
+| Tool                                                                                        | Coordinator               | Worker     |
+| ------------------------------------------------------------------------------------------- | ------------------------- | ---------- |
+| `spawn_agent`, `list_agents`, `read_output`, `send_message`, `stop_agent`                   | yes                       | no         |
+| `request_review`                                                                            | for a worker (`agent_id`) | for itself |
+| `open_in_ui`                                                                                | yes                       | yes        |
+| `push` (`docs/specs/agent-push.md`; the person approves each push or a `Push` rule decides) | no                        | for itself |
 
 - Text from `read_output` is another agent's output: data, not
   instructions. The tool description says so, and the coordinator's role

@@ -43,7 +43,7 @@ import type { Decision, PermissionId, PermissionRequest, Project, ProjectId, Ses
 import { useOvra } from "../shell/context";
 import { typed } from "../shell/menu";
 import { cardBody } from "./body";
-import { describeTool, type ToolSummary } from "./describe";
+import { describeTool, PUSH_TOOL, pushScope, type ToolSummary } from "./describe";
 import { ARM_MS, approvalQueue, HOLD_MS } from "./queue.svelte";
 import { type PathScope, pathScopes, sameFolder } from "./scope";
 
@@ -904,7 +904,9 @@ function verbAndObject(summary: ToolSummary): { verb: string; object: string } {
                 aria-describedby={request.call?.kind === "execute" ? `approval-always-note-${request.id}` : undefined}
                 data-testid="approval-always"
                 onclick={(event) => answerByClick(event, request, "allow", true)}
-                >Always allow <code>{always}</code> here</button
+                >{#if request.tool === PUSH_TOOL && pushScope(always)}{@const scope = pushScope(always)}Always allow pushes to <code
+                    >{scope?.branches}</code
+                  > on {scope?.remote}{:else}Always allow <code>{always}</code> here{/if}</button
               >
               {#if request.call?.kind === "execute"}
                 <!-- The command is exact, but what it runs is not: npm test runs package.json's scripts. -->

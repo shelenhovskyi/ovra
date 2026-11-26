@@ -40,7 +40,7 @@ The same as for `claude` (ADR 0006), so the person's account stays theirs:
   processes get the person's environment unchanged, as `claude` does
   outside a sandbox; `gh` and git's credential helper find the login.
 - Sign-in state comes from `gh auth status --active --hostname <host>
-  --json hosts`, reading only the login and state fields. `--show-token`
+--json hosts`, reading only the login and state fields. `--show-token`
   is never passed.
 - Only a person's click starts a push or a PR, after a dialog that shows
   what will be sent (below). Agents get no tool for pull requests (a
@@ -81,7 +81,7 @@ author. Instead:
    `ovra/<task>/<name>`, editable in the dialog. Never `--force`. Pushes
    run with `--no-verify` for the same reason as hooks above.
 6. `gh pr create --base <base> --head <branch> --title=<title>
-   --body-file -` (body on stdin, so no text becomes an option), as a
+--body-file -` (body on stdin, so no text becomes an option), as a
    draft by default. `GH_PROMPT_DISABLED=1` and `GH_NO_UPDATE_NOTIFIER=1`
    are added so it never waits for input. If it fails or times out after
    GitHub opened the pull request, Ovra looks for the open pull request
@@ -121,7 +121,7 @@ review it needs the same tick, given for the version the item shows.
 ## Checks
 
 - `gh pr view <n> --json state,isDraft,url,headRefOid,statusCheckRollup,
-  reviewDecision,mergeStateStatus`, per open PR.
+reviewDecision,mergeStateStatus`, per open PR.
 - Polled while the project is open: every 20 s while checks run, for 10
   minutes, then every minute, then every 5; stops when all checks are done,
   and for good when the PR is merged or closed. At most 5 PRs per project

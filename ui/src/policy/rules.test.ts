@@ -106,6 +106,25 @@ describe("policy rules", () => {
     expect(problem("WebFetch", "")).toBeNull();
   });
 
+  it("takes a remote and a branch for Push rules and says what they never do", () => {
+    const push = (match: string) => formProblem({ tool: "Push", match, action: "auto" });
+    for (const good of ["origin ovra/*", "origin fix-login", "up release/1.2"]) expect(push(good)).toBeNull();
+    for (const bad of [
+      "origin",
+      "origin *",
+      "https://x@github.com/o/r main",
+      "origin a..b",
+      "origin  main",
+      "--x main",
+    ])
+      expect(push(bad)?.field, bad).toBe("match");
+    expect(matchHint("push")).toContain("origin ovra/*");
+    const auto = caveats({ tool: "Push", match: "origin ovra/*", action: "auto" });
+    expect(auto.some((n) => n.includes("Shared branches such as main still ask"))).toBe(true);
+    expect(caveats({ tool: "Push", action: "deny" })).toEqual([]);
+    expect(toolWarning("Push")).toBeNull();
+  });
+
   it("fixes a known tool's case for her and says so", () => {
     expect(formRule("bash", "", "ask").tool).toBe("Bash");
     expect(toolNote("bash")).toBe("Saved as Bash: tool names are case-sensitive.");
