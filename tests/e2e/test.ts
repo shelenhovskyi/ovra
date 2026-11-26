@@ -1,6 +1,8 @@
+import { readFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import { basename } from "node:path";
-import AxeBuilder from "@axe-core/playwright";
 import { test as base, expect, type Locator, type Page } from "@playwright/test";
+import type { AxeResults, RunOptions } from "axe-core";
 
 // The desktop window runs with Tauri's `freezePrototype` (app/tauri.conf.json),
 // so every page here does too: code that assigns a property Object.prototype
@@ -101,29 +103,41 @@ export async function loadProject(page: Page, dir: string, url = daemonUrl()): P
   await expect(page.getByRole("button", { name: `Project ${basename(dir)}, switch project` })).toBeVisible();
 }
 
+/** axe-core's script, put into a page the first time it is checked. */
+const axeSource = readFileSync(createRequire(import.meta.url).resolve("axe-core/axe.min.js"), "utf8");
+
 /**
  * Fails when axe finds accessibility problems on the page as it is now (WCAG
  * 2.2 A and AA plus axe's best practices), in the colour scheme and contrast
  * the page emulates. Each problem is listed with the elements it was found on.
  */
 export async function expectAccessible(page: Page, where: string): Promise<void> {
-  const { violations } = await new AxeBuilder({ page })
-    .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa", "best-practice"])
+  if (!(await page.evaluate(() => "axe" in window))) await page.evaluate(axeSource);
+  const options: RunOptions = {
+    runOnly: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa", "best-practice"],
     // The panel splitters sit between the landmarks, as grid cells of their
     // own; each is a labelled separator, so a screen reader still finds it.
-    .disableRules(["region"])
-    .analyze();
+    rules: { region: { enabled: false } },
+    resultTypes: ["violations"],
+  };
+  const violations = await page.evaluate(async (given) => {
+    const { axe } = window as unknown as {
+      axe: { run: (context: Document, options: RunOptions) => Promise<AxeResults> };
+    };
+    const { violations } = await axe.run(document, given);
+    return violations.map(({ id, impact, help, nodes }) => ({ id, impact, help, nodes: nodes.map((n) => n.target) }));
+  }, options);
   const found = violations.map(
-    (v) => `${v.id} (${v.impact}): ${v.help}\n${v.nodes.map((n) => `    ${n.target.join(" ")}`).join("\n")}`,
+    (v) => `${v.id} (${v.impact}): ${v.help}\n${v.nodes.map((target) => `    ${target.join(" ")}`).join("\n")}`,
   );
   expect(found, `accessibility problems ${where}`).toEqual([]);
 }
 
-/** Presses Tab until `target` has focus; fails after `limit` presses. */
-export async function tabTo(page: Page, target: Locator, limit = 25): Promise<void> {
+/** Presses Tab (Shift+Tab with `back`) until `target` has focus; fails after `limit` presses. */
+export async function tabTo(page: Page, target: Locator, { back = false, limit = 25 } = {}): Promise<void> {
   for (let presses = 0; presses < limit; presses++) {
     if (await target.evaluate((element) => element === document.activeElement)) return;
-    await page.keyboard.press("Tab");
+    await page.keyboard.press(back ? "Shift+Tab" : "Tab");
   }
-  await expect(target, `not reached with ${limit} Tab presses`).toBeFocused({ timeout: 0 });
+  await expect(target, `not reached with ${limit} presses`).toBeFocused({ timeout: 0 });
 }

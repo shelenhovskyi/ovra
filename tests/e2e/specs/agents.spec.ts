@@ -427,27 +427,32 @@ test("one agent works on its own copy and its change is kept from Reviews, all f
   await expect(card).toBeVisible();
   await page.keyboard.press("Alt+Shift+A");
   await expect(card).toBeFocused();
-  await arm(page);
-  await expect(card.getByRole("button", { name: "Allow" })).toHaveAttribute("aria-disabled", "false");
-  await page.keyboard.press("y");
-  await expect(approvals).toContainText("Nothing waits for your approval.");
+  // Its setup's output can arrive meanwhile and restart the wait before Y
+  // counts: go to the card and press Y again until it is answered.
+  await expect(async () => {
+    await page.keyboard.press("Alt+Shift+A");
+    await arm(page);
+    await page.keyboard.press("y");
+    await expect(approvals).toContainText("Nothing waits for your approval.", { timeout: 200 });
+  }).toPass({ intervals: [0] });
   // It wrote its own copy, not the project's folder.
   expect(readIfThere(join(dir, "NOTES.md"))).toBeNull();
 
   await page.keyboard.press("Alt+Shift+R");
   const inbox = page.getByTestId("inbox");
-  await expect(inbox.getByRole("heading", { name: "Reviews", exact: true })).toBeFocused();
   await expect(inbox.getByRole("navigation", { name: "Review items" }).getByRole("button")).toHaveCount(1);
+  // Focus goes into Reviews: on its heading, or on the item when it was already listed.
+  await expect.poll(() => inbox.evaluate((box) => box.contains(document.activeElement))).toBe(true);
   const item = inbox.getByTestId("inbox-item");
   await expect(item.getByTestId("inbox-diff")).toContainText("Notes from a worker.");
-  await expectAccessible(page, "in Reviews with an item open");
   // "Explain these changes": a read-only agent's plain words, above the file's diff.
   await tabTo(page, item.getByTestId("inbox-explain"));
   await page.keyboard.press("Enter");
   await expect(item.getByTestId("inbox-file-explained")).toHaveText("Adds a line about the agent's work.");
-  // Keep is a few Tab presses away, and Enter presses it.
+  await expectAccessible(page, "in Reviews with an item and its explanation open");
+  // Keep sits above the explanation, a few Shift+Tab presses back, and Enter presses it.
   const keep = item.getByRole("button", { name: "Keep changes" });
-  await tabTo(page, keep);
+  await tabTo(page, keep, { back: true });
   await page.keyboard.press("Enter");
   await expect.poll(() => readIfThere(join(dir, "NOTES.md"))).toBe("Notes from a worker.\n");
 });

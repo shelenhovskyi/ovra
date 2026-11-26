@@ -44,15 +44,15 @@ importers:
 
   tests/e2e:
     devDependencies:
-      '@axe-core/playwright':
-        specifier: 4.11.0
-        version: 4.11.0(playwright-core@1.63.0)
       '@playwright/test':
         specifier: 1.63.0
         version: 1.63.0
       '@types/node':
         specifier: ^22.20.5
         version: 22.20.5
+      axe-core:
+        specifier: 4.11.4
+        version: 4.11.4
 
   tests/perf:
     devDependencies:
@@ -238,11 +238,6 @@ packages:
     resolution: {integrity: sha512-yj+xGnr3HeHUtIdra/tWizJuisBoxAuWlBTElMlf22FpSxinrTwTl/dqftG0D2BsQTcn4/shgCCUwcnkcZ8buA==}
     peerDependencies:
       vite: ^8.3.3
-
-  '@axe-core/playwright@4.11.0':
-    resolution: {integrity: sha512-70vBT/Ylqpm65RQz2iCG2o0JJCEG/WCNyefTr2xcOcr1CoSee60gNQYUMZZ7YukoKkFLv26I/jjlsvwwp532oQ==}
-    peerDependencies:
-      playwright-core: '>= 1.0.0'
 
   '@babel/code-frame@7.29.7':
     resolution: {integrity: sha512-Aup7aUOfpbAUg2ROOJN6Iw5f9DMBlzu0mIkm/malLQFN/YQgO48wCj0Kxa3sEHJvPVFg7siR+qRInwXd2qhQKw==}
@@ -2823,11 +2818,6 @@ snapshots:
       smol-toml: 1.9.1
       vite: 8.3.8(@types/node@22.20.5)(jiti@2.7.0)(yaml@2.9.1)
       zod: 4.6.7
-
-  '@axe-core/playwright@4.11.0(playwright-core@1.63.0)':
-    dependencies:
-      axe-core: 4.11.4
-      playwright-core: 1.63.0
 
   '@babel/code-frame@7.29.7':
     dependencies:
