@@ -65,9 +65,8 @@ author. Instead:
    worker's start snapshot as the merge base, the fetched base as "ours"
    (`git merge-tree --write-tree --merge-base`, git 2.40 or later; an
    older git is refused with "Pull requests need git 2.40 or later"). The
-   person's
-   uncommitted work is in both the start snapshot and the reviewed one, so
-   it drops out; only the worker's changes remain.
+   person's uncommitted work is in both the start snapshot and the
+   reviewed one, so it drops out; only the worker's changes remain.
 3. A conflict stops here and names the files. The item offers "Ask the
    worker to update", which sends the worker a comment asking it to merge
    the base branch in its worktree; the person reviews the result again.
@@ -82,16 +81,28 @@ author. Instead:
 6. `gh pr create --base <base> --head <branch> --title=<title>
    --body-file -` (body on stdin, so no text becomes an option), as a
    draft by default. `GH_PROMPT_DISABLED=1` and `GH_NO_UPDATE_NOTIFIER=1`
-   are added so it never waits for input.
+   are added so it never waits for input. If it fails or times out after
+   GitHub opened the pull request, Ovra looks for the open pull request
+   from the branch (`gh pr list --repo R --head <branch> --state open`,
+   not from a fork) and adopts it, so a retry never fails on "already
+   exists".
 
 **The dialog** shows the remote and its host, base and branch names, the
 files and line counts, and the title and body. The worker drafts title
-and body; the person edits them. That click is the approval.
+and body; the person edits them. That click is the approval. Files the
+review marks as protected (`docs/specs/security.md`; GitHub's
+`.github/workflows/` and `.github/actions/` among them) are tagged in the
+list, and the dialog says in plain words that workflow changes run on
+GitHub, with the repository's secrets, as soon as the branch is pushed,
+before anyone merges. Create stays off until the person ticks "Publish
+the protected files too"; the core refuses `pr.create` and `pr.update`
+with marked files unless `include_protected` is set, as approve does.
 
 **Updating.** After more review rounds the item offers **Update pull
 request**: the same pick, with the PR branch's head as parent, pushed as a
 fast-forward. If the remote branch moved (someone pushed to it), Ovra
-stops and says so instead of overwriting.
+stops and says so instead of overwriting. With protected files in the
+review it needs the same tick, given for the version the item shows.
 
 ## The review item
 
