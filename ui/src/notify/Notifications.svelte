@@ -6,6 +6,7 @@
 // approvals wait, so a request is never hidden.
 import { tick, untrack } from "svelte";
 import { approvalQueue } from "../approvals/queue.svelte";
+import { focusMode } from "../focus/mode.svelte";
 import { registerCommand } from "../keys/commands";
 import type { PermissionId } from "../lib/protocol";
 import { useOvra } from "../shell/context";
@@ -31,6 +32,12 @@ $effect(() => watchAgents(transport, notifier, review));
 $effect(() => {
   const open = mainView.current === "reviews";
   untrack(() => notifier.stepAsideForReviews(open));
+});
+
+// Focus (docs/specs/focus-mode.md): its cards say what waits, so only errors get a toast.
+$effect(() => {
+  const on = focusMode.on;
+  untrack(() => notifier.quietForFocus(on));
 });
 
 // Seen from another tab or window too: "(2) Ovra" while two requests wait.

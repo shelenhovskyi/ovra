@@ -39,6 +39,8 @@ export class Notifier {
   private readonly timers = new Map<number, ReturnType<typeof setTimeout>>();
   /** Reviews is on screen: toasts that point there would only cover it. */
   private reviewsOpen = false;
+  /** Focus is on: its cards say what waits, so only errors get a toast. */
+  private focusQuiet = false;
 
   constructor(readonly system: SystemNotifications = webNotifications()) {}
 
@@ -53,6 +55,7 @@ export class Notifier {
       this.system.show(title, toast.text, toast.key ?? `ovra-${id}`, () => toast.action?.run());
     }
     if (toast.review && this.reviewsOpen) return;
+    if (this.focusQuiet && toast.level !== "error") return;
     let toasts = [...this.toasts, { ...toast, id }];
     while (toasts.length > MAX_TOASTS) {
       const oldest = toasts.find((t) => t.level === "info") ?? toasts[0];
@@ -72,6 +75,12 @@ export class Notifier {
   stepAsideForReviews(open: boolean): void {
     this.reviewsOpen = open;
     if (open) for (const toast of this.toasts) if (toast.review) this.dismiss(toast.id);
+  }
+
+  /** While Focus is on, toasts other than errors go, and new ones are not shown. */
+  quietForFocus(on: boolean): void {
+    this.focusQuiet = on;
+    if (on) for (const toast of this.toasts) if (toast.level !== "error") this.dismiss(toast.id);
   }
 
   dismiss(id: number): void {
