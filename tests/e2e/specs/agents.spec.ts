@@ -289,6 +289,16 @@ test("reply to an agent, allow with the mouse and stop it while it waits", async
   await expect(audit).toBeHidden();
 });
 
+test("a starter task starts in one press and ends with a three-line summary", async ({ page }) => {
+  await openProject(page, "ovra-agents-starter-");
+  const agents = page.getByTestId("agents-panel");
+  await agents.getByRole("button", { name: /^Write a README/ }).click();
+  const summary = agents.getByRole("definition");
+  await expect(summary).toHaveText(["wrote README.md", "every command in it ran", "Nothing"]);
+  await agents.getByRole("button", { name: "Tasks" }).click();
+  await expect(agents.getByTestId("agent-starters")).toBeHidden();
+});
+
 // The phase 3 gate (3.E): a task, three workers, three diffs in Reviews; keep
 // one, discard one, comment on one.
 test("a task's three workers wait in Reviews to be kept, discarded or sent back", async ({ page }) => {

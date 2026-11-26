@@ -39,6 +39,7 @@ import FirstSteps from "./FirstSteps.svelte";
 import { hints } from "./hints.svelte";
 import { agentPrefs } from "./prefs.svelte";
 import Leftovers from "./Leftovers.svelte";
+import Starters from "./Starters.svelte";
 import { chatLink } from "./links";
 import { diskLabel, pressureNote, resourcesLine, resourcesTip } from "./resources";
 import { listWarning, sandboxGaps, sandboxLine, sandboxState } from "./sandbox";
@@ -56,6 +57,9 @@ import Transcript from "./Transcript.svelte";
 import WorkerSetup from "./WorkerSetup.svelte";
 import { secretLooking } from "./worktrees";
 import { REPORT_DIR, reportFile, reportOf, reportPath, taskPrompt } from "./report";
+import { type Starter, starterMode } from "./starters";
+import { sessionSummary } from "./summary";
+import TaskSummary from "./TaskSummary.svelte";
 import { rememberedMode, rememberMode, type TaskMode } from "./task-mode";
 
 const { transport, workspace } = useOvra();
@@ -320,6 +324,12 @@ const changed = $derived(
 /** An idle research session's answer, for Save as doc and Turn into task. */
 const report = $derived(
   current && current.mode === "research" && !isBusy(current.status) ? reportOf(messages) : null,
+);
+/** An ended task's outcome in three lines, when its agent wrote them; research answers with a report instead. */
+const outcome = $derived(
+  current && current.mode !== "research" && !isBusy(current.status)
+    ? sessionSummary(sessions.reviews.get(current.id), messages)
+    : null,
 );
 /** Where the open session's report was saved, while that report is the one shown. */
 let savedReport = $state<{ session: SessionId; report: string; path: string } | null>(null);
@@ -751,6 +761,24 @@ async function start(): Promise<void> {
   }
 }
 
+/**
+ * A starter's press: its prompt in the task box, started at once in the
+ * starter's mode. When Start could not work now, the box keeps the prompt
+ * and says why; the person's own mode comes back after it started.
+ */
+async function startStarter(starter: Starter): Promise<void> {
+  const own = mode;
+  mode = starterMode(starter, capacity === undefined || capacity.research_working < capacity.research_limit);
+  prompt = starter.prompt;
+  if (startBlock !== null) {
+    await tick();
+    promptField?.focus();
+    return;
+  }
+  await start();
+  if (!startError) mode = own;
+}
+
 /** Starts the signed-out session's task again with a signed-in account and closes the old one. */
 function retry(old: SessionInfo, use: AccountState): Promise<void> {
   const first = sessions.transcripts.get(old.id)?.find((m) => m.kind === "user_text" && m.from === "person");
@@ -1165,6 +1193,12 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
         {#if error}
           <p class="error" role="alert">{error}</p>
         {/if}
+        {#if outcome}
+          <section class="card outcome" aria-labelledby="agent-summary-heading">
+            <h4 id="agent-summary-heading">Summary</h4>
+            <TaskSummary summary={outcome} />
+          </section>
+        {/if}
         {#if changed.length > 0}
           <!-- One agent here changes the folder itself: what it changed, each
                file's diff one press away, and where to keep or undo it. -->
@@ -1364,6 +1398,7 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
     <div class="scroll">
       {#if list.length === 0}
         <p class="intro" data-testid="agents-empty">No tasks yet.</p>
+        <Starters disabled={busy || blocked} pick={(starter) => void startStarter(starter)} />
       {:else}
         <ul class="sessions" aria-label="Tasks">
           {#each ordered as session (session.id)}
