@@ -94,18 +94,18 @@ fn commit_message(message: &str) -> Result<String> {
     }
     // What the card shows must be what the commit says: no escapes, no
     // text that runs backwards.
-    let hidden = |c: char| {
-        (c.is_control() && c != '\n' && c != '\t')
-            || matches!(c, '\u{200b}'..='\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}')
-    };
-    if message.chars().any(hidden) {
+    if message.chars().any(crate::untrusted::hides_text) {
         return bad("the commit message holds control or text-direction characters");
     }
     // The trailer promises a person's review (AI_POLICY.md); the commit
     // is signed as the person.
+    // git reads a trailer's key up to the `:`, spaces before it allowed
+    // (`Reviewed-by : Name`).
     let claims_review = message.lines().any(|line| {
-        let line = line.trim_start().to_ascii_lowercase();
-        line.starts_with("reviewed-by:") || line.starts_with("signed-off-by:")
+        line.split_once(':').is_some_and(|(key, _)| {
+            let key = key.trim().to_ascii_lowercase();
+            key == "reviewed-by" || key == "signed-off-by"
+        })
     });
     if claims_review {
         return bad("the commit message may not carry Reviewed-by or Signed-off-by trailers");
@@ -206,6 +206,19 @@ async fn push(core: &Core, caller: &ToolCaller, args: PushArgs) -> Result<Pushed
             d.path
         )));
     }
+    // The card lists the paths one a line: none may fake or turn a row.
+    if let Some(d) = deltas.iter().find(|d| {
+        std::iter::once(&d.path).chain(d.from.as_ref()).any(|p| {
+            p.chars()
+                .any(|c| c == '\n' || c == '\t' || crate::untrusted::hides_text(c))
+        })
+    }) {
+        return Err(forbidden(format!(
+            "the push holds a file whose name has control or text-direction characters ({:?}); \
+             rename it, or ask for review",
+            d.path
+        )));
+    }
     let host = forge.status(root.clone(), remote.clone()).await.ok();
     // A remote git cannot read a host from may be a folder on this
     // computer: nothing a card can name.
@@ -218,7 +231,13 @@ async fn push(core: &Core, caller: &ToolCaller, args: PushArgs) -> Result<Pushed
         own_branch: branch == worker.branch,
         remote: remote.clone(),
         host: Some(host),
-        protected_branch: policy::protected_branch(&branch, tracked.as_deref()),
+        // The item's pull request counts as shared: people may have read
+        // or approved it, and auto-merge may be on.
+        protected_branch: policy::protected_branch(&branch, tracked.as_deref())
+            || entry
+                .pull_request
+                .as_ref()
+                .is_some_and(|pr| pr.remote == remote && pr.branch == branch),
         branch: branch.clone(),
         new_branch: base.is_some(),
         base: base.clone(),
