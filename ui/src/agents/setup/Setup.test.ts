@@ -226,7 +226,7 @@ describe("trust summary", () => {
   });
 });
 
-describe("ClaudeSetup", () => {
+describe("AgentSetup", () => {
   it("shows nothing until the first check answers, nor once Claude is ready", async () => {
     const core = new FakeAgentCore();
     const call = core.call.bind(core);

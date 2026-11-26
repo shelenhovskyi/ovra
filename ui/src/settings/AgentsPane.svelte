@@ -8,7 +8,7 @@
 import { untrack } from "svelte";
 import { providers } from "../agents/providers.svelte";
 import Accounts from "../agents/setup/Accounts.svelte";
-import ClaudeSetup from "../agents/setup/ClaudeSetup.svelte";
+import SetupCard from "../agents/setup/AgentSetup.svelte";
 import { advice, billingText } from "../agents/setup/claude-texts";
 import type { AgentSetup } from "../lib/protocol";
 import { CoreError } from "../lib/transport";
@@ -113,7 +113,7 @@ async function savePath(value: string | null): Promise<void> {
   {:else}
     <!-- Something is wrong: the setup card says what, and how to fix it. -->
     {#if error}<p class="error" role="alert">Could not check {names.name()}: {error}</p>{/if}
-    <ClaudeSetup open />
+    <SetupCard open />
   {/if}
 </div>
 

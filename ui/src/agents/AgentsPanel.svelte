@@ -43,7 +43,7 @@ import { agentSessions, openReviews, usageText } from "./sessions.svelte";
 import AccountPicker from "./setup/AccountPicker.svelte";
 import { billedShort, paidText, signInCommand } from "./setup/claude-texts";
 import { setupAsks } from "./setup/asks.svelte";
-import ClaudeSetup from "./setup/ClaudeSetup.svelte";
+import AgentSetup from "./setup/AgentSetup.svelte";
 import { claudeAccounts, DEFAULT_ACCOUNT } from "./setup/claude-accounts.svelte";
 import ProjectTrust from "./setup/ProjectTrust.svelte";
 import { isBusy, isEnded } from "./status";
@@ -1317,7 +1317,7 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
         <p class="error" role="alert">{error}</p>
       {/if}
       <FirstSteps ready={usable !== undefined} started={list.length > 0} />
-      <ClaudeSetup open={setupOpen} />
+      <AgentSetup open={setupOpen} />
       <ProjectTrust />
     </div>
     <!-- While requests wait, the box is one line, so the list and the requests keep the room; focus opens it.

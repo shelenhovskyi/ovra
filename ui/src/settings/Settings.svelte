@@ -16,7 +16,7 @@ import { useOvra } from "../shell/context";
 import ViewFrame from "../shell/ViewFrame.svelte";
 import { loadScreenReader } from "../terminal/prefs";
 import AgentLimitField from "./AgentLimitField.svelte";
-import ClaudePane from "./ClaudePane.svelte";
+import AgentsPane from "./AgentsPane.svelte";
 import EditorPane from "./EditorPane.svelte";
 import { type PaneId, panesFor, settings } from "./panes.svelte";
 import ResourcesField from "./ResourcesField.svelte";
@@ -165,7 +165,7 @@ function onListKeydown(event: KeyboardEvent): void {
         {:else if pane.id === "editor"}
           <EditorPane />
         {:else if pane.id === "claude"}
-          <ClaudePane />
+          <AgentsPane />
           <AgentLimitField />
           <AgentLimitField research />
           <ResourcesField />
