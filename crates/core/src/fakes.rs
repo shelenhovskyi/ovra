@@ -916,6 +916,7 @@ impl TerminalService for EchoTerminals {
 pub struct MemorySessions {
     sessions: Mutex<Vec<(StoredSession, Vec<AgentMessage>)>>,
     orchestration: Mutex<Option<String>>,
+    direct: Mutex<Option<String>>,
 }
 
 impl SessionStore for MemorySessions {
@@ -962,6 +963,15 @@ impl SessionStore for MemorySessions {
 
     fn save_orchestration(&self, json: &str) -> Result<()> {
         *lock(&self.orchestration) = Some(json.to_owned());
+        Ok(())
+    }
+
+    fn load_direct(&self) -> Result<Option<String>> {
+        Ok(lock(&self.direct).clone())
+    }
+
+    fn save_direct(&self, json: &str) -> Result<()> {
+        *lock(&self.direct) = Some(json.to_owned());
         Ok(())
     }
 }

@@ -1108,6 +1108,12 @@ pub trait SessionStore: Send + Sync + Debug {
     fn load_orchestration(&self) -> Result<Option<String>>;
     /// Replaces the saved orchestration state.
     fn save_orchestration(&self, json: &str) -> Result<()>;
+    /// Direct mode's state (baselines, which files are the agents',
+    /// checkpoints) as the core last saved it, a JSON document the store
+    /// keeps as is; `None` if none.
+    fn load_direct(&self) -> Result<Option<String>>;
+    /// Replaces the saved direct-mode state.
+    fn save_direct(&self, json: &str) -> Result<()>;
 }
 
 /// Which IDE tools a session gets.
@@ -1795,6 +1801,12 @@ impl SessionStore for Unavailable {
         Ok(None)
     }
     fn save_orchestration(&self, _: &str) -> Result<()> {
+        Ok(())
+    }
+    fn load_direct(&self) -> Result<Option<String>> {
+        Ok(None)
+    }
+    fn save_direct(&self, _: &str) -> Result<()> {
         Ok(())
     }
 }

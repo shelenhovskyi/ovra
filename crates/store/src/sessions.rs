@@ -11,6 +11,9 @@ use rusqlite::{OptionalExtension, params};
 /// The `settings` key of the orchestration state. The core drops what
 /// belongs to removed projects and forgotten sessions when it loads it.
 const ORCHESTRATION: &str = "orchestration";
+/// The `settings` key of direct mode's state; the core drops what belongs
+/// to forgotten sessions when it loads it.
+const DIRECT: &str = "direct";
 
 use crate::{Store, db_error, internal};
 
@@ -101,22 +104,38 @@ impl SessionStore for Store {
     }
 
     fn load_orchestration(&self) -> Result<Option<String>> {
+        self.setting(ORCHESTRATION)
+    }
+
+    fn save_orchestration(&self, json: &str) -> Result<()> {
+        self.set_setting(ORCHESTRATION, json)
+    }
+
+    fn load_direct(&self) -> Result<Option<String>> {
+        self.setting(DIRECT)
+    }
+
+    fn save_direct(&self, json: &str) -> Result<()> {
+        self.set_setting(DIRECT, json)
+    }
+}
+
+impl Store {
+    fn setting(&self, key: &str) -> Result<Option<String>> {
         self.db()
-            .query_row(
-                "SELECT value FROM settings WHERE key = ?1",
-                [ORCHESTRATION],
-                |row| row.get(0),
-            )
+            .query_row("SELECT value FROM settings WHERE key = ?1", [key], |row| {
+                row.get(0)
+            })
             .optional()
             .map_err(db_error)
     }
 
-    fn save_orchestration(&self, json: &str) -> Result<()> {
+    fn set_setting(&self, key: &str, json: &str) -> Result<()> {
         self.db()
             .execute(
                 "INSERT INTO settings (key, value) VALUES (?1, ?2)
                  ON CONFLICT (key) DO UPDATE SET value = excluded.value",
-                params![ORCHESTRATION, json],
+                params![key, json],
             )
             .map_err(db_error)?;
         Ok(())
@@ -199,6 +218,15 @@ mod tests {
         store.save_orchestration("{\"a\":2}").expect("replace");
         let kept = store.load_orchestration().expect("load");
         assert_eq!(kept.as_deref(), Some("{\"a\":2}"));
+
+        assert_eq!(store.load_direct().expect("load"), None);
+        store.save_direct("{\"d\":1}").expect("save");
+        store.save_direct("{\"d\":2}").expect("replace");
+        let kept = store.load_direct().expect("load");
+        assert_eq!(kept.as_deref(), Some("{\"d\":2}"));
+        // The two documents are kept apart.
+        let orchestration = store.load_orchestration().expect("load");
+        assert_eq!(orchestration.as_deref(), Some("{\"a\":2}"));
     }
 
     #[test]
@@ -220,6 +248,7 @@ mod tests {
         let store = Store::open(&data).expect("reopen");
         assert_eq!(store.load(10).expect("load").len(), 1);
         assert!(store.load_orchestration().expect("load").is_some());
+        assert!(store.load_direct().expect("load").is_some());
         // A project's sessions go with it.
         ProjectStore::remove(&store, &project).expect("remove project");
         assert!(store.load(10).expect("load").is_empty());
