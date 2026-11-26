@@ -25,7 +25,7 @@ const NETWORK: Record<SandboxReport["network"], string> = {
 };
 
 /** The one wording for a session without a sandbox, in the list and the session alike. */
-export const NO_SANDBOX = "No sandbox: Claude can change anything you can";
+export const NO_SANDBOX = "No sandbox: the agent can change anything you can";
 
 /** What a sandbox lets through, after "Sandboxed · " on the short line. */
 const NETWORK_SHORT: Record<SandboxReport["network"], string> = {

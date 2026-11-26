@@ -195,7 +195,7 @@ describe("NetworkPanel", () => {
     await open(core);
     expect($("[data-testid=unsandboxed]")).toBeNull();
     const says =
-      "No sandbox: Claude can change anything you can: these hosts don't limit it, and it can read stored secrets.";
+      "No sandbox: the agent can change anything you can: these hosts don't limit it, and it can read stored secrets.";
     for (const s2 of [session("s2", null), { ...session("s2", null), status: { state: "stopped" } as const }]) {
       unmount(app ?? {});
       app = null;

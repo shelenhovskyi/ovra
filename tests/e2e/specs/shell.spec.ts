@@ -42,7 +42,7 @@ test("with no file open, the main area offers the next steps", async ({ page }) 
 
   const start = page.getByTestId("start");
   await expect(start.getByRole("heading")).toHaveText(basename(dir));
-  await expect(start).toContainText("Open a file, or give Claude a task.");
+  await expect(start).toContainText("Open a file, or describe a task for an agent.");
   // A control without styles of its own takes the arrow and does not select as text; scrollbars are thin.
   const look = await page.evaluate(() => {
     const probe = document.body.appendChild(document.createElement("button"));

@@ -749,8 +749,8 @@ function onkeydown(e: KeyboardEvent): void {
     {:else}
       <EmptyState
         headline="This folder is empty"
-        line="Ask Claude to set up a project here, or add files."
-        actions={[{ label: "Give Claude a task", run: newTask }]}
+        line="Ask an agent to set up a project here, or add files."
+        actions={[{ label: "Describe a task", run: newTask }]}
       />
     {/if}
   {/if}

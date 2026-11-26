@@ -87,7 +87,7 @@ function move(e: KeyboardEvent): void {
 <section class="start" data-testid="project-list">
   <h2>Open a project</h2>
   {#if projects?.length === 0}
-    <p class="lead">No projects yet. Open a folder, give Claude a task, then approve its steps and review its changes.</p>
+    <p class="lead">No projects yet. Open a folder, describe a task for an agent, then approve its steps and review its changes.</p>
   {:else if projects}
     <p class="lead">Pick up where you left off.</p>
     <h3 id="recent">Recent</h3>

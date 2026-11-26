@@ -86,7 +86,7 @@ describe("Viewer", () => {
     await settle();
     // The project's name heads the empty main area.
     expect(target.querySelector("[data-testid=start] h2")?.textContent).toBe("demo");
-    expect(target.textContent).toContain("Open a file, or give Claude a task.");
+    expect(target.textContent).toContain("Open a file, or describe a task for an agent.");
     expect(reads).toEqual([]);
     workspace.project = null;
     flushSync();

@@ -36,6 +36,6 @@ const actions = $derived(
   testid="start"
   centred
   headline={workspace.project?.name ?? "No file open"}
-  line="Open a file, or give Claude a task."
+  line="Open a file, or describe a task for an agent."
   {actions}
 />

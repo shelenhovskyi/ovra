@@ -724,14 +724,14 @@ describe("AgentsPanel", () => {
     expect(line()?.textContent).toBe("Sandbox: starting…");
     core.sandboxed("s2", null);
     await settle();
-    expect(line()?.textContent?.trim()).toBe("No sandbox: Claude can change anything you can");
+    expect(line()?.textContent?.trim()).toBe("No sandbox: the agent can change anything you can");
     // A security fact, set apart from "Needs approval" yellow.
     expect(line()?.classList.contains("security")).toBe(true);
     expect(line()?.classList.contains("warn")).toBe(false);
     expect(said()).toBe(1);
     back();
     // In the same words under the header, not on every row nor again in the mode hint.
-    expect(once()?.trim()).toBe("No sandbox: Claude can change anything you can");
+    expect(once()?.trim()).toBe("No sandbox: the agent can change anything you can");
     expect(hint()).toBe("Works in this folder. Asks before risky steps.");
     expect(said()).toBe(1);
     selectRow("Fix the typo");
@@ -764,7 +764,7 @@ describe("AgentsPanel", () => {
     const line = () => panel()?.querySelector("[data-testid=agent-sandbox]")?.textContent?.trim();
     core.sandboxed("s1", null);
     await settle();
-    expect(line()).toBe("No sandbox: Claude can change anything you can");
+    expect(line()).toBe("No sandbox: the agent can change anything you can");
     // A restart clears the report in the core and sends only a status.
     core.status("s1", { state: "starting" });
     await settle();

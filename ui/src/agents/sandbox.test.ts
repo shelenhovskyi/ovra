@@ -33,7 +33,7 @@ describe("sandbox words", () => {
     });
     // One wording for no sandbox, wherever it is said.
     expect(sandboxLine({ kind: "none" }, true)).toEqual({ text: NO_SANDBOX, warning: true, more: null });
-    expect(NO_SANDBOX).toBe("No sandbox: Claude can change anything you can");
+    expect(NO_SANDBOX).toBe("No sandbox: the agent can change anything you can");
     expect(sandboxLine({ kind: "unknown" }, true)).toBeNull();
     // Said once for the list; ended sessions and pending ones say nothing.
     expect(listWarning([old, info({})])).toBeNull();

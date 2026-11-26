@@ -115,7 +115,9 @@ describe("Servers pane and dock tab", () => {
       },
     ];
     await open(core);
-    expect($("[data-testid=servers-unsandboxed]")?.textContent).toBe("No sandbox: Claude can change anything you can.");
+    expect($("[data-testid=servers-unsandboxed]")?.textContent).toBe(
+      "No sandbox: the agent can change anything you can.",
+    );
     expect($("[data-testid=servers-add]")).toBeNull();
     button("Add server…")?.click();
     await settle();
