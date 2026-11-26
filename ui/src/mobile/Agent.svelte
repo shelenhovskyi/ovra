@@ -1,10 +1,10 @@
 <script lang="ts">
 // One agent: a compact conversation (what was said and one line per step),
 // a reply box and Stop. Starting or resuming agents stays on the computer.
-import { renderChat } from "../agents/markdown";
 import { isBusy, isEnded, statusLabel } from "../agents/status";
 import { describeTool } from "../approvals/describe";
 import type { AgentMessage } from "../lib/protocol";
+import { renderPhoneChat } from "./chat";
 import Header from "./Header.svelte";
 import type { Phone } from "./phone.svelte";
 import { href } from "./route";
@@ -66,8 +66,8 @@ async function send(event: SubmitEvent): Promise<void> {
     {#each lines(shown) as line (line.key)}
       <li class={line.kind}>
         {#if line.kind === "agent"}
-          <!-- renderChat keeps only safe tags and attributes. -->
-          <div class="md">{@html renderChat(line.text)}</div>
+          <!-- renderPhoneChat keeps only safe tags and attributes, and no links. -->
+          <div class="md">{@html renderPhoneChat(line.text)}</div>
         {:else}
           {line.text}
         {/if}
