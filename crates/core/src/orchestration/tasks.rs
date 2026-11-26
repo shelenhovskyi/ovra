@@ -41,6 +41,10 @@ pub(super) struct Entry {
     /// Workers being set up, which count against `max_workers`.
     #[serde(skip)]
     starting: Vec<Starting>,
+    /// The person stopped a solo task while its worker was being set up:
+    /// it must not start once set up.
+    #[serde(skip)]
+    stop_asked: bool,
     /// Workers whose worktree was removed, or is being removed, after the
     /// task ended.
     #[serde(default)]
@@ -127,6 +131,15 @@ pub(super) async fn handle(core: &Core, request: OrchestrationRequest) -> Result
         }
         OrchestrationRequest::Stop { task } => {
             let entry = find(core, &task)?;
+            if entry.solo && !entry.starting.is_empty() {
+                // Its worker has no session yet: [`start_solo`] stops it.
+                let state = core.orchestration_state();
+                let mut guard = state.lock();
+                if let Some(t) = guard.tasks.iter_mut().find(|t| t.id == task) {
+                    t.stop_asked = true;
+                }
+                return Ok(Response::Ok(OkResponse::Ok));
+            }
             let ctx = core.agents_ctx();
             for session in entry.sessions() {
                 // Sessions that already ended are fine to skip.
@@ -211,6 +224,7 @@ async fn start(
             failed: Vec::new(),
             limits,
             starting: Vec::new(),
+            stop_asked: false,
             cleaned: Vec::new(),
             ended: false,
             prep: Vec::new(),
@@ -293,6 +307,7 @@ async fn start_solo(
                 queued,
                 port,
             }],
+            stop_asked: false,
             cleaned: Vec::new(),
             ended: false,
             prep: Vec::new(),
@@ -332,10 +347,19 @@ async fn start_solo(
     let (worker, workspace, _) = result?;
     review::set_workspace(core, &worker.session, workspace);
     super::watch::start(core, &worker.session);
+    let stop_asked = find(core, &entry.id).is_ok_and(|t| t.stop_asked);
+    if stop_asked {
+        let _ = agents::stop(&core.agents_ctx(), worker.session.clone());
+        set_ended(core, &worker.session, true);
+        clean_up(core, &project).await;
+    }
     core.emit(OrchestrationEvent::Changed {
         project: project.clone(),
         task: entry.id.clone(),
     });
+    if stop_asked {
+        return find(core, &entry.id).map(|entry| view(core, &entry));
+    }
     if queued {
         slots::start_queued(core, &project);
     } else {
@@ -786,14 +810,16 @@ async fn create_worker(
         .await
         .ok()
         .map(|g| g.files);
-    // Workers bill the account their coordinator runs with.
-    let account = core
-        .agents_ctx()
-        .sessions
-        .find(&task.coordinator, |s| s.info().account)
-        .ok()
-        .flatten()
-        .unwrap_or_else(|| crate::protocol::agents::DEFAULT_ACCOUNT.to_owned());
+    // Workers bill the account their coordinator runs with; a solo task's
+    // one worker, like a person's start, the project's.
+    let account = (!task.solo).then(|| {
+        core.agents_ctx()
+            .sessions
+            .find(&task.coordinator, |s| s.info().account)
+            .ok()
+            .flatten()
+            .unwrap_or_else(|| crate::protocol::agents::DEFAULT_ACCOUNT.to_owned())
+    });
     let new = NewSession {
         no_web: false,
         project: task.project.clone(),
@@ -804,7 +830,7 @@ async fn create_worker(
         cwd: Some(path.clone()),
         tools: Some(ToolRole::Worker),
         from,
-        account: Some(account),
+        account,
         queued,
         preparing: !queued,
     };

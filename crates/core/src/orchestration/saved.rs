@@ -79,7 +79,10 @@ pub(crate) fn restore(core: &Core) {
         task.workers.retain(|w| kept(&w.session));
     }
     for task in &state.tasks {
-        if let Ok(project) = core.project_store().get(&task.project) {
+        // A solo task's coordinator is its one worker, relaunched below.
+        if !task.solo
+            && let Ok(project) = core.project_store().get(&task.project)
+        {
             relaunch(
                 core,
                 &task.coordinator,

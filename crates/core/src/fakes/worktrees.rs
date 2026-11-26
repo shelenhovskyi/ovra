@@ -50,6 +50,8 @@ pub struct MemoryWorktrees {
     /// When set, `snapshot` lets other tasks run first, as a real one that
     /// waits for git does.
     pub slow_snapshot: AtomicBool,
+    /// When set, the next `create` waits until its sender sends or drops.
+    pub create_gate: Mutex<Option<tokio::sync::oneshot::Receiver<()>>>,
 }
 
 impl MemoryWorktrees {
@@ -196,6 +198,10 @@ impl Worktrees for MemoryWorktrees {
         base: String,
     ) -> BoxFuture<'_, Result<WorktreeInfo>> {
         Box::pin(async move {
+            let gate = lock(&self.create_gate).take();
+            if let Some(gate) = gate {
+                let _ = gate.await;
+            }
             let files = self.commit_files(&base)?;
             let mut dirs = lock(&self.dirs);
             if dirs.contains_key(&dir) {
