@@ -156,6 +156,8 @@ fn drafted(core: &Core, entry: &review::Entry, worker: &Worker) -> (String, Stri
     match entry.summary.as_deref().map(str::trim) {
         Some(summary) if !summary.is_empty() => {
             let first = summary.lines().next().unwrap_or(summary);
+            // A three-line summary (`Done:`, `Checked:`, `Left:`) titles the PR by what was done.
+            let first = first.strip_prefix("Done:").map_or(first, str::trim_start);
             (cut(first, 72), summary.to_owned())
         }
         _ => (cut(&title, 72), title),

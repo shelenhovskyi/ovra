@@ -10,6 +10,8 @@
 // (after leaving the discard step or the comment field).
 import { tick, untrack } from "svelte";
 import { agentSessions } from "../agents/sessions.svelte";
+import { sessionSummary, taskSummary } from "../agents/summary";
+import TaskSummary from "../agents/TaskSummary.svelte";
 import { registerCommand } from "../keys/commands";
 import { registerContextKeys } from "../keys/context-keys";
 import { formatShortcut, isApple } from "../keys/shortcut";
@@ -88,6 +90,14 @@ let prFor = $state<ReviewId | null>(null);
 
 const item = $derived(inbox.items.find((i) => i.id === selectedId) ?? null);
 const file = $derived(item?.files.find((f) => f.path === selectedPath) ?? null);
+/** The item's outcome in three lines: from its summary, else from its agent's last answer. */
+const brief = $derived(item ? sessionSummary(item, sessions.transcripts.get(item.session)) : null);
+$effect(() => {
+  const at = item;
+  if (!at || taskSummary(at.summary) || sessions.transcripts.has(at.session)) return;
+  // Without one, the agent's last answer may hold it. A failed load only costs the summary.
+  untrack(() => void sessions.loadTranscript(at.session).catch(() => {}));
+});
 const shared = $derived(item ? sharedFiles(item, inbox.items) : new Set<string>());
 const sharedText = $derived(item ? sharedHint(item, inbox.items, (o) => sessions.name(o.session)) : null);
 /** Files not copied because another worker's version was kept first, with that worker's name. */
@@ -631,7 +641,9 @@ function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
               <div class="item-head">
                 <h3 id="inbox-item-title" tabindex="-1">{shortTitle(item, sessions.name(item.session))}</h3>
                 <span class="state {item.state}">{STATE_LABEL[item.state]}</span>
-                {#if item.summary}
+                {#if brief}
+                  <TaskSummary summary={brief} />
+                {:else if item.summary}
                   <p class="summary">Agent's summary: {item.summary}</p>
                 {/if}
                 {#if item.check}

@@ -138,6 +138,10 @@ impl Conversation {
 const COORDINATOR_PROMPT: &str = include_str!("../../../agents/roles/coordinator.md");
 const WORKER_PROMPT: &str = include_str!("../../../agents/roles/worker.md");
 const RESEARCH_PROMPT: &str = include_str!("../../../agents/roles/research.md");
+/// What a plain session (one agent, no IDE tools) is told: end a task with
+/// the three-line summary the UI shows before review. One line, so it gets
+/// through `cmd.exe` when `claude` is a `.cmd` script.
+const TASK_PROMPT: &str = include_str!("../../../agents/roles/task.md").trim_ascii_end();
 
 /// The built-in tools of a research session (ADR 0013): it reads and
 /// searches, nothing else. The core refuses any other tool too.
@@ -216,7 +220,7 @@ pub(crate) fn args(
             "--append-system-prompt",
             RESEARCH_PROMPT,
         ]),
-        None => {}
+        None => args.extend(["--append-system-prompt", TASK_PROMPT]),
     }
     match conversation {
         Conversation::New(id) => args.extend(["--session-id", id]),
@@ -348,6 +352,7 @@ mod tests {
         args(conversation, trusted, None, false, true)
             .iter()
             .map(|a| a.to_string_lossy().into_owned())
+            .map(|a| if a == TASK_PROMPT { "<task>".into() } else { a })
             .collect::<Vec<_>>()
             .join(" ")
     }
@@ -355,7 +360,7 @@ mod tests {
     #[test]
     fn the_command_line_keeps_the_safe_defaults() {
         let new = line_text(&Conversation::New("0b8e…".into()), false);
-        insta::assert_snapshot!(new, @r#"-p --input-format stream-json --output-format stream-json --verbose --include-partial-messages --permission-prompt-tool stdio --permission-mode default --setting-sources user --strict-mcp-config --mcp-config {"mcpServers":{}} --session-id 0b8e…"#);
+        insta::assert_snapshot!(new, @r#"-p --input-format stream-json --output-format stream-json --verbose --include-partial-messages --permission-prompt-tool stdio --permission-mode default --setting-sources user --strict-mcp-config --mcp-config {"mcpServers":{}} --append-system-prompt <task> --session-id 0b8e…"#);
         let resume = line_text(
             &Conversation::Resume {
                 id: "abc".into(),
@@ -363,7 +368,8 @@ mod tests {
             },
             false,
         );
-        assert!(resume.ends_with("--setting-sources user --strict-mcp-config --mcp-config {\"mcpServers\":{}} --resume abc --fork-session"));
+        assert!(resume.ends_with("--setting-sources user --strict-mcp-config --mcp-config {\"mcpServers\":{}} --append-system-prompt <task> --resume abc --fork-session"));
+        assert!(!TASK_PROMPT.contains('\n'));
         assert!(!resume.contains("--bare"));
     }
 

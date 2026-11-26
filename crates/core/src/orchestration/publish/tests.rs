@@ -266,6 +266,24 @@ async fn the_reviewed_changes_become_a_draft_pull_request_on_the_fetched_base() 
 }
 
 #[tokio::test]
+async fn a_three_line_summary_titles_the_pull_request_by_what_was_done() {
+    let f = fx().await;
+    let me = ToolCaller {
+        session: SessionId("s2".into()),
+        project: ProjectId("p1".into()),
+        role: ToolRole::Worker,
+    };
+    let summary = "Done: add b\nChecked: cargo test passed\nLeft: Nothing";
+    let asked = f.core.request_review(&me, None, summary).await;
+    assert!(asked.is_ok(), "{asked:?}");
+    let prepared = prepare(&f.core, &item(&f.core).await.id.0).await;
+    assert_eq!(
+        (prepared.title.as_str(), prepared.body.as_str()),
+        ("add b", summary)
+    );
+}
+
+#[tokio::test]
 async fn a_retry_after_gh_failed_goes_on_from_the_push_it_made() {
     let f = fx().await;
     let id = item(&f.core).await.id.0;

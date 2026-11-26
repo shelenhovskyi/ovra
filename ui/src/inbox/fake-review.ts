@@ -1,7 +1,16 @@
 // Test-only fake of the core's review requests: records calls, answers them
 // like the core (task 3.B) and lets a test push events.
 
-import type { CoreEvent, FileChange, GhStatus, PrStatus, Request, ResponseFor, ReviewItem } from "../lib/protocol";
+import type {
+  AgentMessage,
+  CoreEvent,
+  FileChange,
+  GhStatus,
+  PrStatus,
+  Request,
+  ResponseFor,
+  ReviewItem,
+} from "../lib/protocol";
 import { CoreError, type Transport } from "../lib/transport";
 
 export const change = (path: string, extra: Partial<FileChange> = {}): FileChange => ({
@@ -56,6 +65,8 @@ export class FakeReviewCore implements Transport {
   prConflicts: string[] = [];
   /** What `pr.refresh` finds. */
   prStatus: PrStatus | null = null;
+  /** What `agents.transcript` answers, by session. */
+  transcripts = new Map<string, AgentMessage[]>();
   private listeners = new Set<(event: CoreEvent) => void>();
 
   async call<R extends Request>(request: R): Promise<ResponseFor<R>> {
@@ -221,6 +232,8 @@ export class FakeReviewCore implements Transport {
         return { type: "ok" };
       case "agents.list":
         return { type: "agents.list", data: [] };
+      case "agents.transcript":
+        return { type: "agents.transcript", data: this.transcripts.get(request.params.session) ?? [] };
       default:
         throw new CoreError({ code: "unavailable", message: `${request.method} is not faked` });
     }

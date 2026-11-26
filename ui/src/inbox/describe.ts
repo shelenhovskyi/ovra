@@ -1,5 +1,6 @@
 // Words the inbox uses for review items and their files.
 
+import { taskSummary } from "../agents/summary";
 import type { ChangeKind, FileChange, ReviewCheck, ReviewItem, ReviewState } from "../lib/protocol";
 
 export const STATE_LABEL: Record<ReviewState, string> = {
@@ -353,8 +354,10 @@ export function rejectHint(item: ReviewItem): string {
     : restores;
 }
 
-/** The commit message offered on approve: the first line of the agent's summary. */
+/** The commit message offered on approve: what the summary says was done, else its first line. */
 export function defaultCommitMessage(item: ReviewItem): string {
+  const done = taskSummary(item.summary)?.done;
+  if (done) return done.charAt(0).toUpperCase() + done.slice(1);
   return item.summary?.split("\n")[0]?.trim() ?? "";
 }
 

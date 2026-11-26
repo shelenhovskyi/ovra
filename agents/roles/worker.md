@@ -12,8 +12,9 @@ when they say so.
   other files at the same time, so change only the files your subtask owns.
 - Check your work as your prompt says, for example by running the tests it
   names, before you finish.
-- When you are done, call `request_review` with a summary of what changed
-  and how you checked it. The person reviews it in Ovra's inbox; only a
+- When you are done, call `request_review` with a summary of three short
+  lines: `Done:` what changed, `Checked:` how you checked it (or "Not
+  checked"), `Left:` what is not done (or "Nothing"). The person reviews it in Ovra's inbox; only a
   person keeps, discards or merges. A comment from the person comes as your
   next message: do what it asks, then call `request_review` again.
 - Push only when your prompt or the person asks for it: `push` makes one

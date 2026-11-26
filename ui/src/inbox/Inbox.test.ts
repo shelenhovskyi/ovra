@@ -356,6 +356,28 @@ describe("Inbox", () => {
     expect(core.sent("review.approve").map((c) => c.params)).toEqual([{ id: "r2", commit: null, fingerprint: "f3" }]);
   });
 
+  it("shows the three-line summary from the item, else from the agent's last answer", async () => {
+    const rows = () =>
+      [...target.querySelectorAll("[data-testid=task-summary] .row")].map((r) =>
+        r.textContent?.replace(/\s+/g, " ").trim(),
+      );
+    const core = await setup([
+      review("r1", { summary: "Done: fixed the typo\nChecked: tests passed" }),
+      review("r2", { session: "s2" }),
+    ]);
+    core.transcripts.set("s2", [{ kind: "assistant_text", text: "Done: wrote docs\nLeft: the screenshots" }]);
+    await open();
+    expect(rows()).toEqual(["Done fixed the typo", "Checked tests passed", "Left Not said"]);
+    expect(target.textContent).not.toContain("Agent's summary");
+    // The commit message offered is what was done.
+    $<HTMLInputElement>("[data-testid=inbox] input[type=checkbox]")?.click();
+    flushSync();
+    expect($<HTMLInputElement>("[data-testid=inbox] input[type=text]")?.value).toBe("Fixed the typo");
+    $<HTMLButtonElement>("[data-item=r2]")?.click();
+    await settle();
+    expect(rows()).toEqual(["Done wrote docs", "Checked Not said", "Left the screenshots"]);
+  });
+
   it("approves only on a press, and commits with the message given", async () => {
     const core = await setup([review("r1", { summary: "Fix the typo" })]);
     await open();
