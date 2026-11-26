@@ -667,14 +667,21 @@ pub(super) async fn leftovers(core: &Core, project: &ProjectId) -> Result<Vec<Le
     let Some(dir) = core.orchestration_state().worktrees_dir.clone() else {
         return Ok(Vec::new());
     };
-    let known: BTreeSet<PathBuf> = core
-        .orchestration_state()
-        .lock()
-        .tasks
-        .iter()
-        .flat_map(|t| &t.workers)
-        .map(|w| PathBuf::from(&w.worktree))
-        .collect();
+    let known: BTreeSet<PathBuf> = {
+        let state = core.orchestration_state();
+        let guard = state.lock();
+        let workers = guard.tasks.iter().flat_map(|t| &t.workers);
+        // A worker still starting has its folder being made, under the
+        // path `tasks::create_worker` gives it.
+        let starting = guard.tasks.iter().flat_map(|t| {
+            let task = dir.join(&t.project.0).join(&t.id.0);
+            t.starting_names().map(move |name| task.join(name))
+        });
+        workers
+            .map(|w| PathBuf::from(&w.worktree))
+            .chain(starting)
+            .collect()
+    };
     let fs = core.fs_service();
     let folders = |listing: DirListing| {
         listing

@@ -69,6 +69,11 @@ impl Entry {
         (queued, self.starting.len() - queued)
     }
 
+    /// The names of the workers being set up.
+    pub(super) fn starting_names(&self) -> impl Iterator<Item = &str> {
+        self.starting.iter().map(|s| s.name.as_str())
+    }
+
     /// The first ports of its workers' blocks, those being set up too.
     pub(super) fn ports(&self) -> impl Iterator<Item = u16> + '_ {
         let made = self.prep.iter().map(|p| p.port);

@@ -485,7 +485,43 @@ async fn leftover_worktrees_are_listed_and_removed_only_when_asked() {
     let remove = |path: &str| json!({"method": "orchestration.remove_leftover", "params": {"project": "p1", "path": path}});
     let refused = call(&f.core, remove(&worker)).await;
     assert_eq!(refused.err().map(|e| e.code), Some(ErrorCode::NotFound));
+    // Only the path exactly as listed: not one that leads elsewhere.
+    for other in [old.join(".."), old.join("."), old.join("notes.txt")] {
+        let refused = call(&f.core, remove(&other.to_string_lossy())).await;
+        assert_eq!(refused.err().map(|e| e.code), Some(ErrorCode::NotFound));
+    }
     assert!(f.wt.has(&old));
+    assert!(
+        f.wt.removed
+            .lock()
+            .map(|r| r.is_empty())
+            .unwrap_or_default()
+    );
     ok(&f.core, remove(&path)).await;
     assert!(!f.wt.has(&old) && f.wt.has(dir("w")));
+}
+
+#[tokio::test]
+async fn a_worktree_being_made_is_not_a_leftover() {
+    let f = fx().await;
+    let under = Path::new(WORKTREES).join("p1");
+    // The folder git is making for worker `w2`.
+    f.fs.put(&under, "t1/w2/a.rs", "one\n");
+    f.wt.slow_snapshot
+        .store(true, std::sync::atomic::Ordering::Relaxed);
+    let list = async {
+        tokio::task::yield_now().await;
+        assert!(!f.wt.has(dir("w2")), "made already");
+        let list = json!({"method": "orchestration.leftovers", "params": {"project": "p1"}});
+        let Response::Orchestration(OrchestrationResponse::Leftovers(found)) =
+            ok(&f.core, list).await
+        else {
+            panic!("no leftovers");
+        };
+        found
+    };
+    let boss = boss();
+    let (spawned, found) = tokio::join!(f.core.spawn_agent(&boss, "w2", "do it", false), list);
+    assert!(spawned.is_ok(), "{spawned:?}");
+    assert!(found.is_empty(), "{found:?}");
 }
