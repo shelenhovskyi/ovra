@@ -15,6 +15,7 @@ registerContextKeys(
 // box under it; a row opens its transcript, where the person replies, stops
 // and closes it. Enter sends from a text field (Ctrl+Enter or Cmd+Enter
 // too); Shift+Enter starts a new line.
+import KeepAwakeButton from "../power/KeepAwakeButton.svelte";
 import { tick, untrack } from "svelte";
 import { describeTool } from "../approvals/describe";
 import { approvalQueue } from "../approvals/queue.svelte";
@@ -828,6 +829,7 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
       </span>
     {/if}
     <span class="end">
+      <KeepAwakeButton />
       {#if current}
         <button
           type="button"

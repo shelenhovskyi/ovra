@@ -465,3 +465,27 @@ test("a research agent changes nothing and its report is saved as a doc", async 
   expect(readIfThere(join(dir, path))).toContain("# How does the readme read?");
   expect(readFileSync(join(dir, "README.md"), "utf8")).toBe("teh readme\n");
 });
+
+test("keep the computer awake while an agent works", async ({ page }) => {
+  await openProject(page, "ovra-agents-awake-");
+  const awake = page.getByTestId("keep-awake");
+  const held = /(^|\s)awake(\s|$)/;
+  await expect(awake).toHaveAttribute("aria-pressed", "false");
+  await awake.click();
+  await expect(awake).toHaveAttribute("aria-pressed", "true");
+  await expect(awake).not.toHaveClass(held);
+  // The fake daemon holds a fake: nothing keeps the test machine awake.
+  await page.getByRole("textbox", { name: "Give Claude a task" }).fill("Fix the typo");
+  await page.keyboard.press("ControlOrMeta+Enter");
+  await expect(page.getByTestId("approvals").getByRole("group", { name: "Run ls -la" })).toBeVisible();
+  await expect(awake).toHaveClass(held);
+  await expect(awake).toHaveAttribute("title", /Keeping the computer awake/);
+
+  const session = page.getByTestId("agent-session");
+  await session.getByRole("button", { name: "Stop" }).click();
+  await expect(session.getByRole("status")).toHaveText("Stopped");
+  await expect(awake).not.toHaveClass(held);
+  await expect(awake).toHaveAttribute("aria-pressed", "true");
+  await awake.click();
+  await expect(awake).toHaveAttribute("aria-pressed", "false");
+});

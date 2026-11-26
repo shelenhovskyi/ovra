@@ -78,6 +78,9 @@ export const ICONS = {
   /** file-plus: a new file */
   "new-file":
     '<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M9 15h6"/><path d="M12 18v-6"/>',
+  /** coffee */
+  awake:
+    '<path d="M10 2v2"/><path d="M14 2v2"/><path d="M16 8a1 1 0 0 1 1 1v8a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4V9a1 1 0 0 1 1-1h14a4 4 0 1 1 0 8h-1"/><path d="M6 2v2"/>',
   /** folder-plus */
   folder: `<path d="M12 10v6"/><path d="M9 13h6"/>${FOLDER}`,
   /** shield-check: an approval */

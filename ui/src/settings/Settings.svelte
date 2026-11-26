@@ -10,6 +10,7 @@ import { formatShortcut, inBrowserTab, isApple, liveKeys } from "../keys/shortcu
 import type { CoreInfo } from "../lib/protocol";
 import NetworkPanel from "../network/NetworkPanel.svelte";
 import PolicyPanel from "../policy/PolicyPanel.svelte";
+import KeepAwakeField from "../power/KeepAwakeField.svelte";
 import ServersPanel from "../servers/ServersPanel.svelte";
 import { useOvra } from "../shell/context";
 import ViewFrame from "../shell/ViewFrame.svelte";
@@ -168,6 +169,7 @@ function onListKeydown(event: KeyboardEvent): void {
           <AgentLimitField />
           <AgentLimitField research />
           <ResourcesField />
+          <KeepAwakeField />
         {:else if pane.id === "rules"}
           <PolicyPanel />
         {:else if pane.id === "network"}
