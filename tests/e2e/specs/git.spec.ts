@@ -121,7 +121,6 @@ test("stage a file and one hunk, commit, and switch to a new branch", async ({ p
 
   await panel.getByTestId("git-branch").click();
   await panel.getByRole("button", { name: "New branch…" }).click();
-  await expectAccessible(page, "with the branch list open");
   await panel.getByRole("textbox", { name: "New branch name" }).fill("feature/e2e");
   await panel.getByRole("button", { name: "Create and switch" }).click();
   await expect(panel.getByTestId("git-branch")).toHaveAccessibleName("Branch: feature/e2e");

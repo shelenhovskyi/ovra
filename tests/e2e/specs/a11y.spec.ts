@@ -6,8 +6,10 @@ import { expect, expectAccessible, loadProject, test } from "../test";
 // axe on the screens every session passes through, in each look a person can
 // ask the system for. The agent, review, git and Focus flows run it in their
 // own tests (agents.spec.ts, git.spec.ts), where those screens are reached.
-
-test("the start screen passes axe in dark and in light with increased contrast", async ({ page }) => {
+// One test, so the page starts once.
+test("the start screen, an open file and the palette pass axe in every look; forced colors keep focus rings", async ({
+  page,
+}) => {
   await page.emulateMedia({ colorScheme: "dark" });
   await page.goto(process.env.OVRA_URL ?? "");
   await expect(page.getByRole("heading", { name: "Open a project" })).toBeVisible();
@@ -17,15 +19,11 @@ test("the start screen passes axe in dark and in light with increased contrast",
   await expectAccessible(page, "on the start screen");
   await page.emulateMedia({ colorScheme: "light", contrast: "more" });
   await expectAccessible(page, "on the start screen, light, increased contrast");
-});
 
-test("an open project with a file and the palette passes axe in light, dark and increased contrast", async ({
-  page,
-}) => {
   const dir = mkdtempSync(join(tmpdir(), "ovra-a11y-"));
   writeFileSync(join(dir, "README.md"), "# Notes\n\nSome text.\n");
   writeFileSync(join(dir, "main.rs"), 'fn main() {\n    println!("hi");\n}\n');
-  await page.emulateMedia({ colorScheme: "light" });
+  await page.emulateMedia({ colorScheme: "light", contrast: "no-preference" });
   await loadProject(page, dir);
   await page.getByRole("treeitem", { name: /main\.rs/ }).dblclick();
   await expect(page.getByRole("tab", { name: "main.rs" })).toBeVisible();
@@ -38,15 +36,11 @@ test("an open project with a file and the palette passes axe in light, dark and 
   await page.keyboard.press("Alt+P");
   await expect(page.getByRole("dialog", { name: "Command palette" })).toBeVisible();
   await expectAccessible(page, "with the palette open");
-});
+  await page.keyboard.press("Escape");
 
-test("in forced colors every focus ring is still drawn", async ({ page }) => {
-  const dir = mkdtempSync(join(tmpdir(), "ovra-a11y-forced-"));
-  writeFileSync(join(dir, "README.md"), "readme\n");
-  await page.emulateMedia({ forcedColors: "active" });
-  await loadProject(page, dir);
   // Forced colors drop box-shadow and accent fills: the splitter and the task
   // box, which ring that way, show an outline instead.
+  await page.emulateMedia({ forcedColors: "active" });
   const ring = (selector: string) =>
     page.evaluate((s) => {
       const style = getComputedStyle(document.querySelector(s) as Element);
