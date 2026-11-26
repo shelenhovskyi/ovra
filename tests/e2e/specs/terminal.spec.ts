@@ -1,17 +1,14 @@
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { expect, test } from "../test";
+import { expect, loadProject, test } from "../test";
 
 test("terminals open from the keyboard, run commands in tabs and hide without ending", async ({ page }) => {
   const url = process.env.OVRA_URL;
   if (!url) throw new Error("OVRA_URL is not set; globalSetup did not run");
   const dir = mkdtempSync(join(tmpdir(), "ovra-terminal-"));
 
-  await page.goto(url);
-  const projects = page.getByTestId("project-list");
-  await projects.getByRole("textbox", { name: "Open a folder" }).fill(dir);
-  await projects.getByRole("button", { name: "Open", exact: true }).click();
+  await loadProject(page, dir, url);
   await expect(page.getByRole("tree", { name: "Files" })).toBeVisible();
 
   const panel = page.getByRole("region", { name: "Terminal panel" });
@@ -70,10 +67,7 @@ test("a terminal redraws output it missed from the core's scrollback", async ({ 
     });
   });
 
-  await page.goto(url);
-  const projects = page.getByTestId("project-list");
-  await projects.getByRole("textbox", { name: "Open a folder" }).fill(dir);
-  await projects.getByRole("button", { name: "Open", exact: true }).click();
+  await loadProject(page, dir, url);
   await expect(page.getByRole("tree", { name: "Files" })).toBeVisible();
 
   await page.keyboard.press("Control+Backquote");

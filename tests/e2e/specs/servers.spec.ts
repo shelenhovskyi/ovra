@@ -1,7 +1,7 @@
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { expect, test } from "../test";
+import { expect, loadProject, test } from "../test";
 
 test("the servers tab of the dock opens with its shortcut and says what runs", async ({ page }) => {
   const url = process.env.OVRA_URL;
@@ -13,10 +13,7 @@ test("the servers tab of the dock opens with its shortcut and says what runs", a
     join(dir, ".ovra/servers.json"),
     JSON.stringify({ servers: [{ name: "web", command: ["ready"], port: 5173 }] }),
   );
-  await page.goto(url);
-  const projects = page.getByTestId("project-list");
-  await projects.getByRole("textbox", { name: "Open a folder" }).fill(dir);
-  await projects.getByRole("button", { name: "Open", exact: true }).click();
+  await loadProject(page, dir, url);
   await expect(page.getByRole("treeitem", { name: /README\.md/ })).toBeVisible();
 
   await page.keyboard.press("ControlOrMeta+Alt+KeyS");
@@ -39,10 +36,7 @@ test("a defined server starts, gets ready, shows its output and stops", async ({
     join(dir, ".ovra/servers.json"),
     JSON.stringify({ servers: [{ name: "web", command: ["ready"], port: 5173 }] }),
   );
-  await page.goto(url);
-  const projects = page.getByTestId("project-list");
-  await projects.getByRole("textbox", { name: "Open a folder" }).fill(dir);
-  await projects.getByRole("button", { name: "Open", exact: true }).click();
+  await loadProject(page, dir, url);
   await expect(page.getByRole("treeitem", { name: /README\.md/ })).toBeVisible();
 
   // Defined and started in Settings > Servers; it runs in the dock's Servers tab.

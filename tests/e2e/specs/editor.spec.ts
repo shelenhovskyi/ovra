@@ -1,7 +1,7 @@
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
-import { expect, test } from "../test";
+import { expect, loadProject, test } from "../test";
 
 test("edit a file with highlighting and save it to disk", async ({ page }) => {
   const url = process.env.OVRA_URL;
@@ -9,10 +9,7 @@ test("edit a file with highlighting and save it to disk", async ({ page }) => {
   const dir = mkdtempSync(join(tmpdir(), "ovra-editor-"));
   writeFileSync(join(dir, "main.rs"), "fn main() {\n    run();\n}\n");
 
-  await page.goto(url);
-  const projects = page.getByTestId("project-list");
-  await projects.getByRole("textbox", { name: "Open a folder" }).fill(dir);
-  await projects.getByRole("button", { name: "Open", exact: true }).click();
+  await loadProject(page, dir, url);
   await page.getByRole("treeitem", { name: /main\.rs/ }).click();
   await page.keyboard.press("ControlOrMeta+E");
 
@@ -57,10 +54,7 @@ test("reopens the file that was open when the project was left", async ({ page }
     });
   });
 
-  await page.goto(url);
-  const projects = page.getByTestId("project-list");
-  await projects.getByRole("textbox", { name: "Open a folder" }).fill(dir);
-  await projects.getByRole("button", { name: "Open", exact: true }).click();
+  await loadProject(page, dir, url);
   await page.getByRole("treeitem", { name: /notes\.md/ }).click();
   await expect(page.getByTestId("main")).toContainText("Notes");
   await saved;
@@ -77,10 +71,7 @@ test("the editor's context menu finds in the file, and Ctrl+G goes to a line", a
   const dir = mkdtempSync(join(tmpdir(), "ovra-menu-"));
   writeFileSync(join(dir, "main.rs"), "fn main() {}\n");
 
-  await page.goto(url);
-  const projects = page.getByTestId("project-list");
-  await projects.getByRole("textbox", { name: "Open a folder" }).fill(dir);
-  await projects.getByRole("button", { name: "Open", exact: true }).click();
+  await loadProject(page, dir, url);
   await page.getByRole("treeitem", { name: /main\.rs/ }).click();
   await page.keyboard.press("ControlOrMeta+E");
   const content = page.getByTestId("main").locator(".cm-content");

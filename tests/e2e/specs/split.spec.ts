@@ -1,7 +1,7 @@
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { expect, test } from "../test";
+import { expect, loadProject, test } from "../test";
 
 test("split right shows one text in two groups; an edit on the right saves, a reload keeps both, and a group closes with its last tab", async ({
   page,
@@ -11,10 +11,7 @@ test("split right shows one text in two groups; an edit on the right saves, a re
   writeFileSync(join(dir, "b.txt"), "beta\n");
   const url = process.env.OVRA_URL;
   if (!url) throw new Error("OVRA_URL is not set; globalSetup did not run");
-  await page.goto(url);
-  const projects = page.getByTestId("project-list");
-  await projects.getByRole("textbox", { name: "Open a folder" }).fill(dir);
-  await projects.getByRole("button", { name: "Open", exact: true }).click();
+  await loadProject(page, dir, url);
   await page.getByRole("treeitem", { name: /a\.txt/ }).dblclick();
   await page.keyboard.press("ControlOrMeta+E");
 

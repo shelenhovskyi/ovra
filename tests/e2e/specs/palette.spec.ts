@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Page } from "@playwright/test";
-import { expect, shortcutLabel, test } from "../test";
+import { expect, loadProject, shortcutLabel, test } from "../test";
 
 function daemonUrl(): string {
   const raw = process.env.OVRA_URL;
@@ -57,10 +57,7 @@ test("Alt+P goes to a file; the palette switches and closes projects", async ({ 
   mkdirSync(join(dir, "gen"));
   for (let i = 0; i < 2100; i++) writeFileSync(join(dir, "gen", `file-${i}.txt`), "");
 
-  await page.goto(daemonUrl());
-  const projects = page.getByTestId("project-list");
-  await projects.getByRole("textbox", { name: "Open a folder" }).fill(dir);
-  await projects.getByRole("button", { name: "Open", exact: true }).click();
+  await loadProject(page, dir, daemonUrl());
   await expect(page.getByRole("treeitem", { name: /README\.md/ })).toBeVisible();
 
   // The title bar's field is "Search or run" on Mod+K: files, and after ">" commands, synonyms too.
@@ -95,6 +92,7 @@ test("Alt+P goes to a file; the palette switches and closes projects", async ({ 
   await page.keyboard.press("ControlOrMeta+Shift+P");
   await page.keyboard.type("close project");
   await page.keyboard.press("Enter");
+  const projects = page.getByTestId("project-list");
   await expect(projects).toBeVisible();
   await expect(projects.getByRole("button").first()).toBeFocused();
 

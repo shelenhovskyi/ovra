@@ -1,7 +1,7 @@
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { expect, test } from "../test";
+import { expect, loadProject, test } from "../test";
 
 function daemonUrl(): string {
   const raw = process.env.OVRA_URL;
@@ -18,10 +18,7 @@ test("Mod+Shift+F searches the project's files and opens a result at its match",
   writeFileSync(join(dir, "README.md"), "Nothing to see.\n");
   writeFileSync(join(dir, "ignored/skip.txt"), "needle\n");
 
-  await page.goto(daemonUrl());
-  const projects = page.getByTestId("project-list");
-  await projects.getByRole("textbox", { name: "Open a folder" }).fill(dir);
-  await projects.getByRole("button", { name: "Open", exact: true }).click();
+  await loadProject(page, dir, daemonUrl());
   await expect(page.getByRole("treeitem", { name: /README\.md/ })).toBeVisible();
 
   await page.keyboard.press("ControlOrMeta+Shift+F");
@@ -47,10 +44,7 @@ test("Mod+Shift+H replaces in files: open files stay unsaved, others are written
   writeFileSync(join(dir, "open.txt"), "old\n");
   writeFileSync(join(dir, "closed.txt"), "an old (old)\n");
 
-  await page.goto(daemonUrl());
-  const projects = page.getByTestId("project-list");
-  await projects.getByRole("textbox", { name: "Open a folder" }).fill(dir);
-  await projects.getByRole("button", { name: "Open", exact: true }).click();
+  await loadProject(page, dir, daemonUrl());
   await expect(page.getByRole("treeitem", { name: /open\.txt/ })).toBeVisible();
 
   await page.keyboard.press("ControlOrMeta+Shift+F");

@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import type { Page } from "@playwright/test";
-import { expect, test } from "../test";
+import { expect, loadProject, test } from "../test";
 
 function project(files: Record<string, string>): string {
   const dir = mkdtempSync(join(tmpdir(), "ovra-tabs-"));
@@ -16,10 +16,7 @@ function project(files: Record<string, string>): string {
 async function open(page: Page, dir: string): Promise<void> {
   const url = process.env.OVRA_URL;
   if (!url) throw new Error("OVRA_URL is not set; globalSetup did not run");
-  await page.goto(url);
-  const projects = page.getByTestId("project-list");
-  await projects.getByRole("textbox", { name: "Open a folder" }).fill(dir);
-  await projects.getByRole("button", { name: "Open", exact: true }).click();
+  await loadProject(page, dir, url);
 }
 
 test("tabs switch with the keyboard, keep undo and focus, and ask before closing unsaved text", async ({ page }) => {

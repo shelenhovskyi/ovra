@@ -2,7 +2,7 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Page } from "@playwright/test";
-import { expect, test } from "../test";
+import { expect, loadProject, test } from "../test";
 
 /** Opens a new folder with `count` files and waits for the tree. */
 async function openProject(page: Page, prefix: string, count = 1): Promise<void> {
@@ -10,10 +10,7 @@ async function openProject(page: Page, prefix: string, count = 1): Promise<void>
   if (!url) throw new Error("OVRA_URL is not set; globalSetup did not run");
   const dir = mkdtempSync(join(tmpdir(), prefix));
   for (let i = 0; i < count; i++) writeFileSync(join(dir, `file-${String(i).padStart(3, "0")}.txt`), `${i}\n`);
-  await page.goto(url);
-  const projects = page.getByTestId("project-list");
-  await projects.getByRole("textbox", { name: "Open a folder" }).fill(dir);
-  await projects.getByRole("button", { name: "Open", exact: true }).click();
+  await loadProject(page, dir, url);
   await expect(page.getByRole("treeitem", { name: /file-000\.txt/ })).toBeVisible();
 }
 

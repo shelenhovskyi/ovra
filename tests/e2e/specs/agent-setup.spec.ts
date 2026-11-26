@@ -1,7 +1,7 @@
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { clickWhenArmed, expect, test } from "../test";
+import { clickWhenArmed, expect, loadProject, test } from "../test";
 
 // The fake agent is always set up; project configuration is read from disk
 // like the real runtime does.
@@ -19,10 +19,7 @@ test("review what a project would load, trust it and stop trusting it", async ({
   writeFileSync(join(dir, "README.md"), "readme\n");
   // Trust buttons wait a moment after the card changes; the clock skips that.
   await page.clock.install();
-  await page.goto(url);
-  const projects = page.getByTestId("project-list");
-  await projects.getByRole("textbox", { name: "Open a folder" }).fill(dir);
-  await projects.getByRole("button", { name: "Open", exact: true }).click();
+  await loadProject(page, dir, url);
 
   // Claude is ready: no setup card; one footer line under the start form says so.
   await expect(page.getByTestId("agents-footer")).toHaveText("Claude · Ready");

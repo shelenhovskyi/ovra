@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Page } from "@playwright/test";
-import { clickWhenArmed, expect, test } from "../test";
+import { clickWhenArmed, expect, loadProject, test } from "../test";
 
 // The daemon runs with --fake-agent: every session asks to run `ls -la` and to
 // edit README.md, then waits; each reply asks to run `git status`. A task's
@@ -23,10 +23,7 @@ async function openProject(page: Page, prefix: string): Promise<void> {
   const dir = mkdtempSync(join(tmpdir(), prefix));
   writeFileSync(join(dir, "README.md"), "teh readme\n");
   await page.clock.install();
-  await page.goto(url);
-  const projects = page.getByTestId("project-list");
-  await projects.getByRole("textbox", { name: "Open a folder" }).fill(dir);
-  await projects.getByRole("button", { name: "Open", exact: true }).click();
+  await loadProject(page, dir, url);
   await expect(page.getByRole("treeitem", { name: /README\.md/ })).toBeVisible();
 }
 
@@ -54,10 +51,7 @@ async function openGitProject(page: Page, prefix: string, files: Record<string, 
   git("add", ".");
   git("commit", "-q", "-m", "start");
   await page.clock.install();
-  await page.goto(url);
-  const projects = page.getByTestId("project-list");
-  await projects.getByRole("textbox", { name: "Open a folder" }).fill(dir);
-  await projects.getByRole("button", { name: "Open", exact: true }).click();
+  await loadProject(page, dir, url);
   await expect(page.getByRole("treeitem", { name: /README\.md/ })).toBeVisible();
   return dir;
 }

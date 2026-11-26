@@ -2,7 +2,7 @@ import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Page } from "@playwright/test";
-import { clickWhenArmed, expect, test } from "../test";
+import { clickWhenArmed, expect, loadProject, test } from "../test";
 
 /** Opens a fresh project holding `files`, trusts it and shows `main.rs` in the viewer. */
 async function trustedProject(page: Page, files: Record<string, string>): Promise<string> {
@@ -12,10 +12,7 @@ async function trustedProject(page: Page, files: Record<string, string>): Promis
   for (const [name, text] of Object.entries(files)) writeFileSync(join(dir, name), text);
   // Trust buttons wait a moment after the card changes; the clock skips that.
   await page.clock.install();
-  await page.goto(url);
-  const projects = page.getByTestId("project-list");
-  await projects.getByRole("textbox", { name: "Open a folder" }).fill(dir);
-  await projects.getByRole("button", { name: "Open", exact: true }).click();
+  await loadProject(page, dir, url);
   // No .claude/ here: no trust card until the status bar's item asks for it.
   const trust = page.getByTestId("project-trust");
   await page.getByRole("treeitem", { name: /main\.rs/ }).click();

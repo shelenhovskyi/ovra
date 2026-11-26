@@ -1,3 +1,4 @@
+import { basename } from "node:path";
 import { test as base, expect, type Locator, type Page } from "@playwright/test";
 
 // The desktop window runs with Tauri's `freezePrototype` (app/tauri.conf.json),
@@ -46,4 +47,55 @@ export function shortcutLabel(text: string): string {
       .map((m) => symbols[m])
       .join("") + key
   );
+}
+
+/** The shared daemon's URL, from globalSetup. */
+function daemonUrl(): string {
+  const url = process.env.OVRA_URL;
+  if (!url) throw new Error("OVRA_URL is not set; globalSetup did not run");
+  return url;
+}
+
+/** Adds `root` to the daemon's projects over its WebSocket; resolves with the project's id. */
+async function addProject(url: string, root: string): Promise<string> {
+  const { host, searchParams } = new URL(url);
+  const socket = new WebSocket(`ws://${host}/ws?token=${encodeURIComponent(searchParams.get("token") ?? "")}`);
+  try {
+    await new Promise((ok, fail) => {
+      socket.addEventListener("open", ok, { once: true });
+      socket.addEventListener("error", fail, { once: true });
+    });
+    return await new Promise<string>((ok, fail) => {
+      socket.addEventListener("message", (event) => {
+        const frame = JSON.parse(String(event.data)) as {
+          id?: number;
+          result?: { data: { id: string } };
+          error?: unknown;
+        };
+        if (frame.id !== 1) return;
+        if (frame.result) ok(frame.result.data.id);
+        else fail(new Error(`projects.add failed: ${JSON.stringify(frame.error)}`));
+      });
+      socket.send(JSON.stringify({ id: 1, method: "projects.add", params: { root } }));
+    });
+  } finally {
+    socket.close();
+  }
+}
+
+/**
+ * Loads the page with `dir` open as its project, the way a reload opens the
+ * project of the last visit: about 0.1 s faster than the start page's form,
+ * which tests of that form (tree.spec.ts, shell.spec.ts) still use.
+ */
+export async function loadProject(page: Page, dir: string, url = daemonUrl()): Promise<void> {
+  const id = await addProject(url, dir);
+  // Only on the first load: a later reload opens what the test left open.
+  await page.addInitScript((project) => {
+    if (sessionStorage.getItem("e2e.project")) return;
+    sessionStorage.setItem("e2e.project", project);
+    localStorage.setItem("ovra.project", project);
+  }, id);
+  await page.goto(url);
+  await expect(page.getByRole("button", { name: `Project ${basename(dir)}, switch project` })).toBeVisible();
 }

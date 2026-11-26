@@ -2,7 +2,7 @@ import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { root } from "../daemon";
-import { expect, test } from "../test";
+import { expect, loadProject, test } from "../test";
 
 // The macOS menu bar (app/src/menu.rs) shows each command's shortcut as its
 // accelerator. Only the window has it, so this checks its table against the
@@ -19,10 +19,7 @@ test("the menu bar shows the shortcuts the commands have", async ({ page }) => {
   if (!url) throw new Error("OVRA_URL is not set; globalSetup did not run");
   const dir = mkdtempSync(join(tmpdir(), "ovra-menu-"));
   writeFileSync(join(dir, "README.md"), "menu\n");
-  await page.goto(url);
-  const projects = page.getByTestId("project-list");
-  await projects.getByRole("textbox", { name: "Open a folder" }).fill(dir);
-  await projects.getByRole("button", { name: "Open", exact: true }).click();
+  await loadProject(page, dir, url);
   await expect(page.getByRole("treeitem", { name: /README\.md/ })).toBeVisible();
 
   await page.keyboard.press("ControlOrMeta+Comma");

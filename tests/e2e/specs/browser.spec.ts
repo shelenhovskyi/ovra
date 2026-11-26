@@ -1,7 +1,7 @@
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { expect, test } from "../test";
+import { expect, loadProject, test } from "../test";
 
 // The daemon runs with --fake-browser: every page shows one still frame (a dark
 // bar on grey) and its one element, button "Save", is under every point. A task
@@ -12,10 +12,7 @@ test("the person opens a page, sees it, and picks an element for the next reply"
   if (!url) throw new Error("OVRA_URL is not set; globalSetup did not run");
   const dir = mkdtempSync(join(tmpdir(), "ovra-browser-"));
   writeFileSync(join(dir, "README.md"), "readme\n");
-  await page.goto(url);
-  const projects = page.getByTestId("project-list");
-  await projects.getByRole("textbox", { name: "Open a folder" }).fill(dir);
-  await projects.getByRole("button", { name: "Open", exact: true }).click();
+  await loadProject(page, dir, url);
   await expect(page.getByRole("treeitem", { name: /README\.md/ })).toBeVisible();
   await page.getByRole("textbox", { name: "Describe a task" }).fill("Browse the page");
   await page.keyboard.press("ControlOrMeta+Enter");

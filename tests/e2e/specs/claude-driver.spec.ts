@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { delimiter, join, resolve } from "node:path";
 import type { Page } from "@playwright/test";
 import { binary, root, startDaemon } from "../daemon";
-import { expect, test } from "../test";
+import { expect, loadProject, test } from "../test";
 
 // The real claude driver against `fake-claude`, which plays the recorded
 // session (crates/agent-runtime/fixtures) whose prompt each test sends: the
@@ -46,10 +46,7 @@ async function start(page: Page, prompt: string): Promise<void> {
   writeFileSync(join(dir, "README.md"), "# Demo\n\nThis is teh demo.\n");
   cpSync(resolve(root, "crates/agent-runtime/fixtures"), join(dir, fixtures), { recursive: true });
   await page.clock.install();
-  await page.goto(daemon.url);
-  const projects = page.getByTestId("project-list");
-  await projects.getByRole("textbox", { name: "Open a folder" }).fill(dir);
-  await projects.getByRole("button", { name: "Open", exact: true }).click();
+  await loadProject(page, dir, daemon.url);
   await expect(page.getByRole("treeitem", { name: /README\.md/ })).toBeVisible();
   // The recording's prompts, word for word: fake-claude checks every line.
   await page.getByRole("textbox", { name: "Describe a task" }).fill(prompt);
