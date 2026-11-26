@@ -2,6 +2,7 @@
 // (a folder's new file goes inside it, a file's next to it) and have no global
 // keys: F2 and Delete belong to the focused tree, the editor has its own F2.
 
+import { askAgent } from "../agents/context.svelte";
 import { registerCommand } from "../keys/commands";
 import { findInFolder } from "../search/find-in";
 import { openTerminalIn } from "../terminal/open-in";
@@ -15,6 +16,11 @@ export function folderFor(row: Pick<Row, "path" | "kind"> | null): string {
   return row.kind === "dir" ? row.path : parentOf(row.path);
 }
 
+/** Adds rows to the agent's task box as chips, as dragging them onto it does. */
+export function addToTask(rows: { path: string; dir: boolean }[]): void {
+  for (const { path, dir } of rows) askAgent(dir ? { kind: "folder", path } : { kind: "file", path });
+}
+
 /**
  * Registers the commands; `active` is the active real row, `chosen` the
  * selected rows on disk (or the active one), `show` makes the tree visible first.
@@ -24,6 +30,7 @@ export function registerFileCommands(
   active: () => Pick<Row, "path" | "kind" | "git"> | null,
   chosen: () => string[],
   show: () => void,
+  isDir: (path: string) => boolean = () => false,
 ): () => void {
   const on = (run: (row: Pick<Row, "path" | "kind">) => unknown) => () => {
     const row = active();
@@ -81,6 +88,13 @@ export function registerFileCommands(
       id: "tree.find_in_folder",
       title: "Find in folder…",
       run: () => findInFolder(folderFor(active())),
+    }),
+    registerCommand({
+      id: "tree.add_to_task",
+      title: "Add selected files to the task",
+      category: "Agents",
+      keywords: ["context", "agent", "@"],
+      run: () => addToTask(chosen().map((path) => ({ path, dir: isDir(path) }))),
     }),
     registerCommand({ id: "tree.undo", title: "Undo file operation", run: () => void actions.undo() }),
     registerCommand({ id: "tree.redo", title: "Redo file operation", run: () => void actions.redo() }),

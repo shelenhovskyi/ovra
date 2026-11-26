@@ -231,6 +231,7 @@ $effect(() => {
       activeRow,
       () => onDisk,
       () => onreveal?.(),
+      isDir,
     ),
   ];
   return () => {
@@ -447,7 +448,7 @@ function oncontextmenu(e: MouseEvent): void {
     return;
   }
   if (picked.length > 1 && chosenSet.has(path)) {
-    openContextMenu(at, selectionMenu(actions, picked));
+    openContextMenu(at, selectionMenu(actions, picked, isDir));
     return;
   }
   selectPath(path);
@@ -464,8 +465,13 @@ function menuForActive(): void {
     y: row ? (box?.bottom ?? 0) : (box?.top ?? 0) + 8,
     returnFocus: viewport ?? null,
   };
-  if (picked.length > 1) openContextMenu(at, selectionMenu(actions, picked));
+  if (picked.length > 1) openContextMenu(at, selectionMenu(actions, picked, isDir));
   else openContextMenu(at, row ? rowMenu(actions, row) : rootMenu(actions, collapseAll));
+}
+
+/** Whether a listed row is a folder, for Add to task. */
+function isDir(path: string): boolean {
+  return rows.find((r) => r.path === path)?.kind === "dir";
 }
 
 /** The active row, unless it is the draft of a new entry. */

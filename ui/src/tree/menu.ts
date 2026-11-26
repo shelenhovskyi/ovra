@@ -8,7 +8,7 @@ import type { MenuEntry, MenuItem } from "../menu/context-menu.svelte";
 import { findInFolder } from "../search/find-in";
 import { openTerminalIn } from "../terminal/open-in";
 import type { FileActions } from "./actions.svelte";
-import { folderFor } from "./commands";
+import { addToTask, folderFor } from "./commands";
 import { isGone, type Row } from "./model";
 import { revealLabel, trashKeys } from "./ops";
 
@@ -35,6 +35,11 @@ function copyPathItem(actions: FileActions, paths: string[]): MenuItem {
   };
 }
 
+/** Add to task for the rows at `paths`; `isDir` tells folders from files. */
+function taskItem(paths: string[], isDir: (path: string) => boolean): MenuItem {
+  return { label: "Add to task", run: () => addToTask(paths.map((path) => ({ path, dir: isDir(path) }))) };
+}
+
 /** Opens a terminal in `dir`. */
 function terminalItem(dir: string): MenuItem {
   return { label: "Open in terminal", run: () => openTerminalIn(dir) };
@@ -58,6 +63,7 @@ export function rowMenu(
     folder && { label: "Find in folder…", run: () => findInFolder(row.path) },
     { label: revealLabel(), run: () => actions.reveal(row.path) },
     terminalItem(dir),
+    taskItem([row.path], () => folder),
     "separator",
     { label: "Cut", keys: "Mod+X", run: () => actions.cut([row.path]) },
     { label: "Copy", keys: "Mod+C", run: () => actions.copy([row.path]) },
@@ -71,8 +77,10 @@ export function rowMenu(
 }
 
 /** The menu of several selected rows: what works on all of them at once. */
-export function selectionMenu(actions: FileActions, paths: string[]): MenuEntry[] {
+export function selectionMenu(actions: FileActions, paths: string[], isDir: (path: string) => boolean): MenuEntry[] {
   return [
+    taskItem(paths, isDir),
+    "separator",
     { label: "Cut", keys: "Mod+X", run: () => actions.cut(paths) },
     { label: "Copy", keys: "Mod+C", run: () => actions.copy(paths) },
     copyPathItem(actions, paths),

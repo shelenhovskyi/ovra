@@ -122,6 +122,7 @@ describe("file actions in the tree", () => {
     expect(labels()).toEqual([
       "Open Containing Folder",
       "Open in terminal",
+      "Add to task",
       "-",
       "Cut",
       "Copy",
@@ -148,7 +149,7 @@ describe("file actions in the tree", () => {
       "Collapse all",
     ]);
     t.tree.dispatchEvent(new KeyboardEvent("keydown", { code: "F10", key: "F10", shiftKey: true, bubbles: true }));
-    expect(labels()[7]).toBe("Rename…");
+    expect(labels()[8]).toBe("Rename…");
     closeContextMenu(false);
   });
 
@@ -264,7 +265,7 @@ describe("file actions in the tree", () => {
     expect(selectedPaths()).toEqual(["lib", "a.ts", "b.ts"]);
     t.row("a.ts")?.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, button: 2 }));
     const labels = (contextMenu.open?.entries ?? []).map((e) => (e === "separator" ? "-" : e.label));
-    expect(labels).toEqual(["Cut", "Copy", "Copy paths", "-", "Move to Trash…"]);
+    expect(labels).toEqual(["Add to task", "-", "Cut", "Copy", "Copy paths", "-", "Move to Trash…"]);
     closeContextMenu(false);
 
     // Mod+X dims what is cut, and what is in a cut folder, until Escape.

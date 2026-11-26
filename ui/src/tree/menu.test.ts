@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest";
+import { agentAsks } from "../agents/context.svelte";
 import type { MenuEntry, MenuItem } from "../menu/context-menu.svelte";
 import { handleFindInFolder } from "../search/find-in";
 import { handleOpenTerminalIn } from "../terminal/open-in";
 import type { FileActions } from "./actions.svelte";
-import { rowMenu } from "./menu";
+import { rowMenu, selectionMenu } from "./menu";
 
 const actions = { clip: null } as unknown as FileActions;
 
@@ -24,6 +25,7 @@ describe("rowMenu", () => {
       "Find in folder…",
       expect.any(String), // Reveal in the OS file manager, named per OS
       "Open in terminal",
+      "Add to task",
       "-",
       "Cut",
       "Copy",
@@ -35,6 +37,21 @@ describe("rowMenu", () => {
       "Move to Trash…",
     ]);
     expect(layout(rowMenu(actions, { path: "a.ts", kind: "file" }))).not.toContain("Paste");
+  });
+
+  it("adds a row or the selection to the agent's task box, folders as folders", () => {
+    agentAsks.waiting = [];
+    item(rowMenu(actions, { path: "src", kind: "dir" }), "Add to task")?.run();
+    item(
+      selectionMenu(actions, ["a.ts", "lib"], (path) => path === "lib"),
+      "Add to task",
+    )?.run();
+    expect(agentAsks.waiting).toEqual([
+      { kind: "folder", path: "src" },
+      { kind: "file", path: "a.ts" },
+      { kind: "folder", path: "lib" },
+    ]);
+    agentAsks.waiting = [];
   });
 
   it("offers only Copy path on a deleted file, which is gone from disk", () => {
