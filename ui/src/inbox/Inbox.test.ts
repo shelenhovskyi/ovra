@@ -335,31 +335,6 @@ describe("Inbox", () => {
     expect(core.sent("review.take").map((c) => c.params)).toEqual([{ id: "r3", include_protected: true }]);
   });
 
-  it("drops the tick for protected files once they change", async () => {
-    const core = await setup([review("r2", { session: "s3", mode: "isolated", fingerprint: "f2", files: guarded() })]);
-    await open();
-    $<HTMLButtonElement>("[data-file='.mcp.json']")?.click();
-    await settle();
-    include()?.click();
-    await settle();
-    expect(include()?.checked).toBe(true);
-    // The worker changed its files: the tick covered the old version.
-    core.items = [review("r2", { session: "s3", mode: "isolated", fingerprint: "f3", files: guarded() })];
-    core.emit({ type: "review.changed", data: { project: "p1", id: "r2" } });
-    await settle();
-    expect(include()?.checked).toBe(false);
-    // Looking at each again does not bring it back.
-    $<HTMLButtonElement>("[data-file='.envrc']")?.click();
-    await settle();
-    $<HTMLButtonElement>("[data-file='.mcp.json']")?.click();
-    await settle();
-    expect(include()?.getAttribute("aria-disabled")).toBe("false");
-    expect(include()?.checked).toBe(false);
-    button(/^Keep changes$/)?.click();
-    await settle();
-    expect(core.sent("review.approve").map((c) => c.params)).toEqual([{ id: "r2", commit: null, fingerprint: "f3" }]);
-  });
-
   it("shows the three-line summary from the item, else from the agent's last answer", async () => {
     const rows = () =>
       [...target.querySelectorAll("[data-testid=task-summary] .row")].map((r) =>

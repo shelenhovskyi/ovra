@@ -60,6 +60,7 @@ import { REVIEWS_KEYS } from "./keys";
 import { handleOpenFor } from "./open";
 import PrDialog from "./PrDialog.svelte";
 import PrPanel from "./PrPanel.svelte";
+import { ProtectedLooks } from "./protected.svelte";
 import { canOpenPr } from "./pull-request";
 import { message as errorText, type Outcome, type ReviewInbox } from "./reviews.svelte";
 
@@ -93,12 +94,8 @@ let announcement = $state("");
 let staleDiff = $state(false);
 /** The items agents asked to show since the inbox was last open. */
 let askedFor: ReviewId[] = [];
-/** Protected files whose diff was on screen since the inbox opened, by `seenKey`. */
-let seen = $state<string[]>([]);
-/** The person ticked "Also apply protected files" for a worker's item, at `includedFor`. */
-let includeProtected = $state(false);
-/** The item's fingerprint when the person ticked: the version they included. */
-let includedFor = $state<string | null>(null);
+/** Which protected files the person looked at, and the tick that includes a worker's. */
+const looks = new ProtectedLooks();
 let dialog = $state<HTMLElement>();
 /** The item whose "Open pull request" dialog is open. */
 let prFor = $state<ReviewId | null>(null);
@@ -251,21 +248,11 @@ async function undoDiscardPart(review: ReviewItem): Promise<void> {
 const diffShown = $derived(
   !item?.fingerprint || (diff !== null && diff.key === diffKey && diff.patch !== null && diff.fingerprint !== null),
 );
-/** Protected files of the item whose diff the person has not seen in this version. */
-const unseen = $derived(item ? item.files.filter((f) => f.protected && !seen.includes(seenKey(item, f))) : []);
-/** A worker's protected files that approve could copy: those not waiting for the direct agent. */
-const includable = $derived(item?.mode === "isolated" ? item.files.filter((f) => f.protected && !f.blocked) : []);
-const includableUnseen = $derived(includable.filter((f) => unseen.includes(f)));
-/** A direct item's protected files are already on disk: Approve keeps them only once each was seen. */
-const directWaits = $derived(item?.mode === "direct" && unseen.length > 0);
-/** The protected files a replace could copy: whatever is left, including those that waited at approve. */
-const takeGuarded = $derived(
-  item?.state === "partly_approved"
-    ? item.files.filter((f) => f.protected && [f.path, f.from].some((p) => p && item.not_copied.includes(p)))
-    : [],
-);
-/** Before a replace, each protected file it would copy must have been seen too. */
-const takeUnseen = $derived(takeGuarded.filter((f) => unseen.includes(f)));
+const unseen = $derived(item ? looks.unseen(item) : []);
+const includable = $derived(item ? looks.includable(item) : []);
+const includableUnseen = $derived(item ? looks.includableUnseen(item) : []);
+const directWaits = $derived(item ? looks.directWaits(item) : false);
+const takeUnseen = $derived(item ? looks.takeUnseen(item) : []);
 /** What Approve's description points at: why it waits, and the protected paths it would apply. */
 const approveWhy = $derived(
   [
@@ -362,8 +349,7 @@ $effect(() => {
 // A tick covers the version it was given for: once the files change, or one
 // needs a new look, it is gone and the person ticks again.
 $effect(() => {
-  if (includeProtected && (includableUnseen.length > 0 || (item?.fingerprint ?? null) !== includedFor))
-    includeProtected = false;
+  looks.dropStaleTick(item);
 });
 
 // A protected file counts as seen once its diff, read from the version of
@@ -371,21 +357,9 @@ $effect(() => {
 // where the chosen file's diff still loads.
 $effect(() => {
   if (!opened || !item || !file?.protected || !diff || diff.key !== diffKey || diff.patch === null) return;
-  if (item.fingerprint && diff.fingerprint !== item.fingerprint) return;
-  const key = seenKey(item, file);
-  untrack(() => {
-    if (!seen.includes(key)) seen = [...seen, key];
-  });
+  const [at, shown, fingerprint] = [item, file, diff.fingerprint];
+  untrack(() => looks.saw(at, shown, fingerprint));
 });
-
-/**
- * Which version of a file was seen: by the item's fingerprint (a worker's
- * files, a direct item's protected files) and the file's change, so a
- * later change needs a new look.
- */
-function seenKey(review: ReviewItem, f: FileChange): string {
-  return [review.id, review.fingerprint ?? "", f.path, f.from ?? "", f.kind, f.additions, f.deletions].join("\n");
-}
 
 function select(id: ReviewId | null): void {
   if (id === selectedId) return;
@@ -398,7 +372,7 @@ function select(id: ReviewId | null): void {
   const next = inbox.items.find((i) => i.id === id);
   // The riskiest file first: its diff is what the person sees.
   selectedPath = (next?.files.find((f) => f.protected) ?? next?.files[0])?.path ?? null;
-  includeProtected = false;
+  looks.untick();
   commit = false;
   commitMessage = next ? defaultCommitMessage(next) : "";
   confirmingReject = false;
@@ -417,8 +391,7 @@ async function show(keep = false): Promise<void> {
   askedFor = [];
 
   // Seen means seen in this sitting, not some earlier one.
-  seen = [];
-  includeProtected = false;
+  looks.forget();
   // Never show a list older than the moment the person looks at it.
   void inbox.reload();
   await tick();
@@ -526,11 +499,7 @@ async function approve(review: ReviewItem): Promise<void> {
   staleDiff = false;
   // A direct item's protected files are kept once each was seen; a worker's
   // are copied only if the person ticked the box after seeing each.
-  const included =
-    review.mode === "direct"
-      ? review.files.some((f) => f.protected)
-      : includeProtected && includable.length > 0 && includableUnseen.length === 0;
-  if ((await inbox.approve(review.id, message, included)) && inbox.outcome) {
+  if ((await inbox.approve(review.id, message, looks.included(review))) && inbox.outcome) {
     // The note on what was not copied is not read out by itself.
     const now = inbox.items.find((i) => i.id === review.id);
     const left = now?.state === "partly_approved" ? ` ${notCopiedHint(now, keptFrom)}` : "";
@@ -572,9 +541,9 @@ async function undoReject(review: ReviewItem): Promise<void> {
 }
 
 async function take(review: ReviewItem): Promise<void> {
-  if (takeUnseen.length > 0) return;
+  if (looks.takeUnseen(review).length > 0) return;
   // Each protected file left was seen: replacing copies them too.
-  if ((await inbox.take(review.id, takeGuarded.length > 0)) && inbox.outcome) {
+  if ((await inbox.take(review.id, looks.takeGuarded(review).length > 0)) && inbox.outcome) {
     announcement = outcomeText(inbox.outcome);
     await refocus();
   }
@@ -825,16 +794,12 @@ function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
                       <input
                         type="checkbox"
                         data-testid="inbox-include-protected"
-                        checked={includeProtected}
+                        checked={looks.ticked(item)}
                         onclick={(e) => {
                           // Stays focusable so its explanation is read out, but cannot be ticked yet.
                           if (includableUnseen.length > 0) e.preventDefault();
                         }}
-                        onchange={(e) => {
-                          if (includableUnseen.length > 0) return;
-                          includeProtected = e.currentTarget.checked;
-                          includedFor = item.fingerprint;
-                        }}
+                        onchange={(e) => looks.tick(item, e.currentTarget.checked)}
                         aria-disabled={includableUnseen.length > 0}
                         aria-describedby={includableUnseen.length > 0 ? "inbox-include-why" : undefined}
                       />
