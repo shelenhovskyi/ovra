@@ -4,6 +4,8 @@
 //! Contract: `ovra_core::services::AgentRuntime`; fake:
 //! `ovra_core::fakes::ScriptedAgent`.
 
+#[cfg_attr(not(test), expect(dead_code, reason = "the session driver uses it"))]
+mod tools;
 #[expect(dead_code, reason = "the session driver uses it")]
 mod v1;
 
