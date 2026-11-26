@@ -42,7 +42,7 @@ export async function startDaemon(
 
 /** Starts the shared daemon with the scripted fake agent; exposes OVRA_URL. */
 export default async function globalSetup(): Promise<() => void> {
-  const { url, stop } = await startDaemon(["--fake-agent", "--fake-servers", "--fake-browser"]);
+  const { url, stop } = await startDaemon(["--fake-agent", "--fake-servers", "--fake-browser", "--fake-forge"]);
   process.env.OVRA_URL = url;
   return stop;
 }

@@ -12,7 +12,7 @@ use clap::Parser;
 use ovra_agent_runtime::ClaudeCli;
 use ovra_core::Core;
 use ovra_core::services::{
-    AgentRuntime, Browser, DevServers, KeepAwake, LanguageServers, ResourceMonitor, Secrets,
+    AgentRuntime, Browser, DevServers, Forge, KeepAwake, LanguageServers, ResourceMonitor, Secrets,
 };
 use ovra_forge::GhForge;
 use ovra_fs_index::FsIndex;
@@ -56,6 +56,13 @@ struct Args {
     #[cfg(feature = "fake-agent")]
     #[arg(long)]
     fake_browser: bool,
+    /// Pushes and opens pull requests in memory instead of with the
+    /// person's `gh`: `origin` has every local branch of the project, and
+    /// each pull request has three checks: one passed, one failed, one
+    /// running.
+    #[cfg(feature = "fake-agent")]
+    #[arg(long)]
+    fake_forge: bool,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -116,7 +123,7 @@ async fn serve() -> anyhow::Result<()> {
         .agents(agents(&args))
         .dev_servers(dev_servers)
         .browser(agent_browser(&args))
-        .forge(Arc::new(GhForge::new()))
+        .forge(forge(&args))
         .resources(resources(&args))
         .keep_awake(keep_awake(&args))
         .build();
@@ -138,6 +145,131 @@ async fn serve() -> anyhow::Result<()> {
         })
         .await?;
     Ok(())
+}
+
+#[cfg(not(feature = "fake-agent"))]
+fn forge(_: &Args) -> Arc<dyn Forge> {
+    Arc::new(GhForge::new())
+}
+
+/// With the fake agent, `--fake-forge` never runs `gh` or pushes.
+#[cfg(feature = "fake-agent")]
+fn forge(args: &Args) -> Arc<dyn Forge> {
+    if !args.fake_forge {
+        return Arc::new(GhForge::new());
+    }
+    tracing::warn!("using the fake forge");
+    Arc::new(FakeForge::default())
+}
+
+/// [`ovra_core::fakes::MemoryForge`] whose `origin` has the project's
+/// local branches, and whose pull requests come with checks.
+#[cfg(feature = "fake-agent")]
+#[derive(Debug, Default)]
+struct FakeForge(ovra_core::fakes::MemoryForge);
+
+#[cfg(feature = "fake-agent")]
+impl Forge for FakeForge {
+    fn status(
+        &self,
+        root: PathBuf,
+        remote: String,
+    ) -> ovra_core::services::BoxFuture<
+        '_,
+        ovra_core::services::Result<ovra_core::protocol::pr::GhStatus>,
+    > {
+        self.0.status(root, remote)
+    }
+
+    fn fetch(
+        &self,
+        root: PathBuf,
+        remote: String,
+        branch: String,
+    ) -> ovra_core::services::BoxFuture<'_, ovra_core::services::Result<String>> {
+        let key = (remote.clone(), branch.clone());
+        let known = self.0.branches.lock().map(|b| b.contains_key(&key));
+        if known.is_ok_and(|known| !known) {
+            // The project's own branch stands in for the remote's.
+            let local = std::process::Command::new("git")
+                .arg("-C")
+                .arg(&root)
+                .args(["rev-parse", "--verify", "--quiet"])
+                .arg(format!("refs/heads/{branch}^{{commit}}"))
+                .output();
+            if let Ok(out) = local.as_ref()
+                && out.status.success()
+                && let Ok(mut branches) = self.0.branches.lock()
+            {
+                let commit = String::from_utf8_lossy(&out.stdout).trim().to_owned();
+                branches.insert(key, commit);
+            }
+        }
+        self.0.fetch(root, remote, branch)
+    }
+
+    fn push(
+        &self,
+        root: PathBuf,
+        remote: String,
+        commit: String,
+        branch: String,
+        expect: Option<String>,
+    ) -> ovra_core::services::BoxFuture<'_, ovra_core::services::Result<()>> {
+        self.0.push(root, remote, commit, branch, expect)
+    }
+
+    fn create(
+        &self,
+        root: PathBuf,
+        draft: ovra_core::protocol::pr::PrDraft,
+    ) -> ovra_core::services::BoxFuture<
+        '_,
+        ovra_core::services::Result<ovra_core::protocol::pr::PrInfo>,
+    > {
+        use ovra_core::protocol::pr::{CheckState, PrCheck};
+        Box::pin(async move {
+            let info = self.0.create(root, draft).await?;
+            let check = |name: &str, state, run: u64| PrCheck {
+                name: name.to_owned(),
+                state,
+                url: Some(format!("{}/checks?check={name}", info.url)),
+                run: Some(run),
+            };
+            if let Ok(mut pulls) = self.0.pulls.lock()
+                && let Some(pull) = pulls.get_mut(&info.number)
+            {
+                pull.checks = vec![
+                    check("build", CheckState::Passed, 1),
+                    check("test", CheckState::Failed, 2),
+                    check("lint", CheckState::Pending, 3),
+                ];
+            }
+            if let Ok(mut logs) = self.0.logs.lock() {
+                logs.insert(2, "test notes ... FAILED\nerror: 1 test failed".to_owned());
+            }
+            Ok(info)
+        })
+    }
+
+    fn view(
+        &self,
+        root: PathBuf,
+        number: u64,
+    ) -> ovra_core::services::BoxFuture<
+        '_,
+        ovra_core::services::Result<ovra_core::protocol::pr::PrStatus>,
+    > {
+        self.0.view(root, number)
+    }
+
+    fn failed_log(
+        &self,
+        root: PathBuf,
+        run: u64,
+    ) -> ovra_core::services::BoxFuture<'_, ovra_core::services::Result<String>> {
+        self.0.failed_log(root, run)
+    }
 }
 
 #[cfg(not(feature = "fake-agent"))]
