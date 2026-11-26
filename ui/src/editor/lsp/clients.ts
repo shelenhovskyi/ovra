@@ -8,7 +8,7 @@ import { lintGutter, setDiagnostics } from "@codemirror/lint";
 import { findReferences, LSPClient, LSPPlugin, languageServerExtensions } from "@codemirror/lsp-client";
 import { Prec, Text } from "@codemirror/state";
 import { EditorView, keymap, ViewPlugin } from "@codemirror/view";
-import type { KnownServer, LspStatus, ProjectId, ServerId, ServerInfo } from "../../lib/protocol";
+import type { JsonRpcMessage, KnownServer, LspStatus, ProjectId, ServerId, ServerInfo } from "../../lib/protocol";
 import type { Transport } from "../../lib/transport";
 import { languageServers } from "../../lsp/servers.svelte";
 import { askOnProblems } from "../agent-context";
@@ -16,6 +16,7 @@ import type { Buffer, Buffers } from "../buffers.svelte";
 import { languageFor } from "../languages";
 import { actionKeys, keyboardHover, type LspAction, runAction } from "./actions";
 import { ServerChannel } from "./channel";
+import { problems } from "./problems.svelte";
 import { renameAcross } from "./rename";
 import { safeHref, sanitizeHtml } from "./sanitize";
 import { pathOf, ROOT_URI, uriOf } from "./uris";
@@ -102,7 +103,9 @@ export class LanguageClients {
   constructor(private readonly options: Options) {
     this.unsubscribe = options.transport.onEvent((event) => {
       if (event.type === "lsp.message") {
-        this.byId(event.data.server)?.channel.deliver(event.data.message);
+        const server = this.byId(event.data.server);
+        if (server) this.collect(server, event.data.message);
+        server?.channel.deliver(event.data.message);
       } else if (event.type === "lsp.changed") {
         const { id, state } = event.data.server;
         const server = this.byId(id);
@@ -289,9 +292,18 @@ export class LanguageClients {
     return undefined;
   }
 
+  /** Keeps the diagnostics a server publishes for the Problems list, also for files the editor does not show. */
+  private collect(server: Server, message: JsonRpcMessage): void {
+    if (message.method !== "textDocument/publishDiagnostics") return;
+    const params = message.params as { uri?: unknown; diagnostics?: unknown } | undefined;
+    const path = typeof params?.uri === "string" ? pathOf(params.uri) : null;
+    if (path !== null) problems.publish(this.options.project, server.info.id, path, params?.diagnostics);
+  }
+
   private drop(server: Server): void {
     if (this.servers.get(server.language) !== server) return;
     this.servers.delete(server.language);
+    problems.forget(this.options.project, server.info.id);
     server.channel.close();
     server.client.disconnect();
     for (const buffer of server.buffers) buffer.setLanguageServer([], (state) => setDiagnostics(state, []));

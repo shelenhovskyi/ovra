@@ -9,6 +9,7 @@ import { Drafts } from "../drafts.svelte";
 import { MemoryStorage } from "../fake-core";
 import { LanguageClients } from "./clients";
 import { FakeLspCore } from "./fake-server";
+import { problems } from "./problems.svelte";
 
 // jsdom has no layout; CodeMirror measures text ranges when it draws the selection.
 beforeAll(() => {
@@ -310,6 +311,30 @@ test("hover and problems are reachable from the keyboard", async () => {
   view.contentDOM.dispatchEvent(new KeyboardEvent("keydown", { key: "F8", code: "F8" }));
   expect(view.state.selection.main.from).toBe(13);
   expect(notes).toEqual([]);
+});
+
+test("the problems list keeps every file's diagnostics until their server stops", async () => {
+  const { core, show } = setup();
+  await show("src/a b.ts");
+  await until(() => expect(core.got("s1", "textDocument/didOpen")).toHaveLength(1));
+  const range = { start: { line: 1, character: 2 }, end: { line: 1, character: 3 } };
+  const publish = (uri: string) =>
+    core.push("s1", {
+      method: "textDocument/publishDiagnostics",
+      params: { uri, diagnostics: [{ range, severity: 2, message: "unused" }] },
+    });
+  publish("ovra:///src/b.ts"); // not shown in the editor
+  publish("file:///etc/passwd"); // outside the project: never listed
+  expect(problems.files("p1")).toEqual([
+    {
+      path: "src/b.ts",
+      problems: [
+        { severity: "warning", message: "unused", source: null, line: 2, column: 3, spot: { line: 2, from: 2, to: 3 } },
+      ],
+    },
+  ]);
+  core.stopServer("s1");
+  expect(problems.files("p1")).toEqual([]);
 });
 
 test("an untrusted project says once why its files get no language server", async () => {
