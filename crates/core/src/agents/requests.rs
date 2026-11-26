@@ -916,7 +916,16 @@ async fn run(
         agent,
         mode,
         cwd: launch.cwd,
-        tools: launch.tools,
+        // A provider that cannot reach Ovra's IDE tools works without them
+        // in its role (`docs/specs/more-agents.md`).
+        tools: launch.tools.filter(|_| {
+            agent == AgentKind::Claude
+                || ctx
+                    .runtime
+                    .providers()
+                    .iter()
+                    .any(|p| p.id == agent && p.capabilities.ide_tools)
+        }),
         prompt,
         executable: target.account.executable.map(PathBuf::from),
         config_dir,

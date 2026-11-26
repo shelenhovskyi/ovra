@@ -26,8 +26,14 @@ const SPAWNS_PER_PLACE: usize = 3;
 pub(super) struct Entry {
     pub(super) id: TaskId,
     pub(super) project: ProjectId,
+    /// For one agent in its own copy (`solo`), its one worker: stopping it
+    /// ends the task.
     pub(super) coordinator: SessionId,
     pub(super) workers: Vec<Worker>,
+    /// One agent in its own copy, without a coordinator
+    /// (`docs/specs/more-agents.md`).
+    #[serde(default)]
+    pub(super) solo: bool,
     /// Workers that could not start, latest attempt per name.
     #[serde(default)]
     failed: Vec<FailedWorker>,
@@ -81,7 +87,9 @@ impl Entry {
     }
 
     fn sessions(&self) -> impl Iterator<Item = &SessionId> {
-        std::iter::once(&self.coordinator).chain(self.workers.iter().map(|w| &w.session))
+        std::iter::once(&self.coordinator)
+            .filter(|_| !self.solo)
+            .chain(self.workers.iter().map(|w| &w.session))
     }
 }
 
@@ -95,14 +103,12 @@ pub(super) async fn handle(core: &Core, request: OrchestrationRequest) -> Result
             agent,
             solo,
         } => {
-            if solo || agent != AgentKind::Claude {
-                return Err(ProtocolError::new(
-                    ErrorCode::Unavailable,
-                    "only Claude can plan and split a task here yet",
-                ));
-            }
             let context = crate::context::message(core, &project, None, &context).await?;
-            let task = start(core, project, prompt, context, limits).await?;
+            let task = if solo {
+                start_solo(core, project, prompt, context, agent).await?
+            } else {
+                start(core, project, prompt, context, limits, agent).await?
+            };
             Ok(Response::Orchestration(OrchestrationResponse::Task(task)))
         }
         OrchestrationRequest::List { project } => {
@@ -167,6 +173,7 @@ async fn start(
     prompt: String,
     context: Option<String>,
     limits: TaskLimits,
+    agent: AgentKind,
 ) -> Result<Task> {
     if limits.max_workers == 0 || limits.max_workers > MAX_WORKERS_CAP {
         return Err(ProtocolError::new(
@@ -176,21 +183,11 @@ async fn start(
     }
     // Workers need a snapshot of the checkout; find out now, not when the
     // coordinator's first spawn fails out of sight.
-    let root = core.root(&project)?;
-    if let Err(err) = core.worktrees().snapshot(root).await {
-        return Err(ProtocolError::new(
-            ErrorCode::BadRequest,
-            format!(
-                "Plan and split needs a git repository, because every agent works on its own copy \
-                 of the project. Choose \"One agent, here\" to work in this folder. ({})",
-                err.message
-            ),
-        ));
-    }
+    needs_git(core, &project, "Plan and split").await?;
     let new = NewSession {
         no_web: false,
         project: project.clone(),
-        agent: AgentKind::Claude,
+        agent,
         mode: SessionMode::Direct,
         prompt,
         context,
@@ -217,6 +214,7 @@ async fn start(
             cleaned: Vec::new(),
             ended: false,
             prep: Vec::new(),
+            solo: false,
         };
         state.tasks.push(entry.clone());
         orchestration.save(&state);
@@ -227,6 +225,127 @@ async fn start(
         task: entry.id.clone(),
     });
     Ok(view(core, &entry))
+}
+
+/// Refuses a task in a project that is not a git repository: each of its
+/// agents works on its own copy (a worktree).
+async fn needs_git(core: &Core, project: &ProjectId, what: &str) -> Result<()> {
+    let root = core.root(project)?;
+    match core.worktrees().snapshot(root).await {
+        Ok(_) => Ok(()),
+        Err(err) => Err(ProtocolError::new(
+            ErrorCode::BadRequest,
+            format!(
+                "{what} needs a git repository, because the agent works on its own copy of \
+                 the project. Choose \"One agent, here\" to work in this folder. ({})",
+                err.message
+            ),
+        )),
+    }
+}
+
+/// The name of a solo task's one worker, and so of its branch.
+const SOLO: &str = "agent";
+
+/// Starts one agent of `agent`'s provider in its own worktree, without a
+/// coordinator: the task's only worker, with the person's prompt. Past the
+/// project's cap it waits `queued`, like a person's start.
+async fn start_solo(
+    core: &Core,
+    project: ProjectId,
+    prompt: String,
+    context: Option<String>,
+    agent: AgentKind,
+) -> Result<Task> {
+    agents::check_text(&prompt)?;
+    needs_git(core, &project, "One agent, own copy").await?;
+    let state = core.orchestration_state();
+    let Some(worktrees_dir) = state.worktrees_dir.clone() else {
+        return Err(ProtocolError::new(
+            ErrorCode::Unavailable,
+            "an agent in its own copy needs a worktrees folder, which this front end does not set",
+        ));
+    };
+    let limit = slots::limit(core);
+    let low = prepare::low_disk(core, &worktrees_dir).await;
+    let (entry, queued, port) = {
+        let mut guard = state.lock();
+        let queued = low.is_some()
+            || slots::count(core, &guard, &project).0 >= limit
+            || crate::resources::holds_back(core);
+        let port = prepare::free_port(&guard).ok_or_else(|| {
+            conflict("every block of ports for worktrees is taken; finish or clean up agents first")
+        })?;
+        guard.tasks_made += 1;
+        let entry = Entry {
+            id: TaskId(format!("t{}", guard.tasks_made)),
+            project: project.clone(),
+            // Set to its worker once that has a session.
+            coordinator: SessionId(String::new()),
+            workers: Vec::new(),
+            failed: Vec::new(),
+            limits: TaskLimits {
+                max_workers: 1,
+                budget_micro_usd: None,
+            },
+            starting: vec![Starting {
+                name: SOLO.to_owned(),
+                queued,
+                port,
+            }],
+            cleaned: Vec::new(),
+            ended: false,
+            prep: Vec::new(),
+            solo: true,
+        };
+        guard.tasks.push(entry.clone());
+        (entry, queued, port)
+    };
+    let new = NewWorker {
+        name: SOLO,
+        prompt,
+        context,
+        agent,
+        from: MessageFrom::Person,
+        queued,
+        low,
+        port,
+        skip_setup: false,
+    };
+    let result = create_worker(core, &entry, &worktrees_dir, new).await;
+    {
+        let mut guard = state.lock();
+        match &result {
+            Ok((worker, _, prep)) => {
+                if let Some(task) = guard.tasks.iter_mut().find(|t| t.id == entry.id) {
+                    task.starting.clear();
+                    task.coordinator = worker.session.clone();
+                    task.workers.push(worker.clone());
+                    task.prep.push(prep.clone());
+                }
+            }
+            // Nothing started: the person sees why, and no task is left.
+            Err(_) => guard.tasks.retain(|t| t.id != entry.id),
+        }
+        state.save(&guard);
+    }
+    let (worker, workspace, _) = result?;
+    review::set_workspace(core, &worker.session, workspace);
+    super::watch::start(core, &worker.session);
+    core.emit(OrchestrationEvent::Changed {
+        project: project.clone(),
+        task: entry.id.clone(),
+    });
+    if queued {
+        slots::start_queued(core, &project);
+    } else {
+        let launching = {
+            let mut guard = state.lock();
+            prepare::spawn_launch(core, &mut guard, &worker.session)
+        };
+        prepare::joined(launching).await?;
+    }
+    find(core, &entry.id).map(|entry| view(core, &entry))
 }
 
 pub(super) fn find(core: &Core, task: &TaskId) -> Result<Entry> {
@@ -261,7 +380,7 @@ pub(super) fn tell_coordinator(core: &Core, worker: &SessionId, what: &str) {
         .iter()
         .find(|t| t.workers.iter().any(|w| &w.session == worker))
         .cloned();
-    let Some(task) = task else {
+    let Some(task) = task.filter(|t| !t.solo) else {
         return;
     };
     let Some(name) = task
@@ -331,7 +450,7 @@ pub(super) fn view(core: &Core, entry: &Entry) -> Task {
     Task {
         id: entry.id.clone(),
         project: entry.project.clone(),
-        coordinator: Some(entry.coordinator.clone()),
+        coordinator: (!entry.solo).then(|| entry.coordinator.clone()),
         workers: entry.workers.clone(),
         failed: entry.failed.clone(),
         limits: entry.limits.clone(),
@@ -511,6 +630,9 @@ pub(super) async fn spawn(
     let new = NewWorker {
         name: &name,
         prompt,
+        context: None,
+        agent: AgentKind::Claude,
+        from: MessageFrom::Coordinator,
         queued,
         low,
         port,
@@ -600,6 +722,11 @@ fn worker_now(core: &Core, session: &SessionId) -> Option<Worker> {
 struct NewWorker<'a> {
     name: &'a str,
     prompt: String,
+    /// Ovra's message after the prompt: the person's `@` context.
+    context: Option<String>,
+    agent: AgentKind,
+    /// Who wrote `prompt`.
+    from: MessageFrom,
     queued: bool,
     /// Why its worktree waits for disk space, if it does.
     low: Option<String>,
@@ -618,6 +745,9 @@ async fn create_worker(
     let NewWorker {
         name,
         prompt,
+        context,
+        agent,
+        from,
         queued,
         low,
         port,
@@ -667,13 +797,13 @@ async fn create_worker(
     let new = NewSession {
         no_web: false,
         project: task.project.clone(),
-        agent: AgentKind::Claude,
+        agent,
         mode: SessionMode::Isolated,
         prompt,
-        context: None,
+        context,
         cwd: Some(path.clone()),
         tools: Some(ToolRole::Worker),
-        from: MessageFrom::Coordinator,
+        from,
         account: Some(account),
         queued,
         preparing: !queued,
