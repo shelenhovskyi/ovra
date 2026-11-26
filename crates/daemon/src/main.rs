@@ -284,6 +284,18 @@ impl Forge for FakeForge {
         })
     }
 
+    fn find(
+        &self,
+        root: PathBuf,
+        remote: String,
+        branch: String,
+    ) -> ovra_core::services::BoxFuture<
+        '_,
+        ovra_core::services::Result<Option<ovra_core::protocol::pr::PrInfo>>,
+    > {
+        self.0.find(root, remote, branch)
+    }
+
     fn view(
         &self,
         root: PathBuf,

@@ -203,15 +203,7 @@ impl GhForge {
         parse::branch(&draft.base)?;
         parse::branch(&draft.branch)?;
         let gh = self.gh()?;
-        // Named on every gh call: without it gh may pick another remote,
-        // such as `upstream`.
-        let url = remote_url(&self.git()?, root, &draft.remote).await?;
-        let repo = url.as_deref().and_then(parse::repo).ok_or_else(|| {
-            ProtocolError::new(
-                ErrorCode::BadRequest,
-                "the remote's URL names no repository on a host, such as github.com/owner/repo",
-            )
-        })?;
+        let repo = self.repo(root, &draft.remote).await?;
         let title = format!("--title={}", draft.title);
         let mut args = vec![
             "pr",
@@ -240,6 +232,43 @@ impl GhForge {
             return Err(failed("gh pr create", &made));
         }
         parse::created(&made.stdout, repo)
+    }
+
+    /// The repository `remote`'s URL names, `HOST/OWNER/REPO`. Named on
+    /// every gh call: without it gh may pick another remote, such as
+    /// `upstream`.
+    async fn repo(&self, root: &Path, remote: &str) -> Result<String> {
+        let url = remote_url(&self.git()?, root, remote).await?;
+        url.as_deref().and_then(parse::repo).ok_or_else(|| {
+            ProtocolError::new(
+                ErrorCode::BadRequest,
+                "the remote's URL names no repository on a host, such as github.com/owner/repo",
+            )
+        })
+    }
+
+    async fn find_pr(&self, root: &Path, remote: &str, branch: &str) -> Result<Option<PrInfo>> {
+        parse::remote(remote)?;
+        parse::branch(branch)?;
+        let gh = self.gh()?;
+        let repo = self.repo(root, remote).await?;
+        let args = [
+            "pr",
+            "list",
+            "--repo",
+            &repo,
+            "--head",
+            branch,
+            "--state",
+            "open",
+            "--json",
+            "number,url,isCrossRepository",
+        ];
+        let list = run(&gh, root, "gh pr list", &args, None, GH_TIMEOUT).await?;
+        if !list.success {
+            return Err(failed("gh pr list", &list));
+        }
+        parse::found(&list.stdout, repo)
     }
 
     async fn view_pr(&self, root: &Path, repo: &str, number: u64) -> Result<PrStatus> {
@@ -337,6 +366,15 @@ impl Forge for GhForge {
 
     fn create(&self, root: PathBuf, draft: PrDraft) -> BoxFuture<'_, Result<PrInfo>> {
         Box::pin(async move { self.create_pr(&root, &draft).await })
+    }
+
+    fn find(
+        &self,
+        root: PathBuf,
+        remote: String,
+        branch: String,
+    ) -> BoxFuture<'_, Result<Option<PrInfo>>> {
+        Box::pin(async move { self.find_pr(&root, &remote, &branch).await })
     }
 
     fn view(&self, root: PathBuf, repo: String, number: u64) -> BoxFuture<'_, Result<PrStatus>> {

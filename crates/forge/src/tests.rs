@@ -435,6 +435,52 @@ async fn create_passes_the_title_as_one_argument_and_the_body_on_stdin() {
 }
 
 #[tokio::test]
+async fn find_asks_for_open_pull_requests_from_the_branch_not_from_forks() {
+    let repo = Repo::new();
+    let dir = repo.work.clone();
+    git(
+        &dir,
+        &["remote", "set-url", "origin", "https://github.com/o/r.git"],
+    );
+    let out = r#"[{"number":5,"url":"https://github.com/f/r/pull/5","isCrossRepository":true},
+        {"number":6,"url":"https://github.com/o/r/pull/6","isCrossRepository":false}]"#;
+    let fake = FakeGh::new(out);
+    let (remote, branch) = ("origin".to_owned(), "ovra/t1/fix".to_owned());
+    let forge = fake.forge(true);
+    let found = forge.find(dir.clone(), remote.clone(), branch.clone());
+    let found = ok(found.await).map(|i| (i.number, i.url, i.repo));
+    let want = (
+        "https://github.com/o/r/pull/6".to_owned(),
+        "github.com/o/r".to_owned(),
+    );
+    assert_eq!(found, Some((6, want.0, want.1)));
+    let args = [
+        "pr",
+        "list",
+        "--repo",
+        "github.com/o/r",
+        "--head",
+        "ovra/t1/fix",
+        "--state",
+        "open",
+        "--json",
+        "number,url,isCrossRepository",
+    ];
+    assert_eq!(fake.calls(), [args.to_vec()]);
+
+    let fake = FakeGh::new("[]");
+    let none = fake.forge(true).find(dir.clone(), remote, branch).await;
+    assert_eq!(ok(none), None);
+    let fake = FakeGh::new("[]");
+    let odd = fake
+        .forge(true)
+        .find(dir, "origin".into(), "-x".into())
+        .await;
+    assert_eq!(odd.err().map(|e| e.code), Some(ErrorCode::BadRequest));
+    assert!(fake.calls().is_empty());
+}
+
+#[tokio::test]
 async fn view_and_failed_log_ask_for_exactly_what_they_read() {
     let dir = ok(tempfile::tempdir());
     let fake = FakeGh::new(

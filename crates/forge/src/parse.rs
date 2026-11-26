@@ -194,6 +194,25 @@ pub(crate) fn created(stdout: &str, repo: String) -> Result<PrInfo> {
     })
 }
 
+/// `gh pr list --json number,url,isCrossRepository`: the first pull
+/// request from the repository itself; one from a fork with a branch of
+/// the same name is not Ovra's.
+pub(crate) fn found(stdout: &str, repo: String) -> Result<Option<PrInfo>> {
+    let json: Value = serde_json::from_str(stdout).map_err(|_| garbled("gh pr list"))?;
+    let list = json.as_array().ok_or_else(|| garbled("gh pr list"))?;
+    let own = list.iter().find(|pr| pr["isCrossRepository"] == false);
+    let Some(pr) = own else {
+        return Ok(None);
+    };
+    let number = pr["number"].as_u64().ok_or_else(|| garbled("gh pr list"))?;
+    let url = pr["url"].as_str().ok_or_else(|| garbled("gh pr list"))?;
+    Ok(Some(PrInfo {
+        number,
+        url: scrub(url),
+        repo,
+    }))
+}
+
 /// `gh pr view --json state,isDraft,url,headRefOid,statusCheckRollup,
 /// reviewDecision,mergeStateStatus`.
 pub(crate) fn pr_status(stdout: &str) -> Result<PrStatus> {

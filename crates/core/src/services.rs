@@ -1331,6 +1331,15 @@ pub trait Forge: Send + Sync + Debug {
     /// `gh pr create` from a pushed branch, in the repository the remote's
     /// URL names (`PrInfo::repo`).
     fn create(&self, root: PathBuf, draft: PrDraft) -> BoxFuture<'_, Result<PrInfo>>;
+    /// The open pull request from `branch` of the repository `remote`'s
+    /// URL names (not from a fork), if there is one: what a `create` that
+    /// failed or timed out after GitHub opened it left behind.
+    fn find(
+        &self,
+        root: PathBuf,
+        remote: String,
+        branch: String,
+    ) -> BoxFuture<'_, Result<Option<PrInfo>>>;
     /// `gh pr view`: state and checks of pull request `number` of `repo`
     /// (`HOST/OWNER/REPO`, as `create` answered).
     fn view(&self, root: PathBuf, repo: String, number: u64) -> BoxFuture<'_, Result<PrStatus>>;
@@ -1774,6 +1783,9 @@ impl Forge for Unavailable {
         self.later()
     }
     fn create(&self, _: PathBuf, _: PrDraft) -> BoxFuture<'_, Result<PrInfo>> {
+        self.later()
+    }
+    fn find(&self, _: PathBuf, _: String, _: String) -> BoxFuture<'_, Result<Option<PrInfo>>> {
         self.later()
     }
     fn view(&self, _: PathBuf, _: String, _: u64) -> BoxFuture<'_, Result<PrStatus>> {

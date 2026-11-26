@@ -30,6 +30,9 @@ pub struct MemoryForge {
     pub logs: Mutex<BTreeMap<u64, String>>,
     /// While set, `create` fails (`Unavailable`), as when GitHub is down.
     pub refuse_create: Mutex<bool>,
+    /// While set, `create` opens the pull request but fails, as when
+    /// `gh pr create` timed out after GitHub made it.
+    pub lose_create: Mutex<bool>,
 }
 
 impl Default for MemoryForge {
@@ -49,12 +52,29 @@ impl Default for MemoryForge {
             pulls: Mutex::default(),
             logs: Mutex::default(),
             refuse_create: Mutex::default(),
+            lose_create: Mutex::default(),
         }
     }
 }
 
 impl MemoryForge {
     pub const REPO: &str = "github.com/o/r";
+
+    /// The open pull request from `remote`'s `branch`.
+    fn open_from(&self, remote: &str, branch: &str) -> Option<PrInfo> {
+        let created = lock(&self.created);
+        let pulls = lock(&self.pulls);
+        let numbers = (1..).zip(created.iter());
+        let mut from = numbers.filter(|(_, d)| d.remote == remote && d.branch == branch);
+        from.find_map(|(number, _)| {
+            let pull = pulls.get(&number).filter(|p| p.state == PrState::Open)?;
+            Some(PrInfo {
+                number,
+                url: pull.url.clone(),
+                repo: Self::REPO.to_owned(),
+            })
+        })
+    }
 }
 
 impl Forge for MemoryForge {
@@ -98,10 +118,15 @@ impl Forge for MemoryForge {
         let head = lock(&self.branches)
             .get(&(draft.remote.clone(), draft.branch.clone()))
             .cloned();
+        let open = self.open_from(&draft.remote, &draft.branch);
         let result = match head {
             _ if *lock(&self.refuse_create) => Err(ProtocolError::new(
                 ErrorCode::Unavailable,
                 "gh pr create failed",
+            )),
+            _ if open.is_some() => Err(ProtocolError::new(
+                ErrorCode::Internal,
+                "gh pr create failed: a pull request for this branch already exists",
             )),
             None => Err(not_found(format!("{}/{}", draft.remote, draft.branch))),
             Some(head) => {
@@ -119,14 +144,31 @@ impl Forge for MemoryForge {
                 };
                 lock(&self.pulls).insert(number, status);
                 created.push(draft);
-                Ok(PrInfo {
-                    number,
-                    url,
-                    repo: Self::REPO.to_owned(),
-                })
+                if *lock(&self.lose_create) {
+                    Err(ProtocolError::new(
+                        ErrorCode::Unavailable,
+                        "gh pr create timed out",
+                    ))
+                } else {
+                    Ok(PrInfo {
+                        number,
+                        url,
+                        repo: Self::REPO.to_owned(),
+                    })
+                }
             }
         };
         Box::pin(async move { result })
+    }
+
+    fn find(
+        &self,
+        _: PathBuf,
+        remote: String,
+        branch: String,
+    ) -> BoxFuture<'_, Result<Option<PrInfo>>> {
+        let open = self.open_from(&remote, &branch);
+        Box::pin(async move { Ok(open) })
     }
 
     fn view(&self, _: PathBuf, repo: String, number: u64) -> BoxFuture<'_, Result<PrStatus>> {
@@ -181,8 +223,13 @@ mod tests {
             body: "b".into(),
             draft: true,
         };
-        let info = forge.create(root.clone(), draft).await;
+        let (remote, branch) = (draft.remote.clone(), draft.branch.clone());
+        let info = forge.create(root.clone(), draft.clone()).await;
         assert_eq!(info.map(|i| i.number).ok(), Some(1));
+        let again = forge.create(root.clone(), draft).await;
+        assert!(again.is_err());
+        let found = forge.find(root.clone(), remote, branch).await;
+        assert_eq!(found.ok().flatten().map(|i| i.number), Some(1));
         let elsewhere = forge.view(root.clone(), "github.com/up/r".into(), 1).await;
         assert!(elsewhere.is_err());
         let view = forge.view(root, MemoryForge::REPO.into(), 1).await;
