@@ -1,6 +1,6 @@
 <script lang="ts">
-// The rail's "More" menu: names only (Settings…, Audit log, Agent browser, Keyboard
-// shortcuts), each with its shortcut and, as a tooltip, what it is for. An item runs
+// The rail's "More" menu: names only (Settings…, Audit log, Skills and instructions,
+// Agent browser, Keyboard shortcuts), each with its shortcut and, as a tooltip, what it is for. An item runs
 // the command of the same name, so the menu, the palette and the shortcuts open the
 // same thing; the rest is in the palette and Settings. Arrow keys, Home, End and a
 // first letter move between items; Escape closes and gives focus back to the button.
@@ -16,6 +16,11 @@ import { menuTarget } from "./menu";
 const ITEMS: { command: string; id: string; about: string; name?: string }[] = [
   { command: "settings.open", id: "settings", name: "Settings…", about: "Rules, network, agents and more" },
   { command: "audit.toggle", id: "audit", about: "Everything agents did, and who approved it" },
+  {
+    command: "catalog.toggle",
+    id: "catalog",
+    about: "The skills, instructions and commands this project gives agents",
+  },
   { command: "browser.toggle", id: "browser", about: "The web browser an agent uses" },
   { command: "palette.shortcuts", id: "shortcuts", about: "Every command with a shortcut" },
 ];

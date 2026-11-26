@@ -186,7 +186,7 @@ describe("Shell", () => {
         "Tabs: Shift+F10 Open the tab's menu (also the Menu key)",
         "Tabs: Left/Right Previous or next tab",
         "Tabs: Delete Close the tab",
-        "Views: Escape Close Settings, Reviews or the Audit log",
+        "Views: Escape Close Settings, Reviews, the Audit log or Skills and instructions",
       ]
     `);
 
@@ -361,6 +361,7 @@ describe("Shell", () => {
       expect(described).toEqual([
         ["Settings…", "Ctrl+,", "Rules, network, agents and more"],
         ["Audit log", "Ctrl+Alt+L", "Everything agents did, and who approved it"],
+        ["Skills and instructions", null, "The skills, instructions and commands this project gives agents"],
         ["Agent browser", "Ctrl+Shift+B", "The web browser an agent uses"],
         ["Keyboard shortcuts", null, "Every command with a shortcut"],
       ]);
@@ -368,6 +369,7 @@ describe("Shell", () => {
       expect(items().map((item) => item.dataset.testid)).toEqual([
         "open-settings",
         "open-audit",
+        "open-catalog",
         "open-browser",
         "open-shortcuts",
       ]);
@@ -380,16 +382,16 @@ describe("Shell", () => {
 
       expect(document.activeElement).toBe(items()[0]);
       key(document.activeElement, "ArrowUp");
-      expect(document.activeElement).toBe(items()[3]);
+      expect(document.activeElement).toBe(items()[4]);
       key(document.activeElement, "ArrowDown");
       expect(document.activeElement).toBe(items()[0]);
       key(document.activeElement, "End");
-      expect(document.activeElement).toBe(items()[3]);
+      expect(document.activeElement).toBe(items()[4]);
       // First-letter typeahead: A is Audit log, A again goes on to Agent browser.
       key(document.activeElement, "KeyA");
       expect(document.activeElement).toBe(items()[1]);
       key(document.activeElement, "KeyA");
-      expect(document.activeElement).toBe(items()[2]);
+      expect(document.activeElement).toBe(items()[3]);
       key(document.activeElement, "Escape");
       flushSync();
       expect(menu()).toBeNull();
@@ -451,13 +453,13 @@ describe("Shell", () => {
       const { target, more, items } = shell();
       more?.click();
       flushSync();
-      items()[2]?.click();
+      items()[3]?.click();
       flushSync();
       expect(target.querySelector("[data-testid=browser]")).not.toBeNull();
       more?.click();
       flushSync();
-      expect(items()[2]?.getAttribute("aria-checked")).toBe("true");
-      items()[2]?.click();
+      expect(items()[3]?.getAttribute("aria-checked")).toBe("true");
+      items()[3]?.click();
       flushSync();
       expect(target.querySelector("[data-testid=browser]")).toBeNull();
     });

@@ -1,0 +1,15 @@
+<script lang="ts">
+// Test-only host: Skills and instructions with the shell's context, opened as the shell opens it.
+import type { Transport } from "../lib/transport";
+import { provideOvra } from "../shell/context";
+import { mainView } from "../shell/main-view.svelte";
+import type { Workspace } from "../shell/workspace.svelte";
+import Catalog from "./Catalog.svelte";
+
+let { transport, workspace }: { transport: Transport; workspace: Workspace } = $props();
+
+// svelte-ignore state_referenced_locally
+provideOvra({ transport, workspace });
+</script>
+
+{#if mainView.current === "catalog"}<Catalog />{/if}

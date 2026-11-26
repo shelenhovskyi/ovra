@@ -11,6 +11,7 @@ import Approvals from "../approvals/Approvals.svelte";
 import { approvalQueue } from "../approvals/queue.svelte";
 import AuditLog from "../audit/AuditLog.svelte";
 import BrowserPane from "../browser/BrowserPane.svelte";
+import Catalog from "../catalog/Catalog.svelte";
 import FileStatus from "../editor/FileStatus.svelte";
 import { persistOpenFiles } from "../editor/open-files.svelte";
 import ProblemCounts from "../editor/ProblemCounts.svelte";
@@ -200,8 +201,17 @@ $effect(() => {
       keys: "Alt+Mod+L",
       run: () => mainView.toggle("audit"),
     }),
+    registerCommand({
+      id: "catalog.toggle",
+      title: "Skills and instructions",
+      category: "View",
+      keywords: ["skills", "subagents", "slash commands", "hooks", "mcp", "tools", "rules", "claude.md", "agents.md"],
+      run: () => mainView.toggle("catalog"),
+    }),
     // The keys of its main-area views; each panel declares its own.
-    registerContextKeys([{ keys: "Escape", title: "Close Settings, Reviews or the Audit log", where: "Views" }]),
+    registerContextKeys([
+      { keys: "Escape", title: "Close Settings, Reviews, the Audit log or Skills and instructions", where: "Views" },
+    ]),
   ];
   return () => {
     for (const unregister of off) unregister();
@@ -472,7 +482,8 @@ async function showApprovals(): Promise<void> {
       </div>
     </div>
     </div>
-    {#if mainView.current === "settings"}<Settings />{:else if mainView.current === "audit"}<AuditLog />{/if}
+    {#if mainView.current === "settings"}<Settings />{:else if mainView.current === "audit"}<AuditLog
+      />{:else if mainView.current === "catalog"}<Catalog />{/if}
     <!-- Reviews stays mounted while closed: it keeps the choice and drafts, and agents' asks. -->
     <Inbox inbox={reviews} />
     <BrowserPane />
