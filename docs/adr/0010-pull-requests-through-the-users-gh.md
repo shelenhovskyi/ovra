@@ -21,8 +21,14 @@ installed and signed in to, as ADR 0006 does for `claude`.
   file, the keychain, `GH_TOKEN`, `GITHUB_TOKEN`, git credential stores),
   never calls GitHub's API itself and never passes `--show-token`. The
   processes inherit the person's environment; `gh` and git find the login.
-- Agents get no tool for pushing or opening pull requests, and their
-  sandbox keeps hiding `gh`'s configuration and token variables.
+- Agents get no tool for opening pull requests, and their sandbox keeps
+  hiding `gh`'s configuration and token variables. Amended 2026-11-26 on
+  the owner's request (`docs/specs/agent-push.md`): a worker may ask Ovra
+  to push its changes with the IDE tool `push`. Ovra builds the commit and
+  runs the push as the person, after the person's Allow on an approval
+  card or a `Push(<remote> <branch>)` rule the person added; never forced,
+  never with protected files, and protected branches ask unless a rule
+  names them exactly.
 - A new crate, `crates/forge`, implements the `Forge` service trait. It is
   the only place that starts processes using the person's GitHub login;
   it is security code and needs an independent reviewer agent's verdict.

@@ -43,7 +43,9 @@ The same as for `claude` (ADR 0006), so the person's account stays theirs:
   --json hosts`, reading only the login and state fields. `--show-token`
   is never passed.
 - Only a person's click starts a push or a PR, after a dialog that shows
-  what will be sent (below). Agents get no tool for it, and in the sandbox
+  what will be sent (below). Agents get no tool for pull requests (a
+  worker may push its branch with the person's permission,
+  `docs/specs/agent-push.md`), and in the sandbox
   `gh` finds no login: `~/.config/gh` is hidden and token variables are not
   on the allowlist (`docs/specs/security.md`). `tools.json` is unchanged.
 - Remote URLs can hold a token (`https://user:token@github.com/...`).
