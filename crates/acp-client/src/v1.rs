@@ -300,7 +300,11 @@ pub(crate) fn parse(line: &str) -> Result<Incoming, String> {
         return Ok(Incoming::Response { id, result });
     };
     match (id, method) {
-        (None, "session/update") => Ok(serde_json::from_value(params["update"].take())
+        // `params` may be anything; indexing it mutably would panic.
+        (None, "session/update") => Ok(params
+            .get_mut("update")
+            .map(Value::take)
+            .and_then(|update| serde_json::from_value(update).ok())
             .map_or(Incoming::Ignored, |u| Incoming::Update(Box::new(u)))),
         (None, _) => Ok(Incoming::Ignored),
         (Some(id), "session/request_permission") => Ok(match serde_json::from_value(params) {
@@ -365,6 +369,11 @@ mod tests {
             r#"{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"s","update":{"sessionUpdate":"plan","entries":[]}}}"#,
             r#"{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"s","update":{"sessionUpdate":"tool_call"}}}"#,
             r#"{"jsonrpc":"2.0","method":"some/notification","params":{}}"#,
+            // Params of the wrong shape never panic.
+            r#"{"jsonrpc":"2.0","method":"session/update","params":5}"#,
+            r#"{"jsonrpc":"2.0","method":"session/update","params":{"update":"x"}}"#,
+            r#"{"jsonrpc":"2.0","id":8,"method":"session/request_permission","params":5}"#,
+            r#"{"jsonrpc":"2.0","id":9,"error":5}"#,
             r#"{"jsonrpc":"2.0","id":5,"method":"session/request_permission","params":{"sessionId":"s","toolCall":{"toolCallId":"c1","title":"Run ls","kind":"execute","rawInput":{"command":"ls"}},"options":[{"optionId":"a1","name":"Allow","kind":"allow_once"},{"optionId":"a2","name":"Always","kind":"allow_always"},{"optionId":"r1","name":"Reject","kind":"reject_once"}]}}"#,
             r#"{"jsonrpc":"2.0","id":6,"method":"session/request_permission","params":{"sessionId":"s"}}"#,
             r#"{"jsonrpc":"2.0","id":"r7","method":"fs/read_text_file","params":{"path":"/etc/passwd"}}"#,

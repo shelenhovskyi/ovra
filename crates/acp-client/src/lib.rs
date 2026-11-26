@@ -80,12 +80,23 @@ impl AgentRuntime for AcpAgents {
         }
         let (commands, rx) = mpsc::unbounded_channel();
         let sandbox = self.sandbox.clone();
+        let reporter = host.clone();
         tokio::spawn(async move {
-            let status = session(agent, &*sandbox, spec, host.clone(), rx).await;
-            host.status(status);
+            let status = guarded(async move { session(agent, &*sandbox, spec, host, rx).await });
+            reporter.status(status.await);
         });
         Ok(Box::new(AcpProcess(commands)))
     }
+}
+
+/// Runs `session` on a task of its own, so that a panic in it still ends
+/// the session as failed (which stops its netproxy and drops what it asked).
+async fn guarded(session: impl Future<Output = AgentStatus> + Send + 'static) -> AgentStatus {
+    tokio::spawn(session)
+        .await
+        .unwrap_or_else(|e| AgentStatus::Failed {
+            message: format!("the session ended unexpectedly: {e}"),
+        })
 }
 
 /// What the session's sandbox shows: the core's profile with the agent's

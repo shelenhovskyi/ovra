@@ -559,3 +559,16 @@ async fn no_agent_runs_without_the_sandbox() {
         failed("the sandbox could not wrap Fake: the fake sandbox fails")
     );
 }
+
+#[tokio::test]
+async fn a_panic_in_a_session_still_ends_it() {
+    let status = guarded(async { panic!("a bug") }).await;
+    let AgentStatus::Failed { message } = status else {
+        panic!("unexpected {status:?}");
+    };
+    assert!(
+        message.starts_with("the session ended unexpectedly"),
+        "{message}"
+    );
+    assert!(message.contains("a bug"), "{message}");
+}

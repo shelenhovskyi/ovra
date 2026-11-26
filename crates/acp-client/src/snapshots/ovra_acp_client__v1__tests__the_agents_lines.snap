@@ -14,6 +14,10 @@ Update(Tool(ToolCallFields { tool_call_id: "c2", title: None, kind: Some(Other),
 Update(Other)
 Ignored
 Ignored
+Ignored
+Ignored
+Refused { id: Number(8), refusal: Refusal { code: -32602, message: "invalid type: integer `5`, expected struct PermissionRequest" } }
+Response { id: 9, result: Err("5") }
 Permission { id: Number(5), request: PermissionRequest { tool_call: ToolCallFields { tool_call_id: "c1", title: Some("Run ls"), kind: Some(Execute), status: None, content: None, locations: None, raw_input: Some(Object {"command": String("ls")}), raw_output: None }, options: [PermissionOption { option_id: "a1", kind: AllowOnce }, PermissionOption { option_id: "a2", kind: Lasting }, PermissionOption { option_id: "r1", kind: RejectOnce }] } }
 Refused { id: Number(6), refusal: Refusal { code: -32602, message: "missing field `toolCall`" } }
 Refused { id: String("r7"), refusal: Refusal { code: -32601, message: "Ovra does not serve fs/read_text_file" } }
