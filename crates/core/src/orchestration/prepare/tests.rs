@@ -175,6 +175,12 @@ async fn a_worker_is_prepared_in_its_locked_worktree_then_starts() {
     ];
     let want: Vec<(String, String)> = want.into_iter().map(|(k, v)| (k.into(), v)).collect();
     assert_eq!(env, want);
+    let work_env = Some(crate::services::WorkEnv {
+        port: 41000,
+        worktree_root: dir("w"),
+        main_root: ROOT.into(),
+    });
+    assert_eq!(pod.profile.work_env, work_env);
     let shown = worker(&f.core, "w")
         .await
         .setup
@@ -185,6 +191,13 @@ async fn a_worker_is_prepared_in_its_locked_worktree_then_starts() {
     let spawned = spawn.await.ok().and_then(Result::ok);
     assert_eq!(spawned.map(|w| w.setup), Some(None));
     assert_eq!(started(&f), 2);
+    let agent = f
+        .agent
+        .started
+        .lock()
+        .map(|s| s[1].sandbox.work_env.clone())
+        .ok();
+    assert_eq!(agent, Some(work_env));
     // Counted once it started.
     let mut disk = None;
     while disk.is_none() {

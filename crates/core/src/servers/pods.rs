@@ -47,6 +47,7 @@ pub(super) async fn pod(core: &Core, place: &Place, defs: &[ServerDef]) -> Resul
     let mut profile = crate::agents::profile(&project, mode, &place.dir, network, Vec::new(), None);
     profile.expose = defs.iter().map(|d| d.port).collect();
     profile.kind = crate::services::ProfileKind::Pod;
+    profile.work_env = crate::orchestration::work_env(core, &place.dir);
     Ok(PodSpec {
         project: place.project.clone(),
         work_dir: place.dir.clone(),

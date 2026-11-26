@@ -698,7 +698,7 @@ async fn run(
         crate::servers::session_started(core, id);
     }
     let config_dir = target.account.config_dir.map(PathBuf::from);
-    let sandbox = profile(
+    let mut sandbox = profile(
         &target.project,
         mode,
         &launch.cwd,
@@ -706,6 +706,10 @@ async fn run(
         forward,
         config_dir.clone(),
     );
+    // A worker's ports and roots (`docs/specs/worktree-setup.md`).
+    sandbox.work_env = core
+        .as_ref()
+        .and_then(|core| crate::orchestration::work_env(core, &launch.cwd));
     sessions.find(id, |s| s.set_network(sandbox.network.clone()))?;
     let spec = AgentSpec {
         session: id.clone(),

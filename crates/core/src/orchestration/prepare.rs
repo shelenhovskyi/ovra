@@ -23,7 +23,7 @@ use crate::protocol::agents::{AgentStatus, AgentsEvent, MessageFrom, SessionId};
 use crate::protocol::fs::{DirListing, EntryKind, FileBody};
 use crate::protocol::orchestration::{Leftover, OrchestrationEvent, SetupProgress};
 use crate::protocol::projects::ProjectId;
-use crate::services::{CommandLine, IncludedFile, SetupEnd, SetupSink, SetupStep};
+use crate::services::{CommandLine, IncludedFile, SetupEnd, SetupSink, SetupStep, WorkEnv};
 use crate::untrusted::untrusted;
 
 /// Each work dir's ports: `OVRA_PORT` to `OVRA_PORT + 9`.
@@ -100,6 +100,25 @@ pub(super) struct Made {
     pub(super) base: String,
     pub(super) included: Vec<IncludedFile>,
     pub(super) note: Option<String>,
+}
+
+/// What code in the worker's worktree `dir` is told about it: its ports
+/// and both roots, for its agent's and its pod's sandbox. `None` for the
+/// main checkout and folders no worker has.
+pub(crate) fn work_env(core: &Core, dir: &Path) -> Option<WorkEnv> {
+    let state = core.orchestration_state().lock();
+    let (project, port) = state.tasks.iter().find_map(|t| {
+        let worker = t.workers.iter().find(|w| Path::new(&w.worktree) == dir)?;
+        let prep = t.prep.iter().find(|p| p.session == worker.session)?;
+        Some((t.project.clone(), prep.port))
+    })?;
+    drop(state);
+    let main_root = core.root(&project).ok()?;
+    Some(WorkEnv {
+        port,
+        worktree_root: dir.to_owned(),
+        main_root,
+    })
 }
 
 /// The first free block of ports, or `None` when all are taken.

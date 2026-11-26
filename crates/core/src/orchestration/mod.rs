@@ -35,6 +35,7 @@ use crate::protocol::review::{ReviewEvent, ReviewRequest};
 use crate::protocol::{ErrorCode, ProtocolError, Response};
 use crate::services::SessionStore;
 
+pub(crate) use prepare::work_env;
 pub(crate) use saved::restore;
 pub(crate) use slots::{
     Reservation, capacity, research_view as research_limit, reserve, reserve_research, set_limit,
