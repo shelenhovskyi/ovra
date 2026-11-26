@@ -118,7 +118,9 @@ impl Repo {
                 ".",
             ],
         )?;
-        Some(Statuses::parse(&out, &self.prefix))
+        let mut statuses = Statuses::parse(&out, &self.prefix);
+        statuses.drop_placeholders(&self.workdir);
+        Some(statuses)
     }
 }
 
@@ -195,6 +197,18 @@ impl Statuses {
             }
         }
         statuses
+    }
+
+    /// Leaves out the sandbox's untracked, empty placeholders at the top of
+    /// the project `root` (`ovra_core::protected::PLACEHOLDERS`): they go
+    /// with the session and are no change of the person's.
+    fn drop_placeholders(&mut self, root: &Path) {
+        self.paths.retain(|path, (status, _)| {
+            !(*status == GitStatus::Untracked
+                && ovra_core::protected::PLACEHOLDERS.contains(&path.as_str())
+                && std::fs::symlink_metadata(root.join(path))
+                    .is_ok_and(|m| m.is_file() && m.len() == 0))
+        });
     }
 
     /// Status of each direct child of `dir` that has one, by name. The second
@@ -290,6 +304,28 @@ u UU N... 100644 100644 100644 100644 e1 e2 e3 merge.txt\0\
         }
         let prompt = envs.get(std::ffi::OsStr::new("GIT_TERMINAL_PROMPT"));
         assert_eq!(prompt, Some(&Some(std::ffi::OsStr::new("0"))));
+    }
+
+    #[test]
+    fn empty_placeholders_at_the_top_are_no_change() {
+        let root = tempfile::tempdir().unwrap_or_else(|e| panic!("{e}"));
+        let write = |path: &str, text: &str| {
+            let path = root.path().join(path);
+            std::fs::create_dir_all(path.parent().unwrap_or(root.path()))
+                .unwrap_or_else(|e| panic!("{e}"));
+            std::fs::write(path, text).unwrap_or_else(|e| panic!("{e}"));
+        };
+        write("CLAUDE.md", "");
+        write(".mcp.json", "{}");
+        write("sub/.envrc", "");
+        write(".envrc", "");
+        let out = b"? CLAUDE.md\0? .mcp.json\0? sub/.envrc\0? AGENTS.md\0\
+1 .M N... 100644 100644 100644 a a .envrc\0";
+        let mut statuses = Statuses::parse(out, "");
+        statuses.drop_placeholders(root.path());
+        let left: Vec<_> = statuses.paths.keys().map(String::as_str).collect();
+        // Missing (AGENTS.md), written, below the top or tracked: all stay.
+        assert_eq!(left, [".envrc", ".mcp.json", "AGENTS.md", "sub/.envrc"]);
     }
 
     #[test]

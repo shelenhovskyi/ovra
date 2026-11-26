@@ -839,3 +839,10 @@ fn every_folder_made_is_on_the_protected_list() {
         );
     }
 }
+
+#[test]
+fn git_status_leaves_out_exactly_the_files_made() {
+    // The git panel hides these while they are empty; one made but not
+    // listed would show up for "Commit all".
+    assert_eq!(super::FILES_MADE, ovra_core::protected::PLACEHOLDERS);
+}

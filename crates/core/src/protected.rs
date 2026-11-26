@@ -141,8 +141,10 @@ pub(crate) fn changes(path: &str, from: Option<&str>) -> bool {
 
 /// Files the Linux sandbox makes empty and read-only at the top of a work
 /// dir while a session runs, when they are missing, and removes after it
-/// (`crates/sandbox-linux`, `FILES_MADE`).
-const PLACEHOLDERS: [&str; 6] = [
+/// (`crates/sandbox-linux`, `FILES_MADE`). Git status leaves them out
+/// while they are untracked and empty, so the git panel neither lists them
+/// nor commits them.
+pub const PLACEHOLDERS: [&str; 6] = [
     "CLAUDE.md",
     "CLAUDE.local.md",
     "AGENTS.md",

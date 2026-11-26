@@ -26,6 +26,13 @@ Added 2026-11-26 (the owner: "nothing is clear"): "Get commits" (`git.pull`:
 fetch the current branch's upstream through the `Forge`, then fast-forward
 only) and "Send commits" (`git.push`: `Forge::push`, never forced, on top
 of the remote branch only). Both are the person's buttons, not agent tools.
+So that "Get N commits" shows without a terminal, the open panel sends
+`git.fetch` (the upstream only, through the `Forge`; refs move, files and
+HEAD do not) when it opens, every 3 minutes while the window is shown and
+when the person comes back to the window after a minute or more. A failed
+fetch says nothing. Git status leaves out the sandbox's untracked, empty
+placeholders at the top of the project (`protected::PLACEHOLDERS`), so the
+panel neither lists them nor commits them.
 
 Not in v1: resolving conflicts (the panel shows them and opens the file),
 stash, remote branches, publishing a branch that has no upstream, submodules.

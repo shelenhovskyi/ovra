@@ -3,6 +3,7 @@
 
 use std::path::Path;
 
+use ovra_core::protected::PLACEHOLDERS;
 use ovra_core::protocol::ErrorCode;
 use ovra_core::protocol::git::{GitChange, GitOperation, MAX_STATUS_FILES, RepoStatus, StatusFile};
 use ovra_core::services::Result;
@@ -26,11 +27,23 @@ pub(super) fn status(root: &Path) -> Result<Option<RepoStatus>> {
         run = run.args(["--", "."]);
     }
     let mut status = parse(&run.run()?, &dirs.prefix);
+    status.files.retain(|f| !placeholder(root, f));
     status.operation = operation(&dirs);
     if status.branch.is_some() && status.upstream.is_none() {
         status.publish_to = super::publish_remote(root)?;
     }
     Ok(Some(status))
+}
+
+/// Whether `file` is only the sandbox's untracked, empty placeholder at the
+/// top of the project (`ovra_core::protected::PLACEHOLDERS`): not a change
+/// of the person's, and "Commit all" must not commit it.
+fn placeholder(root: &Path, file: &StatusFile) -> bool {
+    file.staged.is_none()
+        && file.unstaged == Some(GitChange::Untracked)
+        && PLACEHOLDERS.contains(&file.path.as_str())
+        && std::fs::symlink_metadata(root.join(&file.path))
+            .is_ok_and(|m| m.is_file() && m.len() == 0)
 }
 
 /// What git is in the middle of, from the files it keeps while it is.

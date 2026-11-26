@@ -76,6 +76,12 @@ async fn a_project_inside_a_repository_sees_only_its_folder() {
     let root = repo.root.join("proj");
     put(&repo.root, "other.txt", "changed\n");
     put(&root, "a.txt", &numbered(20, &[2, 18]));
+    // The sandbox's empty placeholders at the project's top are no change;
+    // one with text, or in a folder below, is.
+    put(&root, "CLAUDE.md", "");
+    put(&root, ".envrc", "");
+    put(&root, "AGENTS.md", "rules\n");
+    put(&root, "sub/.mcp.json", "");
     let g = GitRepo::new();
 
     let status = ok(g.status(root.clone()).await).unwrap_or_default();
@@ -84,7 +90,14 @@ async fn a_project_inside_a_repository_sees_only_its_folder() {
         .iter()
         .map(|f| (f.path.as_str(), f.unstaged))
         .collect();
-    assert_eq!(paths, [("a.txt", Some(GitChange::Modified))]);
+    assert_eq!(
+        paths,
+        [
+            ("a.txt", Some(GitChange::Modified)),
+            ("AGENTS.md", Some(GitChange::Untracked)),
+            ("sub/.mcp.json", Some(GitChange::Untracked)),
+        ]
+    );
 
     // Two hunks; staging the first leaves the second unstaged.
     let diff = ok(g.diff(root.clone(), rel("a.txt"), false).await);
