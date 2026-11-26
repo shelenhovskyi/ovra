@@ -51,6 +51,7 @@ import {
   workerName,
 } from "./describe";
 import HunkDiff from "./HunkDiff.svelte";
+import { commentsAfterDiscard } from "./hunks";
 import { REVIEWS_KEYS } from "./keys";
 import { handleOpenFor } from "./open";
 import PrDialog from "./PrDialog.svelte";
@@ -187,7 +188,13 @@ function toggleKept(key: string): void {
 }
 
 async function discardPart(review: ReviewItem, path: string, hunk: Hunk): Promise<void> {
-  if ((await inbox.discardHunk(review.id, path, hunk)) && inbox.outcome) announcement = outcomeText(inbox.outcome);
+  if (!(await inbox.discardHunk(review.id, path, hunk))) return;
+  if (selectedId === review.id) lineComments = commentsAfterDiscard(lineComments, path, hunk);
+  else {
+    const draft = lineDrafts.get(review.id);
+    if (draft) lineDrafts.set(review.id, commentsAfterDiscard(draft, path, hunk));
+  }
+  if (inbox.outcome) announcement = outcomeText(inbox.outcome);
 }
 
 async function undoDiscardPart(review: ReviewItem): Promise<void> {
