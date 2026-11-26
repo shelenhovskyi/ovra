@@ -179,6 +179,32 @@ async fn a_denied_tool_reports_the_reason_to_the_agent() {
 }
 
 #[tokio::test]
+async fn a_scripted_agent_that_runs_hooks_is_refused_by_the_policy_without_asking() {
+    let agent = ScriptedAgent::new(vec![vec![Step::Use {
+        tool: "WebFetch",
+        input: json!({"url": "x"}),
+    }]])
+    .runs_hooks();
+    let core = core_with(agent);
+    project(&core).await;
+    ok(
+        &core,
+        json!({"method": "policy.set", "params": {"project": "p1", "policy": {"rules": [
+            {"tool": "WebFetch", "action": "deny"}]}}}),
+    )
+    .await;
+    let mut rx = core.subscribe();
+    ok(&core, start("fetch")).await;
+    let seen = until(&mut rx, AgentStatus::Idle).await;
+    assert!(!seen.contains(&AgentStatus::WaitingForApproval));
+    let result = transcript(&core).await.into_iter().find_map(|m| match m {
+        AgentMessage::ToolResult { is_error, .. } => Some(is_error),
+        _ => None,
+    });
+    assert_eq!(result, Some(true));
+}
+
+#[tokio::test]
 async fn each_message_plays_the_next_turn_until_stopped() {
     let core = core_with(ScriptedAgent::new(vec![
         vec![Step::Say("one")],

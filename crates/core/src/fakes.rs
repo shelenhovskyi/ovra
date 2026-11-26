@@ -52,10 +52,10 @@ use crate::protocol::secrets::{SecretInfo, SecretStoreStatus, SecretValue};
 use crate::protocol::terminals::{TermSize, TerminalId, TerminalsEvent};
 use crate::protocol::{ErrorCode, ProtocolError};
 use crate::services::{
-    AgentHost, AgentRuntime, AgentSpec, AuditLog, BoxFuture, CommandLine, EventSink, FsService,
-    LoopbackGrant, NetProxy, NetReporter, NetStarted, Opener, ProjectStore, Result, RunningAgent,
-    Sandbox, SandboxProfile, SandboxStatus, SearchCancel, Secrets, ServerProfile, SessionStore,
-    StoredSession, TerminalService, ToolRole,
+    AgentHost, AgentRuntime, AgentSpec, AuditLog, BeforeTool, BoxFuture, CommandLine, EventSink,
+    FsService, LoopbackGrant, NetProxy, NetReporter, NetStarted, Opener, ProjectStore, Result,
+    RunningAgent, Sandbox, SandboxProfile, SandboxStatus, SearchCancel, Secrets, ServerProfile,
+    SessionStore, StoredSession, TerminalService, ToolRole,
 };
 
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -976,6 +976,7 @@ pub struct ScriptedAgent {
     /// Scripts for sessions with IDE tools of a role, instead of `turns`.
     roles: Vec<(ToolRole, Vec<Vec<Step>>)>,
     writer: Option<Arc<Writer>>,
+    hooks: bool,
     /// Every spec it was started with.
     pub started: Mutex<Vec<AgentSpec>>,
     /// What `project_config` reports for every project...
@@ -1025,6 +1026,15 @@ impl ScriptedAgent {
         writer: impl Fn(&Path, &str) -> std::io::Result<()> + Send + Sync + 'static,
     ) -> Self {
         self.writer = Some(Arc::new(writer));
+        self
+    }
+
+    /// `Use` steps pass through the `PreToolUse` hook first
+    /// ([`AgentHost::before_tool`]) and settle after their result, as the
+    /// real runtime does, so direct mode knows the agent changed a file.
+    #[must_use]
+    pub fn runs_hooks(mut self) -> Self {
+        self.hooks = true;
         self
     }
 }
@@ -1083,6 +1093,7 @@ impl AgentRuntime for ScriptedAgent {
             role: spec.tools,
             cwd: spec.cwd.clone(),
             writer: self.writer.clone(),
+            hooks: self.hooks,
         };
         lock(&self.started).push(spec);
         let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<Option<String>>();
@@ -1149,6 +1160,7 @@ struct Tools {
     role: Option<ToolRole>,
     cwd: PathBuf,
     writer: Option<Arc<Writer>>,
+    hooks: bool,
 }
 
 impl Tools {
@@ -1214,10 +1226,26 @@ async fn play(
                     input: input.clone(),
                     parent: None,
                 });
-                let answer = host.ask(tool.to_owned(), input.clone(), None, None).await;
-                let (output, is_error) = match answer.decision {
-                    Decision::Allow => tools.run(host, tool, input).await,
-                    Decision::Deny => (answer.message.unwrap_or_default(), true),
+                let hook = serde_json::json!({
+                    "tool_use_id": id, "tool_name": tool, "tool_input": input,
+                });
+                let refused = if tools.hooks {
+                    match host.before_tool(&hook).await {
+                        BeforeTool::Deny(why) => Some(why),
+                        BeforeTool::Proceed | BeforeTool::Ask(_) => None,
+                    }
+                } else {
+                    None
+                };
+                let (output, is_error) = match refused {
+                    Some(why) => (why, true),
+                    None => {
+                        let answer = host.ask(tool.to_owned(), input.clone(), None, None).await;
+                        match answer.decision {
+                            Decision::Allow => tools.run(host, tool, input).await,
+                            Decision::Deny => (answer.message.unwrap_or_default(), true),
+                        }
+                    }
                 };
                 host.message(AgentMessage::ToolResult {
                     tool_use_id: id,
@@ -1225,6 +1253,9 @@ async fn play(
                     is_error,
                     parent: None,
                 });
+                if tools.hooks {
+                    host.tools_settled().await;
+                }
             }
             Step::Fail(message) => {
                 host.status(AgentStatus::Failed {

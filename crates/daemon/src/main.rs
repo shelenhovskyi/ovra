@@ -385,12 +385,25 @@ fn agents(args: &Args) -> Arc<dyn AgentRuntime> {
             say("Both sides changed the same line; keep the one you want and stage the file."),
         ),
     ];
+    // Sessions for tasks that start with "Checkpoint" write one file per
+    // turn, so going back to a turn has something to set back.
+    let write = |file: &str| Step::Use {
+        tool: "Write",
+        input: serde_json::json!({ "file_path": file, "content": format!("{file} from the agent\n") }),
+    };
+    let checkpoints = ScriptedAgent::new(vec![
+        vec![write("one.txt"), Step::Say("Wrote one.txt.")],
+        vec![write("two.txt"), Step::Say("Wrote two.txt.")],
+    ])
+    .writes_files(|path, text| std::fs::write(path, text))
+    .runs_hooks();
     Arc::new(FakeAgent {
         script,
         git_actions,
         browsing,
         sandboxed,
         streaming,
+        checkpoints,
         claude: ClaudeCli::new(None, ovra_sandbox::for_this_os(&args.data_dir)),
     })
 }
@@ -430,6 +443,8 @@ struct FakeAgent {
     streaming: ovra_core::fakes::ScriptedAgent,
     /// For the git panel's agent actions, by the start of their prompt.
     git_actions: Vec<(&'static str, ovra_core::fakes::ScriptedAgent)>,
+    /// For tasks that start with "Checkpoint".
+    checkpoints: ovra_core::fakes::ScriptedAgent,
     claude: ClaudeCli,
 }
 
@@ -459,6 +474,9 @@ impl AgentRuntime for FakeAgent {
         }
         if spec.prompt.starts_with("Stream") {
             return self.streaming.start(spec, host);
+        }
+        if spec.prompt.starts_with("Checkpoint") {
+            return self.checkpoints.start(spec, host);
         }
         self.script.start(spec, host)
     }
