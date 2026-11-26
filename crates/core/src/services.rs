@@ -184,6 +184,15 @@ pub trait Opener: Send + Sync + Debug {
     fn reveal(&self, root: &Path, path: &RelPath) -> Result<()>;
 }
 
+/// Keeps the computer from sleeping while it is idle (implemented by
+/// `ovra-power`). Only idle system sleep is held off: the display may
+/// sleep, and the OS releases the hold when the process ends.
+pub trait KeepAwake: Send + Sync + Debug {
+    /// Holds (`true`) or releases (`false`) the hold. Asking for the state
+    /// it is already in does nothing.
+    fn set_awake(&self, awake: bool) -> Result<()>;
+}
+
 /// Shells in pseudo-terminals (implemented by `ovra-pty`).
 pub trait TerminalService: Send + Sync + Debug {
     /// Starts the user's shell in `cwd` and emits `terminals.output` and
@@ -1523,6 +1532,12 @@ impl Opener for Unavailable {
     }
     fn reveal(&self, _: &Path, _: &RelPath) -> Result<()> {
         self.err()
+    }
+}
+
+impl KeepAwake for Unavailable {
+    fn set_awake(&self, awake: bool) -> Result<()> {
+        if awake { self.err() } else { Ok(()) }
     }
 }
 

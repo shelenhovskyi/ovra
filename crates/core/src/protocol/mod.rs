@@ -17,6 +17,7 @@ pub mod open;
 pub mod orchestration;
 pub mod permissions;
 pub mod policy;
+pub mod power;
 pub mod pr;
 pub mod projects;
 pub mod resources;
@@ -51,6 +52,7 @@ pub enum Request {
     Servers(servers::ServersRequest),
     Browser(browser::BrowserRequest),
     Pr(pr::PrRequest),
+    Power(power::PowerRequest),
 }
 
 /// The core's answer to a [`Request`]. Wire form: `{"type": "<domain>.<name>", "data": ...}`.
@@ -75,6 +77,7 @@ pub enum Response {
     Servers(servers::ServersResponse),
     Browser(browser::BrowserResponse),
     Pr(pr::PrResponse),
+    Power(power::PowerResponse),
     /// The request succeeded and has nothing to return.
     Ok(OkResponse),
 }
@@ -107,6 +110,7 @@ pub enum Event {
     Browser(browser::BrowserEvent),
     Pr(pr::PrEvent),
     Resources(resources::ResourcesEvent),
+    Power(power::PowerEvent),
 }
 
 /// An error returned instead of a [`Response`].
@@ -255,5 +259,11 @@ impl From<pr::PrEvent> for Event {
 impl From<resources::ResourcesEvent> for Event {
     fn from(e: resources::ResourcesEvent) -> Self {
         Self::Resources(e)
+    }
+}
+
+impl From<power::PowerEvent> for Event {
+    fn from(e: power::PowerEvent) -> Self {
+        Self::Power(e)
     }
 }

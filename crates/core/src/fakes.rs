@@ -10,6 +10,7 @@ mod browser;
 mod forge;
 mod git;
 mod lsp;
+mod power;
 mod servers;
 mod worktrees;
 
@@ -31,6 +32,7 @@ pub use browser::{FAKE_PNG, FakeBrowser, FakePage};
 pub use forge::MemoryForge;
 pub use git::MemoryGit;
 pub use lsp::{FakeLanguageServers, FakeServer, HostRecord};
+pub use power::FakeKeepAwake;
 pub use servers::{FakeDevServer, FakeDevServers};
 pub use worktrees::MemoryWorktrees;
 
