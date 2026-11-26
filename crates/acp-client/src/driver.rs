@@ -367,7 +367,8 @@ pub(crate) async fn run(
                         break Ended::Failed(message);
                     }
                 }
-                Ok(None) | Err(_) => break Ended::Closed { stopped: driver.stopping },
+                Ok(None) => break Ended::Closed { stopped: driver.stopping },
+                Err(e) => break Ended::Failed(format!("the agent wrote a line Ovra cannot read: {e}")),
             },
             command = commands.recv(), if !driver.stopping => {
                 driver.command(command);

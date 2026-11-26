@@ -23,7 +23,7 @@ use tokio::io::{AsyncReadExt, BufReader};
 use tokio::process::Command as Process;
 use tokio::sync::mpsc;
 
-use crate::driver::{Command, Ended};
+use crate::driver::{Command, Ended, STOP_GRACE};
 
 /// How much of the process's stderr a failure message keeps.
 const STDERR_TAIL: usize = 2000;
@@ -195,12 +195,24 @@ async fn session(
         commands,
     )
     .await;
-    // An agent that ignored a stop or broke the protocol is not waited on.
+    // An agent that ignored a stop or broke the protocol is not waited on;
+    // one that closed stdout gets the grace period to exit.
     if !matches!(ended, Ended::Closed { .. }) {
         let _ = child.start_kill();
     }
-    let exit = child.wait().await;
-    let stderr = stderr.await.unwrap_or_default();
+    let exit = match tokio::time::timeout(STOP_GRACE, child.wait()).await {
+        Ok(exit) => exit,
+        Err(_) => {
+            let _ = child.start_kill();
+            child.wait().await
+        }
+    };
+    // What it started may keep stderr open.
+    let stderr = tokio::time::timeout(STOP_GRACE, stderr)
+        .await
+        .ok()
+        .and_then(std::result::Result::ok)
+        .unwrap_or_default();
     match (ended, exit) {
         (Ended::Closed { stopped: true } | Ended::Unresponsive, _) => AgentStatus::Stopped,
         (Ended::Failed(message), _) => failed(join(message, &stderr)),

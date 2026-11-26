@@ -495,20 +495,27 @@ static LISTS: ProviderLists = ProviderLists {
     fixture_var: "OVRA_FAKE_ACP_FIXTURE",
 };
 
-/// How a session through `sandbox` ends; the agent never runs.
-async fn through(sandbox: FakeSandbox) -> AgentStatus {
-    let agent = AcpAgent {
+fn described(program: &str, args: &[&str]) -> AcpAgent {
+    AcpAgent {
         info: ProviderInfo {
             id: AgentKind::Claude,
             name: "Fake".into(),
             capabilities: Capabilities::default(),
         },
-        program: "fake-acp".into(),
-        args: Vec::new(),
+        program: program.into(),
+        args: args.iter().map(Into::into).collect(),
         lists: &LISTS,
-    };
-    let runtime = AcpAgents::new(vec![agent.clone()], Arc::new(sandbox));
-    assert_eq!(runtime.providers(), vec![agent.info]);
+    }
+}
+
+/// How a session through `sandbox` ends; the agent never runs.
+async fn through(sandbox: FakeSandbox) -> AgentStatus {
+    let agent = described("fake-acp", &[]);
+    ended_in(AcpAgents::new(vec![agent], Arc::new(sandbox)), ROOT).await
+}
+
+/// How a session of `runtime` in the project `root` ends.
+async fn ended_in(runtime: AcpAgents, root: &str) -> AgentStatus {
     let core = Core::builder("test")
         .projects(Arc::new(MemoryProjects::default()))
         .agents(Arc::new(runtime))
@@ -516,7 +523,7 @@ async fn through(sandbox: FakeSandbox) -> AgentStatus {
     let mut events = core.subscribe();
     call(
         &core,
-        json!({"method": "projects.add", "params": {"root": ROOT}}),
+        json!({"method": "projects.add", "params": {"root": root}}),
     )
     .await;
     call(
@@ -571,4 +578,37 @@ async fn a_panic_in_a_session_still_ends_it() {
         "{message}"
     );
     assert!(message.contains("a bug"), "{message}");
+}
+
+#[tokio::test]
+async fn a_line_that_is_no_utf8_fails_the_session() {
+    let mut s = session("go").await;
+    s.agent.expect(v1::initialize(0)).await;
+    s.agent
+        .stdout
+        .write_all(b"\xff\xfe{}\n")
+        .await
+        .expect("writes");
+    s.wait_status("failed").await;
+    match s.ended.await.expect("ended") {
+        Ended::Failed(message) => assert!(
+            message.starts_with("the agent wrote a line Ovra cannot read"),
+            "{message}"
+        ),
+        other => panic!("unexpected {other:?}"),
+    }
+}
+
+/// An agent that closes stdout but keeps running is killed after the
+/// grace period instead of being waited on for ever.
+#[cfg(unix)]
+#[tokio::test(start_paused = true)]
+async fn an_agent_that_closes_stdout_and_lives_on_is_killed() {
+    let agent = described("sh", &["-c", "exec >&-; exec sleep 30"]);
+    let runtime = AcpAgents::new(vec![agent], Arc::new(FakeSandbox::available()));
+    let status = ended_in(runtime, env!("CARGO_MANIFEST_DIR")).await;
+    let AgentStatus::Failed { message } = status else {
+        panic!("unexpected {status:?}");
+    };
+    assert!(message.starts_with("Fake exited with signal"), "{message}");
 }
