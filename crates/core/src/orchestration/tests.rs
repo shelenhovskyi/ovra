@@ -3760,6 +3760,33 @@ async fn a_worker_cannot_edit_a_file_another_worker_claimed_first() {
         crate::orchestration::claimed_write(&f.core, &sid("s3"), &sibling, &worktree("docs")),
         None
     );
+    // Exact on globs and nested folders, the worktree itself included.
+    use crate::protocol::agents::ToolKind::{Delete, Move};
+    let removes = |claim: &str, folder: &str| {
+        let mut budget = 10_000;
+        super::board::inside_folder(claim, folder, &mut budget)
+    };
+    assert!(removes("src/a.rs", "src"));
+    assert!(removes("src/x/a.rs", "src/x"));
+    assert!(!removes("src/x/a.rs", "src/y"));
+    assert!(removes("src/*/x.rs", "src/foo"));
+    assert!(removes("s*/a.rs", "src"));
+    assert!(removes("**/a.rs", "docs"));
+    assert!(!removes("src/f*", "src/foo"));
+    let mut root = edit_in("docs", "src");
+    root.kind = Delete;
+    root.paths = vec![worktree("docs").to_string_lossy().into_owned()];
+    assert!(
+        crate::orchestration::claimed_write(&f.core, &sid("s3"), &root, &worktree("docs"))
+            .is_some()
+    );
+    let mut folder_moved = edit_in("docs", "src");
+    folder_moved.kind = Move;
+    folder_moved.paths.extend(edit_in("docs", "old").paths);
+    assert!(
+        crate::orchestration::claimed_write(&f.core, &sid("s3"), &folder_moved, &worktree("docs"))
+            .is_some()
+    );
     let mut nameless = edit_in("docs", "src/a.rs");
     nameless.paths.clear();
     assert!(

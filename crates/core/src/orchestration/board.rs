@@ -996,7 +996,12 @@ pub(crate) fn claimed_write(
     let whole = matches!(call.kind, ToolKind::Delete | ToolKind::Move);
     let mut budget = MATCH_BUDGET;
     for path in &call.paths {
-        let Some(rel) = crate::policy::inside(cwd, Path::new(path)) else {
+        let rel = crate::policy::inside(cwd, Path::new(path)).or_else(|| {
+            // The worktree itself, deleted or moved as a whole.
+            let root = crate::policy::inside(cwd, &Path::new(path).join("x"));
+            (whole && root.as_deref() == Some("x")).then(String::new)
+        });
+        let Some(rel) = rel else {
             continue;
         };
         // The first claim that covers the file holds it, also one of the
@@ -1004,7 +1009,8 @@ pub(crate) fn claimed_write(
         // that claimed it first.
         let first = held.iter().find(|(_, pattern)| {
             let pattern = crate::policy::fold(pattern);
-            covers(&pattern, &rel, &mut budget) || (whole && inside_folder(&pattern, &rel))
+            covers(&pattern, &rel, &mut budget)
+                || (whole && inside_folder(&pattern, &rel, &mut budget))
         });
         if budget == 0 {
             return Some(
@@ -1106,19 +1112,29 @@ fn active(core: &Core, session: &SessionId) -> bool {
     !ended && !discarded
 }
 
+/// Whether a claim can name a file inside `folder` (the worktree when
+/// empty): some start of the pattern matches all of `folder/`, so a file
+/// under it can complete the match. Fails closed: `**/a.rs` is in every
+/// folder. Takes from `budget` as [`glob`] does.
+pub(super) fn inside_folder(pattern: &str, folder: &str, budget: &mut usize) -> bool {
+    if folder.is_empty() {
+        return true;
+    }
+    let mut reached = false;
+    rows(
+        pattern.as_bytes(),
+        format!("{folder}/").as_bytes(),
+        budget,
+        |row| {
+            reached |= row.last().copied().unwrap_or(false);
+        },
+    );
+    reached
+}
+
 /// Whether two paths or globs (`*` within a folder, `**` across folders, a
 /// trailing `/` for a whole folder) can name the same file. Each match
 /// takes from `budget`; once it is spent nothing more meets.
-/// Whether a claim's path lies inside `folder`: its part before any
-/// wildcard starts with `folder/`, or the claim is the folder itself.
-fn inside_folder(pattern: &str, folder: &str) -> bool {
-    let literal = pattern.split('*').next().unwrap_or_default();
-    folder.is_empty()
-        || literal
-            .strip_prefix(folder)
-            .is_some_and(|rest| rest.starts_with('/'))
-}
-
 fn meets(a: &str, b: &str, budget: &mut usize) -> bool {
     covers(a, b, budget) || covers(b, a, budget)
 }
@@ -1157,16 +1173,28 @@ fn parts(p: &[u8]) -> Vec<Part> {
 
 /// Matches row by row: at most parts x bytes steps, never exponential.
 fn glob(p: &[u8], s: &[u8], budget: &mut usize) -> bool {
+    rows(p, s, budget, |_| {}).is_some_and(|row| row[s.len()])
+}
+
+/// The match's rows, each shown to `each` (the first before any part);
+/// the last one, or `None` once `budget` is spent.
+fn rows(
+    p: &[u8],
+    s: &[u8],
+    budget: &mut usize,
+    mut each: impl FnMut(&[bool]),
+) -> Option<Vec<bool>> {
     let parts = parts(p);
     let steps = (parts.len() + 1) * (s.len() + 1);
     if steps > *budget {
         *budget = 0;
-        return false;
+        return None;
     }
     *budget -= steps;
     // `row[j]`: the parts so far match the first `j` bytes of `s`.
     let mut row = vec![false; s.len() + 1];
     row[0] = true;
+    each(&row);
     for part in parts {
         let mut next = vec![false; s.len() + 1];
         match part {
@@ -1189,8 +1217,9 @@ fn glob(p: &[u8], s: &[u8], budget: &mut usize) -> bool {
             }
         }
         row = next;
+        each(&row);
     }
-    row[s.len()]
+    Some(row)
 }
 
 /// Questions and answers between workers `a` and `b` since the person or
