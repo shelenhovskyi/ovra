@@ -385,6 +385,21 @@ const reviewHint = $derived(!hints.has("reviewed") && list.some((s) => chip(s)?.
 /** The first steps' "Check the work": the first task that asks the person, else the first whose changes wait. */
 const asking = $derived(list.find((s) => chip(s)?.tone === "warn") ?? null);
 const reviewable = $derived(asking ? null : (list.find((s) => chip(s)?.tone === "ok") ?? null));
+/** With nothing working, asking or to review: the task that ended, for Get started's last step. */
+const ended = $derived.by(() => {
+  if (asking || reviewable || list.some((s) => isBusy(s.status) || s.status.state === "queued")) return undefined;
+  const last = list.find((s) => ["idle", "stopped", "failed"].includes(s.status.state));
+  return last ? { failed: last.status.state === "failed", open: () => open(last.id) } : undefined;
+});
+
+/** Opens a task that asks something and moves to its request, so Y or N answers it. */
+async function answer(id: SessionId): Promise<void> {
+  open(id);
+  await tick();
+  await listCommands()
+    .find((c) => c.id === "approvals.focus")
+    ?.run();
+}
 
 /** Opens Reviews on a task's changes: a task's all its workers', a session's its own. */
 function reviewOf(id: SessionId): void {
@@ -1441,8 +1456,9 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
         agent={names.name()}
         ready={usable !== undefined}
         started={list.length > 0}
-        ask={asking ? () => asking && open(asking.id) : undefined}
+        ask={asking ? () => asking && answer(asking.id) : undefined}
         review={reviewable ? () => reviewable && reviewOf(reviewable.id) : undefined}
+        {ended}
       />
       <AgentSetup open={setupOpen} />
       <ProjectTrust />

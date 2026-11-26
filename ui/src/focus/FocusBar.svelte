@@ -1,6 +1,7 @@
 <script lang="ts">
-// The title bar while Focus is on: the project, a "Focus" label and the
-// way back to the IDE. Its empty space drags the window, like the IDE's.
+// The title bar while Focus is on: the project, a quiet "Focus" word and
+// Exit Focus, the way back to files and code (a label, never a second
+// button-like pill). Its empty space drags the window, like the IDE's.
 import { formatShortcut, isApple } from "../keys/shortcut";
 import { useOvra } from "../shell/context";
 import { FOCUS_KEYS } from "./keys";
@@ -16,8 +17,9 @@ const { workspace } = useOvra();
   <button
     type="button"
     onclick={() => focusMode.set(false)}
-    title={`Open the IDE (${formatShortcut(FOCUS_KEYS, isApple())})`}
-    data-testid="focus-open-ide">Open IDE</button
+    title={`Show files and code again (${formatShortcut(FOCUS_KEYS, isApple())})`}
+    aria-keyshortcuts={FOCUS_KEYS}
+    data-testid="focus-open-ide">Exit Focus</button
   >
 </header>
 
@@ -40,11 +42,11 @@ const { workspace } = useOvra();
     color: var(--text-2);
   }
   .label {
-    padding: 2px 10px;
-    border-radius: var(--r-pill);
-    background: var(--accent-soft);
-    color: var(--accent);
-    font-size: 12px;
+    color: var(--text-2);
+  }
+  .label::before {
+    content: "·";
+    margin-right: 10px;
   }
   .spacer {
     flex: 1;

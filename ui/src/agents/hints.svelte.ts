@@ -6,6 +6,8 @@ export type Hint =
   | "answered"
   /** Started a first task. */
   | "started"
+  /** Opened a first task that ended with nothing to review. */
+  | "read"
   /** Opened a first review. */
   | "reviewed"
   /** Saw the "Done · Changed …" line. */

@@ -9,7 +9,7 @@ mockup: `docs/research/focus-mode.md`, `docs/research/focus-mode/mockup.html`.
 One switch, **Focus**, that replaces the IDE in the window with one quiet
 screen about the agents' work: what waits for the person, what is in
 progress, what comes next and what is done. Code, the file tree, the
-terminal, the rail and the side panels are hidden; **Open IDE** brings them
+terminal, the rail and the side panels are hidden; **Exit Focus** brings them
 back. It is meant for anyone who is easily pulled out of their work; it is
 not named after a diagnosis and promises nothing about health or
 productivity.
@@ -19,7 +19,7 @@ productivity.
 - A **Focus** button in the IDE title bar, beside Reviews.
 - Command `focus.toggle`, "Focus: agents only", category View, keys
   `Mod+Shift+.` (matched on `KeyboardEvent.code`, `Period`).
-- In Focus the title bar shows the project, a "Focus" label and **Open IDE**
+- In Focus the title bar shows the project, a "Focus" label and **Exit Focus**
   (the same command). Escape does not leave Focus: it belongs to the cards.
 - Remembered per browser (`localStorage`, `ovra.focus`); on the start
   screen (no project) Focus waits and applies once a project opens.

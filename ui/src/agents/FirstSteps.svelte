@@ -13,6 +13,7 @@ let {
   started,
   ask,
   review,
+  ended,
 }: {
   /** The provider's display name, such as `Claude`. */
   agent: string;
@@ -22,20 +23,41 @@ let {
   ask?: (() => void) | undefined;
   /** Opens the changes that wait for review, if some do. */
   review?: (() => void) | undefined;
+  /** Opens a task that ended with nothing to review: its answer, or why it failed. */
+  ended?: { failed: boolean; open: () => void } | undefined;
 } = $props();
+
+/** The card goes away: focus moves on to the task box under it, not to the page. */
+function hide(): void {
+  hints.mark("steps_hidden");
+  document.getElementById("agent-prompt")?.focus();
+}
+
+/** Opening an ended task's answer is checking its work. */
+function read(open: () => void): void {
+  hints.mark("read");
+  open();
+}
 
 const isStarted = $derived(started || hints.has("started"));
 /** The third step's line and button: what to do now, or what to wait for. */
 const check = $derived.by((): { detail: string; action?: { label: string; run: () => void } } => {
   if (ask) return { detail: `${agent} asks you something.`, action: { label: "Open", run: ask } };
   if (review) return { detail: "Its changes are ready.", action: { label: "Review", run: review } };
+  if (ended?.failed)
+    return { detail: "The task stopped with an error.", action: { label: "Open", run: () => read(ended.open) } };
+  if (ended) return { detail: `${agent} answered.`, action: { label: "Read", run: () => read(ended.open) } };
   if (isStarted) return { detail: `${agent} is working. Its questions and changes show up here.` };
   return { detail: "Allow what it asks, then keep or discard its changes." };
 });
 const steps = $derived([
   { text: `${agent} is ready`, done: ready },
   { text: "Type a task and press Start", done: isStarted },
-  { text: `Check ${agent}'s work`, done: hints.has("answered") || hints.has("reviewed"), ...check },
+  {
+    text: `Check ${agent}'s work`,
+    done: hints.has("answered") || hints.has("reviewed") || hints.has("read"),
+    ...check,
+  },
 ]);
 const done = $derived(steps.filter((s) => s.done).length);
 const next = $derived(steps.findIndex((s) => !s.done));
@@ -45,7 +67,7 @@ const next = $derived(steps.findIndex((s) => !s.done));
   <section class="steps" aria-labelledby="first-steps-heading" data-testid="first-steps">
     <div class="head">
       <h3 id="first-steps-heading">Get started <span class="count">{done} of {steps.length}</span></h3>
-      <button type="button" class="hide" onclick={() => hints.mark("steps_hidden")}>Hide</button>
+      <button type="button" class="hide" onclick={hide}>Hide</button>
     </div>
     <ol>
       {#each steps as step, n (step.text)}
@@ -127,9 +149,6 @@ const next = $derived(steps.findIndex((s) => !s.done));
   li.next .title {
     color: var(--text);
     font-weight: 500;
-  }
-  li.done .title {
-    text-decoration: line-through;
   }
   .detail {
     color: var(--text-2);
