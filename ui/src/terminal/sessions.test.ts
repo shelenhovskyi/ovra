@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { CoreError } from "../lib/transport";
 import { FakeTerminals } from "./fake-terminals";
-import { TerminalSessions } from "./sessions.svelte";
+import { type SavedTabs, type TabStore, TerminalSessions } from "./sessions.svelte";
 
 const SIZE = { cols: 80, rows: 24 };
 
@@ -218,6 +218,104 @@ describe("TerminalSessions", () => {
       expect(screen.screen).toContain("This terminal is gone");
       sessions.close(session);
       expect(core.methods()).not.toContain("terminals.close");
+    });
+  });
+
+  describe("after a reload", () => {
+    /** A tab store in memory, as the page's storage keeps it. */
+    function memory(): TabStore & { saved: Map<string, SavedTabs> } {
+      const saved = new Map<string, SavedTabs>();
+      return {
+        saved,
+        load: (project) => saved.get(project) ?? null,
+        save: (project, tabs) => (tabs ? saved.set(project, structuredClone(tabs)) : saved.delete(project)),
+      };
+    }
+
+    it("saves each project's tabs with their shells and the active one", async () => {
+      const core = new FakeTerminals();
+      const store = memory();
+      const sessions = new TerminalSessions(core, store);
+      const first = sessions.add("p1");
+      await sessions.start(first, SIZE);
+      const second = sessions.add("p1", "src");
+      expect(store.saved.get("p1")).toEqual({
+        tabs: [
+          { id: "t1", title: "Terminal 1" },
+          { id: null, title: "Terminal 2", cwd: "src" },
+        ],
+        active: 1,
+      });
+      sessions.close(second);
+      sessions.close(first);
+      expect(store.saved.has("p1")).toBe(false);
+    });
+
+    it("takes the shell back with its scrollback, size and held output", async () => {
+      const core = new FakeTerminals();
+      const store = memory();
+      const before = new TerminalSessions(core, store);
+      const old = before.add("p1");
+      await before.start(old, SIZE);
+      core.output("t1", "one\r\n");
+
+      const sessions = new TerminalSessions(core, store);
+      sessions.listen();
+      expect(sessions.restore("p1")).toBe(1);
+      expect(sessions.restore("p1")).toBe(0);
+      const [tab] = sessions.of("p1");
+      if (!tab) throw new Error("no tab");
+      const screen = view();
+      tab.attach(screen);
+      sessions.input(tab, "typed");
+      let release = () => {};
+      core.scrollbackGate = new Promise((resolve) => (release = resolve));
+      const started = sessions.start(tab, { cols: 120, rows: 40 });
+      core.output("t1", "two\r\n");
+      release();
+      await started;
+      await settle();
+      expect(tab.state).toEqual({ kind: "running", id: "t1" });
+      expect(screen.screen).toBe("one\r\ntwo\r\ntyped");
+      expect(core.open.get("t1")?.size).toEqual({ cols: 120, rows: 40 });
+      expect(core.methods().filter((m) => m === "terminals.open")).toHaveLength(1);
+    });
+
+    it("shows a shell that ended before the reload as ended", async () => {
+      const core = new FakeTerminals();
+      const store = memory();
+      const before = new TerminalSessions(core, store);
+      await before.start(before.add("p1"), SIZE);
+      core.output("t1", "done\r\n");
+      core.exit("t1", 0);
+
+      const sessions = new TerminalSessions(core, store);
+      sessions.restore("p1");
+      const [tab] = sessions.of("p1");
+      if (!tab) throw new Error("no tab");
+      const screen = view();
+      tab.attach(screen);
+      await sessions.start(tab, SIZE);
+      expect(tab.state).toEqual({ kind: "exited", code: undefined });
+      expect(screen.screen).toBe("done\r\n\r\nProcess ended.\r\n");
+    });
+
+    it("starts a new shell in the tab's folder when the core no longer knows the old one", async () => {
+      const store = memory();
+      store.save("p1", { tabs: [{ id: "t9", title: "Terminal 4", cwd: "src" }], active: 0 });
+      const core = new FakeTerminals();
+      const sessions = new TerminalSessions(core, store);
+      sessions.restore("p1");
+      const [tab] = sessions.of("p1");
+      if (!tab) throw new Error("no tab");
+      await sessions.start(tab, SIZE);
+      expect(tab.state).toEqual({ kind: "running", id: "t1" });
+      expect(core.calls.at(-1)).toEqual({
+        method: "terminals.open",
+        params: { project: "p1", size: SIZE, cwd: "src" },
+      });
+      expect(store.saved.get("p1")?.tabs).toEqual([{ id: "t1", title: "Terminal 4", cwd: "src" }]);
+      expect(sessions.add("p1").title).toBe("Terminal 5");
     });
   });
 });

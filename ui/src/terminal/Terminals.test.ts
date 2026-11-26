@@ -11,6 +11,8 @@ import TerminalsHarness from "./TerminalsHarness.svelte";
 const xterms = vi.hoisted(() => [] as FakeXterm[]);
 type FakeXterm = {
   written: string;
+  selection: string;
+  pasted: string[];
   type: (data: string) => void;
   keyHandler: (event: KeyboardEvent) => boolean;
   textarea: HTMLTextAreaElement;
@@ -23,6 +25,8 @@ vi.mock("@xterm/xterm", () => ({
     options: Record<string, unknown> = {};
     record: FakeXterm = {
       written: "",
+      selection: "",
+      pasted: [],
       type: () => {},
       keyHandler: () => true,
       textarea: document.createElement("textarea"),
@@ -51,6 +55,15 @@ vi.mock("@xterm/xterm", () => ({
     write(data: string) {
       this.record.written += data;
     }
+    hasSelection() {
+      return this.record.selection !== "";
+    }
+    getSelection() {
+      return this.record.selection;
+    }
+    paste(text: string) {
+      this.record.pasted.push(text);
+    }
     reset() {
       this.record.written = "";
     }
@@ -78,6 +91,8 @@ const cleanups: (() => void)[] = [];
 afterEach(() => {
   for (const cleanup of cleanups.splice(0)) cleanup();
   xterms.length = 0;
+  // Tabs and the panel's state are saved for a reload; each test starts without them.
+  localStorage.clear();
 });
 
 const settle = async () => {
@@ -85,8 +100,7 @@ const settle = async () => {
   flushSync();
 };
 
-function setup(project: Project | null = PROJECT) {
-  const core = new FakeTerminals();
+function setup(project: Project | null = PROJECT, core = new FakeTerminals()) {
   const workspace = new Workspace();
   workspace.project = project;
   const target = document.createElement("div");
@@ -251,5 +265,71 @@ describe("Terminals", () => {
     expect([...core.open.keys()]).toEqual(["t2"]);
     expect(panel.querySelector(".ended")).toBeNull();
     expect(document.activeElement).toBe(xterms[1]?.textarea);
+  });
+
+  it("copies and pastes with Ctrl+Shift+C and Ctrl+Shift+V off Apple keyboards", async () => {
+    const board = {
+      text: "",
+      writeText: vi.fn(async (t: string) => {
+        board.text = t;
+      }),
+      readText: async () => board.text,
+    };
+    vi.stubGlobal("navigator", { ...navigator, platform: "Linux x86_64", clipboard: board });
+    try {
+      setup();
+      await run("terminal.toggle");
+      const xterm = xterms[0];
+      if (!xterm) throw new Error("no xterm");
+      // Greek layout: the keys still match by position.
+      const key = (code: string) =>
+        new KeyboardEvent("keydown", { key: "ψ", code, ctrlKey: true, shiftKey: true, cancelable: true });
+
+      // Nothing selected: the copy key does nothing, and never interrupts the shell.
+      const empty = key("KeyC");
+      expect(xterm.keyHandler(empty)).toBe(false);
+      expect(empty.defaultPrevented).toBe(true);
+      expect(board.writeText).not.toHaveBeenCalled();
+
+      xterm.selection = "hello";
+      expect(xterm.keyHandler(key("KeyC"))).toBe(false);
+      expect(board.writeText).toHaveBeenCalledWith("hello");
+
+      const paste = key("KeyV");
+      expect(xterm.keyHandler(paste)).toBe(false);
+      expect(paste.defaultPrevented).toBe(true);
+      await settle();
+      expect(xterm.pasted).toEqual(["hello"]);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("brings the tabs and the panel back after a reload, on the same shells", async () => {
+    const core = new FakeTerminals();
+    const first = setup(PROJECT, core);
+    await run("terminal.toggle");
+    await run("terminal.new");
+    core.output("t1", "before reload\r\n");
+    await run("terminal.new");
+    await run("terminal.close");
+    // Back on the first tab before the reload.
+    first.tabs()[0]?.click();
+    await settle();
+    for (const cleanup of cleanups.splice(0)) cleanup();
+    xterms.length = 0;
+
+    // The page reloads; the core and its shells live on.
+    const { panel, tabs } = setup(PROJECT, core);
+    await settle();
+    expect(panel.hidden).toBe(false);
+    expect(tabs().map((t) => t.textContent?.trim())).toEqual(["Terminal 1", "Terminal 2"]);
+    expect(tabs()[0]?.getAttribute("aria-selected")).toBe("true");
+    expect(xterms[0]?.written).toBe("before reload\r\n");
+    expect([...core.open.keys()]).toEqual(["t1", "t2"]);
+    expect(core.methods().filter((m) => m === "terminals.open")).toHaveLength(3);
+    // Numbering goes on after the restored tabs.
+    await run("terminal.new");
+    expect(tabs().at(-1)?.textContent?.trim()).toBe("Terminal 3");
   });
 });

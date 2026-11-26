@@ -3,7 +3,7 @@
 // project. Mounted once by the shell; it owns the terminal commands. Hiding
 // the panel keeps the shells and their scrollback.
 import type { Terminal } from "@xterm/xterm";
-import { tick } from "svelte";
+import { tick, untrack } from "svelte";
 import { askAgent, registerContextSource } from "../agents/context.svelte";
 import { registerCommand } from "../keys/commands";
 import { formatShortcut, inBrowserTab, isApple, liveKeys } from "../keys/shortcut";
@@ -11,18 +11,22 @@ import { openContextMenu } from "../menu/context-menu.svelte";
 import { useOvra } from "../shell/context";
 import Icon from "../shell/Icon.svelte";
 import { terminalText } from "./agent-context";
+import { copySelection, pasteClipboard } from "./clipboard";
+import { clipboardKeys } from "./keys";
 import { handleOpenTerminalIn } from "./open-in";
-import { loadScreenReader, saveScreenReader } from "./prefs";
+import { loadOpen, loadScreenReader, saveOpen, saveScreenReader, tabStore } from "./prefs";
 import { exitNotice, LOST_NOTICE, type TerminalSession, TerminalSessions } from "./sessions.svelte";
 import TerminalView from "./TerminalView.svelte";
 
 const { transport, workspace } = useOvra();
-const sessions = new TerminalSessions(transport);
+const sessions = new TerminalSessions(transport, tabStore());
 
 const TOGGLE_KEYS = "Ctrl+`";
 const NEW_KEYS = "Ctrl+Shift+`";
 
 let open = $state(false);
+/** Whether the panel was shown before the page reloaded; it shows again once tabs come back. */
+const wasOpen = loadOpen();
 let screenReader = $state(loadScreenReader());
 /** Confirms a screen reader mode change to assistive technology. */
 let readerNotice = $state("");
@@ -55,17 +59,27 @@ $effect(() =>
   }),
 );
 
-/** The terminal's menu: Copy with a selection, and Ask agent. */
+/** The terminal's menu: Copy with a selection, Paste while the shell runs, and Ask agent. */
 function terminalMenu(event: MouseEvent, session: TerminalSession): void {
   const terminal = xterms.get(session.key);
   if (!terminal) return;
   const found = terminalText(terminal);
-  if (!found.text.trim()) return;
-  event.preventDefault();
   const board = typeof navigator !== "undefined" ? navigator.clipboard : undefined;
+  const canPaste = !!board?.readText && session.state.kind === "running";
+  if (!found.text.trim() && !canPaste) return;
+  event.preventDefault();
+  const keys = clipboardKeys(isApple());
   openContextMenu(event, [
-    found.selected && board && { label: "Copy", keys: "Mod+C", run: () => board.writeText(terminal.getSelection()) },
-    {
+    found.selected && board && { label: "Copy", keys: keys.copy, run: () => void copySelection(terminal) },
+    canPaste && {
+      label: "Paste",
+      keys: keys.paste,
+      run: () => {
+        terminal.focus();
+        pasteClipboard(terminal);
+      },
+    },
+    !!found.text.trim() && {
       label: "Ask agent",
       run: () => askAgent({ kind: "terminal", title: session.title, text: found.text }),
     },
@@ -90,16 +104,21 @@ async function focusActive(): Promise<void> {
   if (active) xterms.get(active.key)?.focus();
 }
 
+function setOpen(value: boolean): void {
+  open = value;
+  saveOpen(value);
+}
+
 async function show(): Promise<void> {
   rememberFocus();
-  open = true;
+  setOpen(true);
   if (project && tabs.length === 0) sessions.add(project.id);
   await focusActive();
 }
 
 function hide(): void {
   const hadFocus = focusInPanel();
-  open = false;
+  setOpen(false);
   if (hadFocus && returnFocus?.isConnected) returnFocus.focus();
   returnFocus = null;
 }
@@ -107,11 +126,11 @@ function hide(): void {
 /** Opens a new tab, its shell in the project-relative folder `cwd` (the project root when left out). */
 async function newTerminal(cwd?: string): Promise<void> {
   if (!project) {
-    open = true;
+    setOpen(true);
     return;
   }
   rememberFocus();
-  open = true;
+  setOpen(true);
   sessions.add(project.id, cwd);
   await focusActive();
 }
@@ -184,6 +203,11 @@ function status(session: TerminalSession): string {
 }
 
 $effect(() => sessions.listen());
+// A project's tabs from before a reload come back when it opens, the panel too if it was shown.
+$effect(() => {
+  const id = project?.id;
+  if (id && untrack(() => sessions.restore(id)) > 0 && wasOpen) open = true;
+});
 $effect(() => handleOpenTerminalIn(newTerminal));
 
 $effect(() => {

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { registerCommand } from "../keys/commands";
-import { isCommandKey } from "./keys";
+import { clipboardKey, isCommandKey } from "./keys";
 
 const press = (key: string, code: string, mods: Partial<Record<"ctrl" | "meta" | "alt" | "shift", boolean>> = {}) => ({
   key,
@@ -40,5 +40,23 @@ describe("keys in a focused terminal", () => {
     expect(isCommandKey(press("`", "Backquote", { ctrl: true }), false, false)).toBe(true);
     expect(isCommandKey(press("\u0451", "Backquote", { ctrl: true }), true, true)).toBe(true);
     expect(isCommandKey(press("'", "Backquote", { ctrl: true }), false, true)).toBe(true);
+  });
+});
+
+describe("clipboardKey", () => {
+  it("copies and pastes with Shift off Apple keyboards, matched by position", () => {
+    expect(clipboardKey(press("ψ", "KeyC", { ctrl: true, shift: true }), false)).toBe("copy");
+    expect(clipboardKey(press("ω", "KeyV", { ctrl: true, shift: true }), false)).toBe("paste");
+    expect(clipboardKey(press("Insert", "Insert", { ctrl: true }), false)).toBe("copy");
+    expect(clipboardKey(press("Insert", "Insert", { shift: true }), false)).toBe("paste");
+    // Ctrl+C and Ctrl+V stay the shell's.
+    expect(clipboardKey(press("c", "KeyC", { ctrl: true }), false)).toBeNull();
+    expect(clipboardKey(press("v", "KeyV", { ctrl: true }), false)).toBeNull();
+  });
+
+  it("copies with Cmd+C on Apple keyboards and leaves Cmd+V to the system", () => {
+    expect(clipboardKey(press("c", "KeyC", { meta: true }), true)).toBe("copy");
+    expect(clipboardKey(press("v", "KeyV", { meta: true }), true)).toBeNull();
+    expect(clipboardKey(press("c", "KeyC", { ctrl: true }), true)).toBeNull();
   });
 });

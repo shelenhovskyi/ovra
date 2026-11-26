@@ -20,3 +20,30 @@ export function isCommandKey(event: KeyEventLike, apple: boolean, browser: boole
     return shortcut !== null && !shellOwns(shortcut) && matchesShortcut(event, shortcut);
   });
 }
+
+/**
+ * The terminal's own copy and paste keys. Plain Ctrl+C and Ctrl+V belong to
+ * the shell off Apple keyboards, so there it is Ctrl+Shift+C and Ctrl+Shift+V
+ * (and Ctrl+Insert, Shift+Insert), as in other terminals. On Apple keyboards
+ * Cmd+C copies; Cmd+V is the system's paste, which xterm.js already takes.
+ * Matched on `code`, so the keys work on any layout.
+ */
+export function clipboardKey(
+  event: Pick<KeyboardEvent, "code" | "ctrlKey" | "shiftKey" | "altKey" | "metaKey">,
+  apple: boolean,
+): "copy" | "paste" | null {
+  const { code, ctrlKey: ctrl, shiftKey: shift, altKey: alt, metaKey: meta } = event;
+  if (alt) return null;
+  if (apple) return meta && !ctrl && !shift && code === "KeyC" ? "copy" : null;
+  if (meta) return null;
+  if (ctrl && shift && code === "KeyC") return "copy";
+  if (ctrl && shift && code === "KeyV") return "paste";
+  if (ctrl && !shift && code === "Insert") return "copy";
+  if (shift && !ctrl && code === "Insert") return "paste";
+  return null;
+}
+
+/** How the menu shows the copy and paste keys. */
+export function clipboardKeys(apple: boolean): { copy: string; paste: string } {
+  return apple ? { copy: "Mod+C", paste: "Mod+V" } : { copy: "Ctrl+Shift+C", paste: "Ctrl+Shift+V" };
+}

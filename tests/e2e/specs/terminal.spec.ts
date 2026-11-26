@@ -88,3 +88,37 @@ test("a terminal redraws output it missed from the core's scrollback", async ({ 
   await expect(rows).toContainText("lost-2");
   await expect(rows.getByText("lost-2", { exact: false })).toHaveCount(1);
 });
+
+test("terminal tabs come back on their shells after a reload, and the panel resizes", async ({ page }) => {
+  const url = process.env.OVRA_URL;
+  if (!url) throw new Error("OVRA_URL is not set; globalSetup did not run");
+  const dir = mkdtempSync(join(tmpdir(), "ovra-terminal-"));
+
+  await loadProject(page, dir, url);
+  await expect(page.getByRole("tree", { name: "Files" })).toBeVisible();
+  const panel = page.getByRole("region", { name: "Terminal panel" });
+  await page.keyboard.press("Control+Backquote");
+  await page.keyboard.type("export KEPT=still-$((3+4))\n");
+  await page.keyboard.type("echo $KEPT\n");
+  const rows = panel.getByRole("tabpanel", { name: "Terminal 1" }).locator(".xterm-rows");
+  await expect(rows).toContainText("still-7");
+
+  // The handle above the panel resizes it from the keyboard.
+  const handle = page.getByRole("separator", { name: "Resize the bottom panel" });
+  const before = (await panel.boundingBox())?.height ?? 0;
+  await handle.focus();
+  await page.keyboard.press("ArrowUp");
+  await page.keyboard.press("ArrowUp");
+  await expect.poll(async () => (await panel.boundingBox())?.height ?? 0).toBeGreaterThan(before + 20);
+  const resized = (await panel.boundingBox())?.height ?? 0;
+
+  await page.reload();
+  await expect(panel).toBeVisible();
+  await expect(panel.getByRole("tab")).toHaveText(["Terminal 1"]);
+  await expect(rows).toContainText("still-7");
+  // The same shell: what it was told before the reload, it still knows.
+  await panel.getByRole("textbox", { name: "Terminal input" }).focus();
+  await page.keyboard.type("echo again-$KEPT\n");
+  await expect(rows).toContainText("again-still-7");
+  expect(Math.abs(((await panel.boundingBox())?.height ?? 0) - resized)).toBeLessThan(2);
+});

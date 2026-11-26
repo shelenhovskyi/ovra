@@ -6,7 +6,8 @@ import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
 import { untrack } from "svelte";
 import { inBrowserTab, isApple } from "../keys/shortcut";
-import { isCommandKey } from "./keys";
+import { copySelection, pasteClipboard } from "./clipboard";
+import { clipboardKey, isCommandKey } from "./keys";
 import type { TerminalSession, TerminalSessions } from "./sessions.svelte";
 
 let {
@@ -91,6 +92,13 @@ $effect(() =>
       if (leaves(event)) {
         event.preventDefault();
         onleave();
+        return false;
+      }
+      const clip = clipboardKey(event, apple);
+      // Off Apple keyboards the copy key never reaches the shell, also with nothing selected.
+      if (clip === "paste" || (clip === "copy" && (copySelection(t) || !apple))) {
+        event.preventDefault();
+        if (clip === "paste") pasteClipboard(t);
         return false;
       }
       // Returning false leaves the key to the window, where the command runs.
