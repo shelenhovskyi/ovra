@@ -101,3 +101,22 @@ test("the window never scrolls, whatever a panel scrolls into view", async ({ pa
   expect(await page.evaluate(() => document.scrollingElement?.scrollTop)).toBe(0);
   expect((await page.locator("header.title").boundingBox())?.y).toBe(0);
 });
+
+test("an icon-only button centres its icon, whichever panel styles it", async ({ page }) => {
+  await openProject(page, "ovra-layout-icons-");
+  /** How far the icon's middle is from its button's middle, in px. */
+  const off = (button: ReturnType<Page["getByRole"]>) =>
+    button.evaluate((b) => {
+      const box = b.getBoundingClientRect();
+      const icon = b.querySelector("svg")?.getBoundingClientRect();
+      if (!icon) throw new Error("no icon");
+      return Math.abs(icon.top + icon.height / 2 - (box.top + box.height / 2));
+    });
+  // A button that sets no layout of its own (Search's filter toggle).
+  await page.keyboard.press("ControlOrMeta+Shift+F");
+  expect(await off(page.getByRole("button", { name: "Files to include or exclude" }))).toBeLessThan(0.5);
+  // A component's own button, not the browser's grey one (the keep-awake cup).
+  const awake = page.getByTestId("keep-awake");
+  expect(await off(page.getByRole("button", { name: "Keep the computer awake while agents work" }))).toBeLessThan(0.5);
+  expect(await awake.evaluate((b) => getComputedStyle(b).borderTopStyle)).not.toBe("outset");
+});

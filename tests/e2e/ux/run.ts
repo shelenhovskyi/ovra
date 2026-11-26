@@ -2,6 +2,8 @@
 //
 //   just ux <script.ts> [--fixtures small,monorepo] [--seed small] [--out DIR]
 //
+//   --browser webkit renders with WebKit, the engine of the macOS app (needs
+//   `pnpm --filter @ovra/e2e exec playwright install webkit`); default chromium.
 //   --claude FIXTURE runs the real claude driver against fake-claude playing
 //   crates/agent-runtime/fixtures/FIXTURE.jsonl (default: the scripted fake agent).
 // The script's default export gets a `Session` (see below) and drives the app
@@ -13,7 +15,7 @@ import { copyFileSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import { type Browser, type BrowserContext, chromium, type Page } from "@playwright/test";
+import { type Browser, type BrowserContext, chromium, type Page, webkit } from "@playwright/test";
 import startSharedDaemon, { binary, root, startDaemon } from "../daemon.ts";
 import { type FixtureName, makeFixtures } from "./fixtures.ts";
 
@@ -33,10 +35,17 @@ export type Session = {
   note: (line: string) => void;
 };
 
-type Args = { script: string; fixtures: FixtureName[]; seed: FixtureName[]; claude: string; out: string };
+type Args = {
+  script: string;
+  fixtures: FixtureName[];
+  seed: FixtureName[];
+  claude: string;
+  out: string;
+  browser: "chromium" | "webkit";
+};
 
 function parse(argv: string[]): Args {
-  const args: Args = { script: "", fixtures: ["small"], seed: [], claude: "", out: "" };
+  const args: Args = { script: "", fixtures: ["small"], seed: [], claude: "", out: "", browser: "chromium" };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     const next = (): string => argv[++i] ?? "";
@@ -44,10 +53,13 @@ function parse(argv: string[]): Args {
     else if (a === "--seed") args.seed = next().split(",").filter(Boolean) as FixtureName[];
     else if (a === "--out") args.out = next();
     else if (a === "--claude") args.claude = next();
+    else if (a === "--browser") args.browser = next() === "webkit" ? "webkit" : "chromium";
     else if (a) args.script = a;
   }
   if (!args.script)
-    throw new Error("usage: just ux <script.ts> [--fixtures a,b] [--seed a] [--claude FIXTURE] [--out DIR]");
+    throw new Error(
+      "usage: just ux <script.ts> [--fixtures a,b] [--seed a] [--claude FIXTURE] [--browser webkit] [--out DIR]",
+    );
   for (const s of args.seed) if (!args.fixtures.includes(s)) args.fixtures.push(s);
   args.out ||= resolve("target/ux", new Date().toISOString().replace(/[:.]/g, "-"));
   return args;
@@ -100,7 +112,7 @@ async function main(): Promise<void> {
   note(`fixtures ${JSON.stringify(roots)}`);
   for (const name of args.seed) await addProject(url, roots[name] as string);
 
-  const browser = await chromium.launch();
+  const browser = await (args.browser === "webkit" ? webkit : chromium).launch();
   const context = await browser.newContext({ viewport: { width: 1280, height: 800 } });
   const page = await context.newPage();
   page.on("console", (m) => note(`console.${m.type()} ${m.text()}`));

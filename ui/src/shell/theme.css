@@ -277,6 +277,15 @@ body {
 :where(code, kbd, pre, samp) {
   font-family: var(--mono);
 }
+/* A button that holds only an icon centres it. Left to the browser, the icon
+   is a letter on the text line: it sits on the baseline, 1-2 px above the
+   middle (most visible in WebKit, the macOS app's engine). Zero specificity,
+   so a panel's own layout still wins. */
+:where(button:has(> svg.icon:only-child)) {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
 /* Controls take the text font, not the browser's 13.33 px one. */
 :where(button, input, select, textarea) {
   font: inherit;
@@ -320,6 +329,9 @@ select {
   width: 16px;
   height: 16px;
   margin: 0;
+  /* In a line of text (a Markdown task list) the box sits on the baseline and
+     looks high; this centres it on the capitals. Flex rows ignore it. */
+  vertical-align: -0.2em;
 }
 /* Syntax colours for code shown outside the editor too (tree-sitter capture
    classes `tok-<capture>`, see languages/README.md). */
