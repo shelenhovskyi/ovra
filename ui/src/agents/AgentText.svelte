@@ -6,13 +6,44 @@
 import { paintCodeBlocks } from "../viewers/paint-code";
 import { renderChat } from "./markdown";
 
+/**
+ * While the text streams in, it is rendered again at most this often (ms)…
+ * Each delta would otherwise render the whole text again: a 4 kB answer
+ * costs about 8 ms per render in Chromium, and it arrives in hundreds of deltas.
+ */
+const STREAM_EVERY_MS = 100;
+/** …and at most once per this many times the last render took, so long texts stay at about a fifth of the main thread. */
+const STREAM_COST_FACTOR = 5;
+
 let {
   text,
   streaming = false,
   onlink,
 }: { text: string; streaming?: boolean; onlink?: (href: string) => void } = $props();
 
-const html = $derived(renderChat(text));
+/** The streamed text as last rendered, and when and how long that took. */
+let streamed = $state("");
+let renderedAt = -Infinity;
+let cost = 0;
+$effect.pre(() => {
+  if (!streaming) return;
+  const value = text;
+  const render = () => {
+    const start = Date.now();
+    streamed = renderChat(value);
+    renderedAt = Date.now();
+    cost = renderedAt - start;
+  };
+  const wait = renderedAt + Math.max(STREAM_EVERY_MS, cost * STREAM_COST_FACTOR) - Date.now();
+  if (wait <= 0) {
+    render();
+    return;
+  }
+  // A newer delta replaces this one; the time of the next render stays.
+  const timer = setTimeout(render, wait);
+  return () => clearTimeout(timer);
+});
+const html = $derived(streaming ? streamed : renderChat(text));
 let root = $state<HTMLElement>();
 
 $effect(() => {
