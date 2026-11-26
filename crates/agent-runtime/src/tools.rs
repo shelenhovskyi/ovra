@@ -105,7 +105,10 @@ mod tests {
         let lines: Vec<String> = cases
             .into_iter()
             .map(|(name, input)| {
-                let request = tool(name, input);
+                let request = tool(name, input.clone());
+                // The core's fake maps Claude's tools for core tests; both
+                // must agree.
+                assert_eq!(request, ovra_core::fakes::tool(name, input), "{name}");
                 let call = serde_json::to_string(&request.call).unwrap_or_default();
                 let written = request
                     .written
