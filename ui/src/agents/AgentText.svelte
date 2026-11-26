@@ -60,6 +60,12 @@ function onclick(event: MouseEvent): void {
   .md :global(ol) {
     padding-left: 20px;
   }
+  .md :global(ul) {
+    list-style: disc;
+  }
+  .md :global(ul ul) {
+    list-style: circle;
+  }
   .md :global(li + li) {
     margin-top: 2px;
   }
