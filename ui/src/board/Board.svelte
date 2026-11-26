@@ -44,6 +44,11 @@ async function answer(question: EntryId): Promise<void> {
   if (await run(() => boards.answer(task, question, text))) delete answers[question];
 }
 
+/** One tap answers with the option's own words. */
+async function pick(question: EntryId, option: string): Promise<void> {
+  if (await run(() => boards.answer(task, question, option))) delete answers[question];
+}
+
 async function post(): Promise<void> {
   const text = note.trim();
   if (!text) return;
@@ -78,6 +83,22 @@ function onEnter(event: KeyboardEvent, send: () => void): void {
       }}
     >
       <p><span class="who">{authorName(question.author)} asks you</span>{entryText(question)}</p>
+      {#if question.body.kind === "question" && question.body.options?.length}
+        {@const body = question.body}
+        <div class="options" role="group" aria-label="Answers">
+          {#each body.options ?? [] as option, i (i)}
+            <button
+              type="button"
+              class={body.recommended === i ? "primary" : "soft"}
+              disabled={busy}
+              data-testid="board-option"
+              onclick={() => void pick(question.id, option)}
+              >{option}{body.recommended === i ? " (recommended)" : ""}</button
+            >
+          {/each}
+        </div>
+        {#if body.reason}<p class="why">{body.reason}</p>{/if}
+      {/if}
       <label class="visually-hidden" for={`answer-${question.id}`}>Your answer</label>
       <textarea
         id={`answer-${question.id}`}
@@ -148,6 +169,21 @@ function onEnter(event: KeyboardEvent, send: () => void): void {
     padding: 12px;
     background: var(--s2);
     border-radius: var(--radius);
+  }
+  .options {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .soft {
+    height: 32px;
+    padding: 0 12px;
+    color: var(--text);
+    background: var(--s3);
+  }
+  .why {
+    font-size: 13px;
+    color: var(--text-2);
   }
   .entries {
     list-style: none;

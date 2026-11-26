@@ -539,6 +539,45 @@ describe("AgentsPanel", () => {
     expect(target.querySelectorAll("[data-testid=board-entry]")).toHaveLength(4);
   });
 
+  it("answers a question with options in one tap and marks the recommended one", async () => {
+    const core = new FakeAgentCore();
+    core.addSession("p1", "Rename the flag", { state: "idle" });
+    core.tasks.push({
+      id: "t1",
+      project: "p1",
+      coordinator: "s1",
+      workers: [],
+      limits: { max_workers: 3, budget_micro_usd: null },
+      spent_micro_usd: 0,
+    });
+    core.boards.set("t1", [
+      {
+        id: "b1",
+        author: { kind: "worker", name: "lint" },
+        body: {
+          kind: "question",
+          to: { kind: "person" },
+          text: "Keep the old flag?",
+          options: ["Keep", "Drop"],
+          recommended: 1,
+          reason: "Nobody uses it",
+        },
+      },
+    ]);
+    await setup(core);
+    target.querySelector<HTMLButtonElement>(".sessions .row-button")?.click();
+    await settle();
+    target.querySelector<HTMLButtonElement>("[data-testid=agent-board-tab]")?.click();
+    await settle();
+    const options = [...target.querySelectorAll<HTMLButtonElement>("[data-testid=board-option]")];
+    expect(options.map((o) => o.textContent)).toEqual(["Keep", "Drop (recommended)"]);
+    expect(target.querySelector(".board .why")?.textContent).toBe("Nobody uses it");
+    options[1]?.click();
+    await settle();
+    expect(core.sent("board.answer").map((c) => c.params)).toEqual([{ task: "t1", question: "b1", text: "Drop" }]);
+    expect(target.querySelector("[data-testid=board-question]")).toBeNull();
+  });
+
   it("lists a task's workers in the order it started them", async () => {
     const core = new FakeAgentCore();
     core.addSession("p1", "Write the notes", { state: "idle" });
