@@ -7,7 +7,7 @@ use std::path::{Component, Path, PathBuf};
 
 use super::requests::Ctx;
 use crate::protocol::agents::{
-    Account, AccountState, AccountsOverview, AgentSettings, DEFAULT_ACCOUNT,
+    Account, AccountState, AccountsOverview, AgentKind, AgentSettings, DEFAULT_ACCOUNT,
 };
 use crate::protocol::projects::ProjectId;
 use crate::protocol::{ErrorCode, ProtocolError};
@@ -75,6 +75,7 @@ pub(crate) async fn overview(
         let setup = ctx
             .runtime
             .setup(
+                AgentKind::Claude,
                 settings.claude_path.clone().map(PathBuf::from),
                 account.config_dir.as_ref().map(PathBuf::from),
             )

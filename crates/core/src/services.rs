@@ -1027,16 +1027,17 @@ pub trait AgentRuntime: Send + Sync + Debug {
     /// Starts a session and returns at once; the agent then works in the
     /// background and reports through `host` until it ends.
     fn start(&self, spec: AgentSpec, host: AgentHost) -> Result<Box<dyn RunningAgent>>;
-    /// Checks that the agent can run here; `path` is the executable the user
+    /// Checks that `agent` can run here; `path` is the executable the user
     /// chose, `config_dir` the account's configuration folder (`None`: the
     /// default account). Runtimes that need nothing installed are always
     /// ready.
     fn setup(
         &self,
+        agent: AgentKind,
         path: Option<PathBuf>,
         config_dir: Option<PathBuf>,
     ) -> BoxFuture<'_, AgentSetup> {
-        let _ = config_dir;
+        let _ = (agent, config_dir);
         Box::pin(async move {
             AgentSetup {
                 path: path.map(|p| p.to_string_lossy().into_owned()),
@@ -1811,7 +1812,12 @@ impl AgentRuntime for Unavailable {
     fn start(&self, _: AgentSpec, _: AgentHost) -> Result<Box<dyn RunningAgent>> {
         self.err()
     }
-    fn setup(&self, path: Option<PathBuf>, _: Option<PathBuf>) -> BoxFuture<'_, AgentSetup> {
+    fn setup(
+        &self,
+        _: AgentKind,
+        path: Option<PathBuf>,
+        _: Option<PathBuf>,
+    ) -> BoxFuture<'_, AgentSetup> {
         Box::pin(async move {
             AgentSetup {
                 path: path.map(|p| p.to_string_lossy().into_owned()),

@@ -28,6 +28,7 @@ pub mod protocol;
 pub mod provenance;
 mod remote;
 mod resources;
+pub mod runtimes;
 mod search;
 mod secrets;
 mod servers;

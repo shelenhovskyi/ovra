@@ -1014,6 +1014,8 @@ pub struct ScriptedAgent {
     pub sandbox: Mutex<Option<SandboxReport>>,
     /// The other accounts' folders it finds (`AgentRuntime::config_dirs`).
     pub config_dirs: Mutex<Vec<PathBuf>>,
+    /// The provider it stands in for; `None`: Claude, able to do everything.
+    provider: Option<crate::protocol::agents::ProviderInfo>,
 }
 
 /// Writes a file for an allowed `Write` step: the absolute path and text.
@@ -1036,6 +1038,14 @@ impl ScriptedAgent {
             turns,
             ..Self::default()
         }
+    }
+
+    /// Stands in for `provider` instead of Claude, such as an ACP agent
+    /// without an enforced policy.
+    #[must_use]
+    pub fn as_provider(mut self, provider: crate::protocol::agents::ProviderInfo) -> Self {
+        self.provider = Some(provider);
+        self
     }
 
     /// Sessions with IDE tools of `role` play `turns` instead.
@@ -1087,9 +1097,13 @@ impl AgentRuntime for ScriptedAgent {
         tool(name, input.clone()).call
     }
 
-    /// Claude, able to do everything, like the runtime it stands in for.
+    /// Claude, able to do everything, like the runtime it stands in for,
+    /// unless it stands in for another provider.
     fn providers(&self) -> Vec<crate::protocol::agents::ProviderInfo> {
         use crate::protocol::agents::{AgentKind, Capabilities, ProviderInfo};
+        if let Some(provider) = &self.provider {
+            return vec![provider.clone()];
+        }
         let all = Capabilities {
             approvals: true,
             enforced_policy: true,

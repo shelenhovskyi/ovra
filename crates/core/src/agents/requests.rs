@@ -46,12 +46,13 @@ pub(crate) async fn agents(
         AgentsRequest::Providers => Ok(Response::Agents(AgentsResponse::Providers(
             ctx.runtime.providers(),
         ))),
-        AgentsRequest::Setup { agent: _ } => {
-            let path = ctx.projects.agent_settings()?.claude_path;
-            let setup = ctx.runtime.setup(path.map(PathBuf::from), None).await;
+        AgentsRequest::Setup { agent } => {
+            let settings = ctx.projects.agent_settings()?;
+            let path = settings.path(agent).map(PathBuf::from);
+            let setup = ctx.runtime.setup(agent, path, None).await;
             Ok(Response::Agents(AgentsResponse::Setup(setup)))
         }
-        AgentsRequest::SetPath { agent: _, path } => {
+        AgentsRequest::SetPath { agent, path } => {
             let path = path.filter(|p| !p.trim().is_empty());
             if path.as_deref().is_some_and(|p| !Path::new(p).is_absolute()) {
                 return Err(ProtocolError::new(
@@ -61,7 +62,7 @@ pub(crate) async fn agents(
             }
             let setup = ctx
                 .runtime
-                .setup(path.clone().map(PathBuf::from), None)
+                .setup(agent, path.clone().map(PathBuf::from), None)
                 .await;
             // A path that leads nowhere is not saved: it would only make every
             // later session fail (a typo, or the name of a shell alias).
@@ -69,14 +70,15 @@ pub(crate) async fn agents(
                 return Err(ProtocolError::new(
                     ErrorCode::BadRequest,
                     format!(
-                        "There is no file at {path}. Choose the claude program itself; \
+                        "There is no file at {path}. Choose the {program} program itself; \
                          a shell alias or function cannot be used. \
-                         `which claude` in a terminal prints its path."
+                         `which {program}` in a terminal prints its path.",
+                        program = program(agent),
                     ),
                 ));
             }
             let mut settings = ctx.projects.agent_settings()?;
-            settings.claude_path.clone_from(&path);
+            settings.set_path(agent, path);
             ctx.projects.set_agent_settings(settings)?;
             Ok(Response::Agents(AgentsResponse::Setup(setup)))
         }
@@ -381,6 +383,69 @@ pub(crate) struct NewSession {
     pub(crate) preparing: bool,
 }
 
+/// What a session asks of its provider.
+#[derive(Debug, Clone, Copy)]
+struct Asked<'a> {
+    agent: AgentKind,
+    mode: SessionMode,
+    tools: Option<ToolRole>,
+    account: Option<&'a str>,
+}
+
+/// Refuses what `asked.agent`'s provider cannot do (ADR 0011): without an
+/// enforced policy it works only in its own worktree, without IDE tools and
+/// a read-only role it does not coordinate, and without accounts it runs
+/// only with its own default sign-in.
+fn check_can(ctx: &Ctx<'_>, asked: Asked<'_>) -> Result<()> {
+    let Some(provider) = ctx
+        .runtime
+        .providers()
+        .into_iter()
+        .find(|p| p.id == asked.agent)
+    else {
+        return Err(ProtocolError::new(
+            ErrorCode::Unavailable,
+            format!("Ovra cannot start {} here", program(asked.agent)),
+        ));
+    };
+    let can = provider.capabilities;
+    let name = &provider.name;
+    let refused = |why: String| Err(ProtocolError::new(ErrorCode::Unavailable, why));
+    match (asked.mode, asked.tools) {
+        (_, Some(ToolRole::Coordinator)) if !(can.ide_tools && can.read_only_role) => {
+            return refused(format!(
+                "{name} cannot plan and split a task; choose One agent, own copy"
+            ));
+        }
+        (SessionMode::Direct, Some(ToolRole::Coordinator)) => {}
+        (SessionMode::Direct, _) if !can.enforced_policy => {
+            return refused(format!(
+                "{name} works only in its own copy of the project, because Ovra cannot enforce \
+                 its rules there; choose One agent, own copy"
+            ));
+        }
+        (SessionMode::Research, _) => {
+            return refused(format!("{name} cannot run research sessions yet"));
+        }
+        _ => {}
+    }
+    if asked.account.is_some_and(|a| a != DEFAULT_ACCOUNT) && !can.accounts {
+        return refused(format!(
+            "{name} runs only with its own sign-in, not an account"
+        ));
+    }
+    Ok(())
+}
+
+/// The program `agent` runs, as people type it.
+fn program(agent: AgentKind) -> &'static str {
+    match agent {
+        AgentKind::Claude => "claude",
+        AgentKind::Gemini => "gemini",
+        AgentKind::Codex => "codex-acp",
+    }
+}
+
 /// Starts a session and returns it as it is now.
 pub(crate) async fn start(ctx: &Ctx<'_>, new: NewSession) -> Result<SessionInfo> {
     check_text(&new.prompt)?;
@@ -398,9 +463,12 @@ pub(crate) async fn start(ctx: &Ctx<'_>, new: NewSession) -> Result<SessionInfo>
         ctx,
         None,
         &new.project,
-        new.mode,
-        new.tools,
-        new.account.as_deref(),
+        Asked {
+            agent: new.agent,
+            mode: new.mode,
+            tools: new.tools,
+            account: new.account.as_deref(),
+        },
     )
     .await?;
     let launch = Launch {
@@ -490,9 +558,12 @@ pub(crate) async fn start_queued(
         ctx,
         Some(&id),
         &info.project,
-        info.mode,
-        tools,
-        Some(account),
+        Asked {
+            agent: info.agent,
+            mode: info.mode,
+            tools,
+            account: Some(account),
+        },
     )
     .await;
     let (target, launch) = match (prepared, launch) {
@@ -569,12 +640,27 @@ async fn prepare(
     ctx: &Ctx<'_>,
     id: Option<&SessionId>,
     project: &ProjectId,
-    mode: SessionMode,
-    tools: Option<ToolRole>,
-    account: Option<&str>,
+    asked: Asked<'_>,
 ) -> Result<Target> {
+    let Asked {
+        agent,
+        mode,
+        tools,
+        account,
+    } = asked;
     let target = ctx.projects.get(project)?;
-    let account = accounts::choose(&ctx.projects.agent_settings()?, project, account)?;
+    let settings = ctx.projects.agent_settings()?;
+    let account = match agent {
+        AgentKind::Claude => accounts::choose(&settings, project, account)?,
+        other => {
+            check_can(ctx, asked)?;
+            accounts::Chosen {
+                id: None,
+                executable: settings.path(other).map(str::to_owned),
+                config_dir: None,
+            }
+        }
+    };
     // Settings that changed since the user trusted them (or cannot be read)
     // do not load until the user reviews them again.
     let trusted = target.trusted && review(ctx, project).await.is_ok_and(|r| r.applies());
@@ -683,7 +769,18 @@ pub(crate) async fn resume(ctx: &Ctx<'_>, session: SessionId, parts: Parts) -> R
             "this session's Claude account was removed; add it again to continue the session",
         ));
     }
-    let target = prepare(ctx, None, &info.project, info.mode, tools, Some(account)).await?;
+    let target = prepare(
+        ctx,
+        None,
+        &info.project,
+        Asked {
+            agent: info.agent,
+            mode: info.mode,
+            tools,
+            account: Some(account),
+        },
+    )
+    .await?;
     let launch = launch.unwrap_or(Launch {
         cwd: PathBuf::from(&target.project.root),
         tools: None,

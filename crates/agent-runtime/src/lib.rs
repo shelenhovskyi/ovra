@@ -125,6 +125,7 @@ impl AgentRuntime for ClaudeCli {
 
     fn setup(
         &self,
+        _agent: AgentKind,
         path: Option<PathBuf>,
         config_dir: Option<PathBuf>,
     ) -> BoxFuture<'_, AgentSetup> {
