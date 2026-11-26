@@ -306,8 +306,8 @@ async fn maintain(shared: Arc<Shared>, stop: CancellationToken) {
 
 fn save_settings(dir: &Path, settings: &Settings) -> std::result::Result<(), String> {
     std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
-    let json = serde_json::to_vec_pretty(settings).map_err(|e| e.to_string())?;
-    std::fs::write(dir.join("settings.json"), json).map_err(|e| e.to_string())
+    let json = serde_json::to_string_pretty(settings).map_err(|e| e.to_string())?;
+    ca::write_private(&dir.join("settings.json"), &json)
 }
 
 impl RemoteAccess for RemoteServer {

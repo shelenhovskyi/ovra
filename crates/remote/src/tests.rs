@@ -218,6 +218,19 @@ async fn a_paired_phone_signs_in_uses_its_allowlist_and_is_forgotten() {
     assert_eq!(answer["error"], "not_paired");
 }
 
+#[cfg(unix)]
+#[test]
+fn settings_are_readable_by_this_user_only() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().expect("dir");
+    crate::save_settings(dir.path(), &crate::Settings::default()).expect("save");
+    let mode = std::fs::metadata(dir.path().join("settings.json"))
+        .expect("file")
+        .permissions()
+        .mode();
+    assert_eq!(mode & 0o077, 0);
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn only_an_unknown_device_is_told_it_is_not_paired() {
     let s = setup();
