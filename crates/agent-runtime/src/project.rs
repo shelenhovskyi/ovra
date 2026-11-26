@@ -423,7 +423,7 @@ fn command_reaches(spec: &str) -> bool {
     }
     // `"curl"` is curl; `c''url` or `c\\url` could be anything.
     let first = first.trim_matches(['"', '\'']);
-    let windows_path = first.starts_with('\\') || first.as_bytes().get(1) == Some(&b':');
+    let windows_path = first.starts_with("\\\\") || first.as_bytes().get(1) == Some(&b':');
     if first.contains(['"', '\'']) || (first.contains('\\') && !windows_path) {
         return true;
     }
@@ -793,6 +793,7 @@ mod tests {
             "Bash(git log:*)",
             "Bash(c''url x)",
             "Bash(c\\url x)",
+            "Bash(\\c\\url x)",
             "Edit(x{/..,}/y)",
         ] {
             assert!(broad(rule), "{rule}");
