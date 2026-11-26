@@ -1,7 +1,7 @@
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { expect, test } from "../test";
+import { clickWhenArmed, expect, test } from "../test";
 
 // The fake agent is always set up; project configuration is read from disk
 // like the real runtime does.
@@ -17,6 +17,8 @@ test("review what a project would load, trust it and stop trusting it", async ({
     }),
   );
   writeFileSync(join(dir, "README.md"), "readme\n");
+  // Trust buttons wait a moment after the card changes; the clock skips that.
+  await page.clock.install();
   await page.goto(url);
   const projects = page.getByTestId("project-list");
   await projects.getByRole("textbox", { name: "Open a folder" }).fill(dir);
@@ -34,7 +36,7 @@ test("review what a project would load, trust it and stop trusting it", async ({
   await expect(trust.getByRole("button", { name: "Trust project" })).toHaveCount(0);
   await trust.getByRole("button", { name: "Review and trust…" }).click();
   await expect(trust.getByTestId("trust-details")).toContainText("PostToolUse (Edit): ./fmt.sh");
-  await trust.getByTestId("trust-details").getByRole("button", { name: "Trust project" }).click();
+  await clickWhenArmed(page, trust.getByTestId("trust-details").getByRole("button", { name: "Trust project" }));
   // Trusted: one quiet line; the rest is under Details, which turns into Hide in the same place.
   await expect(trust.getByRole("heading")).toHaveText("Project's own settings are on");
   await expect(trust.getByTestId("trust-warning-count")).toHaveText("⚠ 1 warning");
@@ -60,7 +62,7 @@ test("review what a project would load, trust it and stop trusting it", async ({
   await expect(trust.getByTestId("trust-risky-env")).toContainText("New project settings set ANTHROPIC_BASE_URL");
   await trust.getByRole("button", { name: "Review and trust…" }).click();
   await expect(trust.getByTestId("trust-details")).toContainText("ANTHROPIC_BASE_URL");
-  await trust.getByRole("button", { name: "Trust the new settings" }).click();
+  await clickWhenArmed(page, trust.getByRole("button", { name: "Trust the new settings" }));
   await expect(trust.getByTestId("trust-warning-count")).toHaveText("⚠ 2 warnings");
   await trust.getByRole("button", { name: "Details" }).click();
 

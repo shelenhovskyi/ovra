@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Page } from "@playwright/test";
-import { expect, test } from "../test";
+import { clickWhenArmed, expect, test } from "../test";
 
 // The daemon runs with --fake-agent: every session asks to run `ls -la` and to
 // edit README.md, then waits; each reply asks to run `git status`. A task's
@@ -319,9 +319,8 @@ test("a task's three workers wait in Reviews to be kept, discarded or sent back"
   for (let allowed = 0; allowed < 3; allowed++) {
     const card = approvals.getByRole("group", { name: "Write NOTES.md" }).first();
     await expect(card).toBeVisible();
-    await arm(page);
-    await expect(card.getByRole("button", { name: "Allow" })).toHaveAttribute("aria-disabled", "false");
-    await card.getByRole("button", { name: "Allow" }).click();
+    // The workers' requests arrive one by one, and each arrival restarts the wait.
+    await clickWhenArmed(page, card.getByRole("button", { name: "Allow" }));
   }
   await expect(approvals).toContainText("Nothing waits for your approval.");
 
@@ -385,8 +384,7 @@ test("a worker's changes open as a draft pull request whose checks show on the i
   for (let allowed = 0; allowed < 3; allowed++) {
     const card = approvals.getByRole("group", { name: "Write NOTES.md" }).first();
     await expect(card).toBeVisible();
-    await arm(page);
-    await card.getByRole("button", { name: "Allow" }).click();
+    await clickWhenArmed(page, card.getByRole("button", { name: "Allow" }));
   }
   await expect(approvals).toContainText("Nothing waits for your approval.");
 

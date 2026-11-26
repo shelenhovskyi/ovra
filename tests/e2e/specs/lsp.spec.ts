@@ -2,7 +2,7 @@ import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Page } from "@playwright/test";
-import { expect, test } from "../test";
+import { clickWhenArmed, expect, test } from "../test";
 
 /** Opens a fresh project holding `files`, trusts it and shows `main.rs` in the viewer. */
 async function trustedProject(page: Page, files: Record<string, string>): Promise<string> {
@@ -10,6 +10,8 @@ async function trustedProject(page: Page, files: Record<string, string>): Promis
   if (!url) throw new Error("OVRA_URL is not set; globalSetup did not run");
   const dir = mkdtempSync(join(tmpdir(), "ovra-lsp-"));
   for (const [name, text] of Object.entries(files)) writeFileSync(join(dir, name), text);
+  // Trust buttons wait a moment after the card changes; the clock skips that.
+  await page.clock.install();
   await page.goto(url);
   const projects = page.getByTestId("project-list");
   await projects.getByRole("textbox", { name: "Open a folder" }).fill(dir);
@@ -23,7 +25,7 @@ async function trustedProject(page: Page, files: Record<string, string>): Promis
   await page.getByTestId("lsp-status").click();
   await page.getByTestId("lsp-panel").getByRole("button", { name: "Review and trust…" }).click();
   await expect(trust.getByTestId("trust-language-servers")).toContainText("language servers");
-  await trust.getByRole("button", { name: "Trust project" }).click();
+  await clickWhenArmed(page, trust.getByRole("button", { name: "Trust project" }));
   await expect(trust).toHaveCount(0);
   // The server starts; then back to the viewer, where each test starts.
   await expect(page.getByRole("button", { name: /fake-lsp/ })).toBeVisible();
