@@ -382,6 +382,15 @@ $effect(() => {
 /** A task waits for review, and nobody opened a review yet: one line says what Review does. */
 const reviewHint = $derived(!hints.has("reviewed") && list.some((s) => chip(s)?.tone === "ok"));
 
+/** The first steps' "Check the work": the first task that asks the person, else the first whose changes wait. */
+const asking = $derived(list.find((s) => chip(s)?.tone === "warn") ?? null);
+const reviewable = $derived(asking ? null : (list.find((s) => chip(s)?.tone === "ok") ?? null));
+
+/** Opens Reviews on a task's changes: a task's all its workers', a session's its own. */
+function reviewOf(id: SessionId): void {
+  openReviews(sessions.roles.get(id)?.kind === "coordinator" ? sessions.workers(id) : [id]);
+}
+
 /** The task the person pressed Close on: it asks once before closing it with its workers. */
 let confirming = $state<SessionId | null>(null);
 /** Planning coordinators take no place, so the count says them apart. */
@@ -1181,11 +1190,7 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
             <button
               type="button"
               class="quiet soft"
-              onclick={() =>
-                current &&
-                openReviews(
-                  sessions.roles.get(current.id)?.kind === "coordinator" ? sessions.workers(current.id) : [current.id],
-                )}
+              onclick={() => current && reviewOf(current.id)}
               >Review</button
             >
           </div>
@@ -1432,7 +1437,13 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
       {#if error}
         <p class="error" role="alert">{error}</p>
       {/if}
-      <FirstSteps agent={names.name()} ready={usable !== undefined} started={list.length > 0} />
+      <FirstSteps
+        agent={names.name()}
+        ready={usable !== undefined}
+        started={list.length > 0}
+        ask={asking ? () => asking && open(asking.id) : undefined}
+        review={reviewable ? () => reviewable && reviewOf(reviewable.id) : undefined}
+      />
       <AgentSetup open={setupOpen} />
       <ProjectTrust />
     </div>
@@ -2144,13 +2155,16 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
     background: var(--s2);
     border-radius: 12px;
   }
+  /* The field looks like one (an input's --s3), so it is clear where to type;
+     the label, the field, the controls and the hint share the box's left edge. */
   textarea {
     font: inherit;
     color: var(--text);
-    background: none;
+    background: var(--s3);
     border: none;
+    border-radius: var(--radius-sm);
     resize: none;
-    padding: 2px;
+    padding: 6px 10px;
   }
   textarea:focus-visible {
     outline: none;
@@ -2170,6 +2184,17 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
   }
   .compose .row {
     flex-wrap: wrap;
+    justify-content: flex-start;
+    gap: 6px;
+  }
+  /* The start box's controls are boxes of one height, like the account picker. */
+  .compose.new .row .quiet {
+    height: var(--control-h);
+    background: var(--s3);
+    border-radius: var(--radius-sm);
+  }
+  .compose.new .row .quiet:hover {
+    background: var(--s4);
   }
   .add-context {
     width: 28px;
@@ -2180,6 +2205,9 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
   }
   .compose .row .primary {
     margin-left: auto;
+  }
+  .compose.new .add-context {
+    width: var(--control-h);
   }
   .label {
     font-size: 13px;
@@ -2229,12 +2257,14 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
     font-size: 13px;
     opacity: 0.85;
   }
+  /* Its text starts where the start box's content does (8 px margin + 10 px padding). */
   .foot {
     flex: none;
     margin: -4px 8px 6px;
   }
   .foot .quiet {
     height: 24px;
+    padding: 0 10px;
     font-size: 12px;
   }
   .foot .warn {
