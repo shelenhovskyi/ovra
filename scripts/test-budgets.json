@@ -1,6 +1,6 @@
 {
-  "$comment": "Time budgets for test suites, in milliseconds of test run time (compilation excluded); the rust and ui suites count CPU time per test, e2e wall time. CI fails when a suite or a single test goes over. Raising a budget needs a human's approval. ui: 7500 ms since 2026-11-25 (owner approved): ~820 component tests measured 5.7-5.9 s CPU idle and over 6.5 s under load; no faster test setup was found that keeps the checks (happy-dom, other pools, shared modules tried).",
+  "$comment": "Time budgets for test suites, in milliseconds of test run time (compilation excluded); the rust and ui suites count CPU time per test, e2e wall time. CI fails when a suite or a single test goes over. Raising a budget needs a human's approval. ui: 7500 ms since 2026-11-25 (owner approved): ~820 component tests measured 5.7-5.9 s CPU idle and over 6.5 s under load; no faster test setup was found that keeps the checks (happy-dom, other pools, shared modules tried). e2e: 80000 ms since 2026-11-26 (owner approved): 59 user-flow tests took 62-64 s wall time under load in a fresh container, spread over the whole suite; setup is ~0.38 s per test (page start, project open) and no faster setup was found that keeps the checks.",
   "rust": { "report": "target/nextest/default/junit.xml", "total_ms": 20000, "per_test_ms": 1000 },
   "ui": { "report": "ui/test-results/vitest.json", "total_ms": 7500, "per_test_ms": 200 },
-  "e2e": { "report": "tests/e2e/test-results/report.json", "total_ms": 60000, "per_test_ms": 5000 }
+  "e2e": { "report": "tests/e2e/test-results/report.json", "total_ms": 80000, "per_test_ms": 5000 }
 }
