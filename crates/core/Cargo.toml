@@ -12,6 +12,7 @@ publish = false
 fakes = ["tokio/rt"]
 
 [dependencies]
+base64 = "0.22"
 serde.workspace = true
 serde_json.workspace = true
 sha2 = "0.10"

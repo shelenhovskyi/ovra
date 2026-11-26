@@ -82,6 +82,21 @@ pub enum ContextRequest {
         session: Option<SessionId>,
         items: Vec<ContextItem>,
     },
+    /// Saves a file the person pasted or dropped into a message box as a
+    /// new file of the project's attachments folder (`.ovra-attachments/`,
+    /// which git ignores), named `name` or a name like it, so a chip can
+    /// name it. `data` is the file in standard base64, 20 MiB at most.
+    /// Answers `context.attached` with its path.
+    #[serde(rename = "context.attach")]
+    Attach {
+        project: ProjectId,
+        name: String,
+        data: String,
+    },
+    /// Makes the attachments folder, for the files the desktop app copies
+    /// there from a drop. Answers `context.attached` with its path.
+    #[serde(rename = "context.attachments")]
+    Attachments { project: ProjectId },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -90,6 +105,9 @@ pub enum ContextResponse {
     /// One entry per item, in order: `None` when it can go as it is.
     #[serde(rename = "context.checked")]
     Checked { notes: Vec<Option<ContextWarning>> },
+    /// The path of the saved file or of the attachments folder.
+    #[serde(rename = "context.attached")]
+    Attached { path: String },
 }
 
 #[cfg(test)]
@@ -129,9 +147,17 @@ mod tests {
                     item(ContextWhat::Terminal { title: "zsh".into(), text: "ok".into() }),
                     item(ContextWhat::Page { page: PageId("g1".into()) }),
                 ],
+            }), Request::Context(ContextRequest::Attach {
+                project: ProjectId("p1".into()),
+                name: "shot.png".into(),
+                data: "iVBORw0K".into(),
+            }), Request::Context(ContextRequest::Attachments {
+                project: ProjectId("p1".into()),
             })],
             "responses": [Response::Context(ContextResponse::Checked {
                 notes: vec![None, Some(ContextWarning::SecretFile)],
+            }), Response::Context(ContextResponse::Attached {
+                path: ".ovra-attachments/shot.png".into(),
             })],
         }));
         let parsed: ContextItem =

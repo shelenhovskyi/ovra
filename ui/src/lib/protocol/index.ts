@@ -4,7 +4,7 @@ import type { AgentsEvent, AgentsRequest, AgentsResponse, CheckpointMethod, Chec
 import type { AuditLogEvent, AuditRequest, AuditResponse } from "./audit";
 import type { BoardEvent, BoardRequest, BoardResponse, BoardResponseFor } from "./board";
 import type { BrowserEvent, BrowserRequest, BrowserResponse, BrowserResponseFor } from "./browser";
-import type { ContextRequest, ContextResponse } from "./context";
+import type { ContextRequest, ContextResponse, ContextResponseFor } from "./context";
 import type { FsEvent, FsRequest, FsResponse } from "./fs";
 import type { GitRequest, GitResponse, GitResponseFor } from "./git";
 import type { InfoEvent, InfoRequest, InfoResponse } from "./info";
@@ -273,7 +273,7 @@ type LaterResponseFor<R extends Request> = R extends ServersRequest
         : R extends PowerRequest
           ? PowerResponse
           : R extends ContextRequest
-            ? ContextResponse
+            ? ContextResponseFor<R["method"]>
             : R extends BoardRequest
               ? BoardResponseFor<R["method"]>
               : R extends RemoteRequest

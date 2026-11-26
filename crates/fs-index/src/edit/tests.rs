@@ -206,6 +206,27 @@ mod links {
     use super::*;
 
     #[test]
+    fn a_new_file_with_bytes_never_writes_through_a_link() {
+        let (_tmp, root, out) = project();
+        symlink(out.join("secret.txt"), root.join("l")).expect("symlink");
+        symlink(out.join("missing"), root.join("dangling")).expect("symlink");
+        for path in ["l", "dangling", "src/a.txt"] {
+            assert_eq!(
+                code(create_file(&root, &rel(path), b"x")),
+                ErrorCode::Conflict,
+                "{path}"
+            );
+        }
+        assert_eq!(read(&out.join("secret.txt")), "s");
+        assert!(!out.join("missing").exists());
+        create_file(&root, &rel("new/deep/shot.png"), b"\x89PNG").expect("create");
+        assert_eq!(
+            fs::read(root.join("new/deep/shot.png")).expect("read"),
+            b"\x89PNG"
+        );
+    }
+
+    #[test]
     fn a_parent_link_out_of_the_root_is_refused() {
         let (_tmp, root, out) = project();
         symlink(&out, root.join("out")).expect("symlink");
@@ -218,6 +239,8 @@ mod links {
                 ErrorCode::Forbidden,
                 "{path}"
             );
+            let written = create_file(&root, &rel(path), b"x");
+            assert_eq!(code(written), ErrorCode::Forbidden, "{path}");
             let moved = rename(&root, &rel("src/a.txt"), &rel(path));
             assert_eq!(code(moved), ErrorCode::Forbidden, "{path}");
             let copied = copy(&root, &rel("src/a.txt"), &rel(path));

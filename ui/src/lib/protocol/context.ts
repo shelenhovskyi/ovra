@@ -20,12 +20,30 @@ export type ContextItem = ContextWhat & { confirmed?: boolean };
 /** Why an item needs the person's Include before it is sent. */
 export type ContextWarning = "protected" | "secret_file" | "secret_text";
 
-export type ContextRequest = {
-  /** `forbidden` for a path outside the project, `bad_request` for one too large. */
-  method: "context.check";
-  /** `session`: the task a reply goes to; a page item needs it. */
-  params: { project: ProjectId; session?: SessionId; items: ContextItem[] };
-};
+export type ContextRequest =
+  | {
+      /** `forbidden` for a path outside the project, `bad_request` for one too large. */
+      method: "context.check";
+      /** `session`: the task a reply goes to; a page item needs it. */
+      params: { project: ProjectId; session?: SessionId; items: ContextItem[] };
+    }
+  | {
+      /**
+       * Saves a pasted or dropped file (`data` in base64, 20 MiB at most) as a new
+       * file of the attachments folder, named `name` or like it. Answers `context.attached`.
+       */
+      method: "context.attach";
+      params: { project: ProjectId; name: string; data: string };
+    }
+  /** Makes the attachments folder, for a drop the app copies there. Answers `context.attached`. */
+  | { method: "context.attachments"; params: { project: ProjectId } };
 
-/** One note per item, in order: null when it can go as it is. */
-export type ContextResponse = { type: "context.checked"; data: { notes: (ContextWarning | null)[] } };
+export type ContextResponse =
+  /** One note per item, in order: null when it can go as it is. */
+  | { type: "context.checked"; data: { notes: (ContextWarning | null)[] } }
+  /** The saved file's path, or the attachments folder's. */
+  | { type: "context.attached"; data: { path: string } };
+
+export type ContextResponseFor<M extends ContextRequest["method"]> = M extends "context.check"
+  ? Extract<ContextResponse, { type: "context.checked" }>
+  : Extract<ContextResponse, { type: "context.attached" }>;

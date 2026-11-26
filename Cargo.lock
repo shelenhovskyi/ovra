@@ -3555,6 +3555,7 @@ dependencies = [
 name = "ovra-core"
 version = "0.1.0"
 dependencies = [
+ "base64 0.22.1",
  "insta",
  "serde",
  "serde_json",

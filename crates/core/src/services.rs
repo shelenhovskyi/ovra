@@ -121,6 +121,15 @@ pub trait FsService: Send + Sync + Debug {
     /// `fs.create`: an empty file or directory, with missing parents.
     /// Fails with `conflict` if `path` exists.
     fn create(&self, root: PathBuf, path: RelPath, dir: bool) -> BoxFuture<'_, Result<()>>;
+    /// A new file holding `bytes`, with missing parents (`context.attach`).
+    /// Fails with `conflict` if `path` exists; never follows a link at
+    /// `path` or out of `root`.
+    fn create_file(
+        &self,
+        root: PathBuf,
+        path: RelPath,
+        bytes: Vec<u8>,
+    ) -> BoxFuture<'_, Result<()>>;
     /// `fs.rename`: moves `from` to `to` (which must not exist), creating
     /// missing parents. Neither may resolve outside `root` through a
     /// symlinked parent; `from` itself is moved as a link.
@@ -1612,6 +1621,9 @@ impl FsService for Unavailable {
         Box::pin(async move { self.err() })
     }
     fn create(&self, _: PathBuf, _: RelPath, _: bool) -> BoxFuture<'_, Result<()>> {
+        Box::pin(async move { self.err() })
+    }
+    fn create_file(&self, _: PathBuf, _: RelPath, _: Vec<u8>) -> BoxFuture<'_, Result<()>> {
         Box::pin(async move { self.err() })
     }
     fn rename(&self, _: PathBuf, _: RelPath, _: RelPath) -> BoxFuture<'_, Result<()>> {

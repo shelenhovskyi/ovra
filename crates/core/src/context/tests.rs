@@ -269,3 +269,82 @@ async fn a_reply_check_names_a_task_of_the_project() {
         "project": "p1", "session": "s9", "items": [{"kind": "file", "path": "a.rs"}]}});
     assert!(call(&core, check).await.is_err());
 }
+
+#[tokio::test]
+async fn attach_saves_a_pasted_file_under_a_safe_new_name() {
+    use crate::services::FsService as _;
+    use base64::Engine as _;
+    let fs = Arc::new(MemoryFs::default());
+    let core = Core::builder("test")
+        .projects(Arc::new(MemoryProjects::default()))
+        .fs(fs.clone())
+        .build();
+    call(
+        &core,
+        json!({"method": "projects.add", "params": {"root": ROOT}}),
+    )
+    .await
+    .unwrap_or_else(|e| panic!("{e}"));
+    let data = base64::engine::general_purpose::STANDARD.encode(b"PNG");
+    let attach = |name: &str| {
+        call(
+            &core,
+            json!({"method": "context.attach", "params": {"project": "p1", "name": name, "data": data}}),
+        )
+    };
+    let path = |r: Response| match r {
+        Response::Context(ContextResponse::Attached { path }) => path,
+        other => panic!("{other:?}"),
+    };
+    let first = path(attach("shot.png").await.unwrap_or_else(|e| panic!("{e}")));
+    let second = path(attach("shot.png").await.unwrap_or_else(|e| panic!("{e}")));
+    // A name from elsewhere cannot leave the folder or hide as dots.
+    let odd = path(
+        attach("../../etc/pass:wd")
+            .await
+            .unwrap_or_else(|e| panic!("{e}")),
+    );
+    let dots = path(attach("..").await.unwrap_or_else(|e| panic!("{e}")));
+    assert_eq!(
+        [first.as_str(), &second, &odd, &dots],
+        [
+            ".ovra-attachments/shot.png",
+            ".ovra-attachments/shot-2.png",
+            ".ovra-attachments/pass_wd",
+            ".ovra-attachments/pasted",
+        ]
+    );
+    // The folder ignores itself, so attachments never show up in git.
+    let text = |path: &str| {
+        let fs = fs.clone();
+        let path = crate::path::RelPath::parse(path).unwrap_or_else(|e| panic!("{e}"));
+        async move {
+            match fs.read_file(ROOT.into(), path).await.map(|f| f.body) {
+                Ok(crate::protocol::fs::FileBody::Text { text }) => text,
+                other => panic!("{other:?}"),
+            }
+        }
+    };
+    assert_eq!(text(".ovra-attachments/.gitignore").await, "*\n");
+    assert_eq!(text(&first).await, "PNG");
+    let bad = call(
+        &core,
+        json!({"method": "context.attach", "params": {"project": "p1", "name": "a", "data": "%%"}}),
+    )
+    .await;
+    assert!(matches!(bad, Err(e) if e.code == ErrorCode::BadRequest));
+    let dir = call(
+        &core,
+        json!({"method": "context.attachments", "params": {"project": "p1"}}),
+    )
+    .await
+    .unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(path(dir), ".ovra-attachments");
+}
+
+#[test]
+fn long_attachment_names_keep_their_extension() {
+    let name = super::file_name(&format!("{}.png", "a".repeat(200)));
+    assert_eq!(name.chars().count(), 80);
+    assert!(name.ends_with("aaa.png"));
+}

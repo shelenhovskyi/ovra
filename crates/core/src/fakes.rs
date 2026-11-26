@@ -439,6 +439,26 @@ impl FsService for MemoryFs {
         })
     }
 
+    fn create_file(
+        &self,
+        root: PathBuf,
+        path: RelPath,
+        bytes: Vec<u8>,
+    ) -> BoxFuture<'_, Result<()>> {
+        Box::pin(async move {
+            if self.exists(&root, &path) {
+                return Err(ProtocolError::new(
+                    ErrorCode::Conflict,
+                    format!("{path} exists"),
+                ));
+            }
+            let mtime = self.tick();
+            let text = String::from_utf8_lossy(&bytes).into_owned();
+            lock(&self.files).insert((root, path.to_string()), (text, mtime));
+            Ok(())
+        })
+    }
+
     fn rename(&self, root: PathBuf, from: RelPath, to: RelPath) -> BoxFuture<'_, Result<()>> {
         Box::pin(async move { self.carry(&root, &from, &to, false) })
     }

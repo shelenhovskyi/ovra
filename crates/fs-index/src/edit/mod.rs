@@ -249,6 +249,23 @@ pub(crate) fn create(root: &Path, path: &RelPath, dir: bool) -> Result<()> {
     made.map_err(|e| io_error(path, &e))
 }
 
+/// A new file holding `bytes`. `create_new` refuses any entry at
+/// `target`, a link included, and `vacant` a parent that leaves `root`.
+pub(crate) fn create_file(root: &Path, path: &RelPath, bytes: &[u8]) -> Result<()> {
+    use std::io::Write as _;
+    let target = vacant(root, path)?;
+    make_parents(&target, path)?;
+    let mut file = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&target)
+        .map_err(|e| match e.kind() {
+            io::ErrorKind::AlreadyExists => conflict(path),
+            _ => io_error(path, &e),
+        })?;
+    file.write_all(bytes).map_err(|e| io_error(path, &e))
+}
+
 pub(crate) fn rename(root: &Path, from: &RelPath, to: &RelPath) -> Result<()> {
     let source = existing(root, from)?;
     let target = vacant(root, to)?;

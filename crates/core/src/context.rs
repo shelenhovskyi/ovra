@@ -94,6 +94,121 @@ pub(crate) async fn handle(core: &Core, request: ContextRequest) -> Result<Respo
             let notes = check(core, &items, known.as_deref(), session.as_ref())?;
             Ok(Response::Context(ContextResponse::Checked { notes }))
         }
+        ContextRequest::Attach {
+            project,
+            name,
+            data,
+        } => {
+            let path = attach(core, &project, &name, &data).await?;
+            Ok(Response::Context(ContextResponse::Attached { path }))
+        }
+        ContextRequest::Attachments { project } => {
+            attachments(core, &project).await?;
+            Ok(Response::Context(ContextResponse::Attached {
+                path: ATTACHMENTS.to_owned(),
+            }))
+        }
+    }
+}
+
+/// The folder of the project that pasted and dropped files are saved in.
+/// It holds a `.gitignore` that ignores everything in it.
+const ATTACHMENTS: &str = ".ovra-attachments";
+/// One attachment, at most.
+const MAX_ATTACHMENT: usize = 20 << 20;
+
+/// Makes the attachments folder and its `.gitignore`, unless it exists.
+async fn attachments(core: &Core, project: &ProjectId) -> Result<std::path::PathBuf> {
+    let root = core.root(project)?;
+    let ignore = RelPath::parse(&format!("{ATTACHMENTS}/.gitignore"))?;
+    match core
+        .fs_service()
+        .create_file(root.clone(), ignore, b"*\n".to_vec())
+        .await
+    {
+        Err(e) if e.code != ErrorCode::Conflict => Err(e),
+        _ => Ok(root),
+    }
+}
+
+/// Saves `data` (base64) as a new attachment named like `name`; its path.
+async fn attach(core: &Core, project: &ProjectId, name: &str, data: &str) -> Result<String> {
+    use base64::Engine as _;
+    // Base64 is a third longer than what it holds.
+    if data.len() > MAX_ATTACHMENT / 3 * 4 + 4 {
+        return Err(too_large());
+    }
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(data.trim())
+        .map_err(|_| bad("the file is not valid base64".to_owned()))?;
+    if bytes.len() > MAX_ATTACHMENT {
+        return Err(too_large());
+    }
+    let root = attachments(core, project).await?;
+    let name = file_name(name);
+    for n in 1..=100 {
+        let path = RelPath::parse(&format!("{ATTACHMENTS}/{}", numbered(&name, n)))?;
+        let shown = path.as_str().to_owned();
+        match core
+            .fs_service()
+            .create_file(root.clone(), path, bytes.clone())
+            .await
+        {
+            Ok(()) => return Ok(shown),
+            Err(e) if e.code == ErrorCode::Conflict => {}
+            Err(e) => return Err(e),
+        }
+    }
+    Err(ProtocolError::new(
+        ErrorCode::Conflict,
+        format!("too many attachments are named like {name}"),
+    ))
+}
+
+fn too_large() -> ProtocolError {
+    bad(format!(
+        "a pasted or dropped file can be {} MiB at most",
+        MAX_ATTACHMENT >> 20
+    ))
+}
+
+/// A safe file name like `given`: its last part, letters, digits, `.`,
+/// `_`, `-` and spaces only, 80 characters at most, and never only dots.
+fn file_name(given: &str) -> String {
+    let last = given.rsplit(['/', '\\']).next().unwrap_or_default();
+    let safe: String = last
+        .chars()
+        .map(|c| {
+            if c.is_alphanumeric() || matches!(c, '.' | '_' | '-' | ' ') {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    let safe = safe.trim();
+    // A long name keeps its extension.
+    let (stem, ext) = match safe.rfind('.').filter(|&dot| dot > 0) {
+        Some(dot) if safe[dot..].chars().count() <= 10 => safe.split_at(dot),
+        _ => (safe, ""),
+    };
+    let room = 80usize.saturating_sub(ext.chars().count());
+    let safe: String = stem.chars().take(room).chain(ext.chars()).collect();
+    if safe.chars().all(|c| c == '.') {
+        "pasted".to_owned()
+    } else {
+        safe
+    }
+}
+
+/// `name` for the first try, then `name-2.ext`, `name-3.ext` and so on.
+fn numbered(name: &str, n: u32) -> String {
+    if n == 1 {
+        return name.to_owned();
+    }
+    match name.rfind('.').filter(|&dot| dot > 0) {
+        Some(dot) => format!("{}-{n}{}", &name[..dot], &name[dot..]),
+        None => format!("{name}-{n}"),
     }
 }
 

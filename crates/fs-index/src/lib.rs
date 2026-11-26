@@ -168,6 +168,15 @@ impl FsService for FsIndex {
         blocking(move || edit::create(&root, &path, dir))
     }
 
+    fn create_file(
+        &self,
+        root: PathBuf,
+        path: RelPath,
+        bytes: Vec<u8>,
+    ) -> BoxFuture<'_, Result<()>> {
+        blocking(move || edit::create_file(&root, &path, &bytes))
+    }
+
     fn rename(&self, root: PathBuf, from: RelPath, to: RelPath) -> BoxFuture<'_, Result<()>> {
         blocking(move || edit::rename(&root, &from, &to))
     }

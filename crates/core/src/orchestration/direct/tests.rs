@@ -1052,6 +1052,14 @@ mod through_the_core {
         ) -> crate::services::BoxFuture<'_, Result<crate::protocol::fs::FileContent>> {
             no()
         }
+        fn create_file(
+            &self,
+            _: PathBuf,
+            _: RelPath,
+            _: Vec<u8>,
+        ) -> crate::services::BoxFuture<'_, Result<()>> {
+            no()
+        }
         fn list_files(
             &self,
             _: PathBuf,
