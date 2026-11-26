@@ -1,12 +1,12 @@
 //! The driver through the core, with the agent's side played over
 //! in-memory pipes.
 
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Mutex, PoisonError};
 
 use ovra_core::Core;
-use ovra_core::fakes::MemoryProjects;
+use ovra_core::fakes::{FakeSandbox, MemoryProjects};
 use ovra_core::protocol::agents::{
-    AgentKind, AgentMessage, AgentStatus, AgentsEvent, AgentsResponse, Capabilities,
+    AgentKind, AgentMessage, AgentsEvent, AgentsResponse, Capabilities,
 };
 use ovra_core::protocol::permissions::PermissionsResponse;
 use ovra_core::protocol::{Event, Request, Response};
@@ -15,7 +15,6 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, DuplexStream, Lines};
 use tokio::sync::broadcast;
 
 use super::*;
-use crate::driver::Ended;
 
 fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     m.lock().unwrap_or_else(PoisonError::into_inner)
@@ -480,13 +479,83 @@ async fn a_broken_start_or_line_fails_the_session() {
     insta::assert_snapshot!(messages.join("\n"));
 }
 
-#[test]
-fn lists_the_agents_it_describes() {
-    assert!(AcpAgents::default().providers().is_empty());
-    let agent = ProviderInfo {
-        id: AgentKind::Claude,
-        name: "Some agent".into(),
-        capabilities: Capabilities::default(),
+static LISTS: ProviderLists = ProviderLists {
+    name: "Fake",
+    home_dir: ".fake",
+    state_file: ".fake.json",
+    config_var: "FAKE_HOME",
+    private: &[],
+    in_place: &[],
+    files: &[],
+    files_made: &[],
+    projects: "projects",
+    project_memory: "MEMORY.md",
+    env: &[],
+    windows_env: &[],
+    fixture_var: "OVRA_FAKE_ACP_FIXTURE",
+};
+
+/// How a session through `sandbox` ends; the agent never runs.
+async fn through(sandbox: FakeSandbox) -> AgentStatus {
+    let agent = AcpAgent {
+        info: ProviderInfo {
+            id: AgentKind::Claude,
+            name: "Fake".into(),
+            capabilities: Capabilities::default(),
+        },
+        program: "fake-acp".into(),
+        args: Vec::new(),
+        lists: &LISTS,
     };
-    assert_eq!(AcpAgents::new(vec![agent.clone()]).providers(), vec![agent]);
+    let runtime = AcpAgents::new(vec![agent.clone()], Arc::new(sandbox));
+    assert_eq!(runtime.providers(), vec![agent.info]);
+    let core = Core::builder("test")
+        .projects(Arc::new(MemoryProjects::default()))
+        .agents(Arc::new(runtime))
+        .build();
+    let mut events = core.subscribe();
+    call(
+        &core,
+        json!({"method": "projects.add", "params": {"root": ROOT}}),
+    )
+    .await;
+    call(
+        &core,
+        json!({"method": "agents.start", "params": {
+            "project": "p1", "agent": "claude", "mode": "direct", "prompt": "hi"}}),
+    )
+    .await;
+    loop {
+        let event = Core::next_event(&mut events).await.expect("an event");
+        if let Event::Agents(AgentsEvent::Status { status, .. }) = event
+            && status.is_ended()
+        {
+            return status;
+        }
+    }
+}
+
+#[tokio::test]
+async fn no_agent_runs_without_the_sandbox() {
+    let unavailable = FakeSandbox {
+        status: SandboxStatus::Unavailable {
+            reason: "none here".into(),
+        },
+        ..FakeSandbox::available()
+    };
+    let failing = FakeSandbox {
+        fails: true,
+        ..FakeSandbox::available()
+    };
+    let failed = |message: &str| AgentStatus::Failed {
+        message: message.into(),
+    };
+    assert_eq!(
+        through(unavailable).await,
+        failed("Fake runs only inside the sandbox, which is not available here: none here")
+    );
+    assert_eq!(
+        through(failing).await,
+        failed("the sandbox could not wrap Fake: the fake sandbox fails")
+    );
 }
