@@ -1,5 +1,7 @@
 import { flushSync, mount, unmount } from "svelte";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { agentSessions } from "../agents/sessions.svelte";
+import type { SessionInfo, Task } from "../lib/protocol";
 import { CoreError } from "../lib/transport";
 import { mainView } from "../shell/main-view.svelte";
 import { Workspace } from "../shell/workspace.svelte";
@@ -39,9 +41,10 @@ async function settle() {
   flushSync();
 }
 
-async function setup(items = [review("r1")]) {
+async function setup(items = [review("r1")], before?: (core: FakeReviewCore) => Promise<void>) {
   const core = new FakeReviewCore();
   core.items = items;
+  await before?.(core);
   workspace = new Workspace();
   workspace.project = { id: "p1", name: "demo", root: "/demo", last_opened_ms: null, trusted: false };
   app = mount(TestHost, { target, props: { transport: core, workspace } });
@@ -433,6 +436,59 @@ describe("Inbox", () => {
     expect($("[data-item][aria-current=true]")?.getAttribute("data-item")).toBe("r2");
     expect($("[data-testid=inbox-outcome]")).toBeNull();
     expect(document.activeElement?.id).toBe("inbox-item-title");
+  });
+
+  it("says an item is one of several attempts, and after Keep discards the others", async () => {
+    const solo = (id: string, session: string, attempt_of?: string): Task => ({
+      id,
+      project: "p1",
+      coordinator: null,
+      workers: [{ session, name: "agent", branch: `ovra/${id}/agent`, worktree: `/wt/${id}`, kept: null }],
+      limits: { max_workers: 1, budget_micro_usd: null },
+      spent_micro_usd: 0,
+      ...(attempt_of ? { attempt_of } : {}),
+    });
+    const agent = (id: string, kind: SessionInfo["agent"]): SessionInfo => ({
+      id,
+      project: "p1",
+      agent: kind,
+      mode: "isolated",
+      status: { state: "idle" },
+      title: "Fix the typo",
+      usage: { input_tokens: 0, output_tokens: 0, cost_micro_usd: null },
+      resumable: false,
+      billing: null,
+      sandbox: null,
+      sandbox_reported: false,
+      account: null,
+    });
+    const items = [
+      review("r1", { session: "s1", mode: "isolated" }),
+      review("r9", { session: "s9", mode: "direct" }),
+      review("r2", { session: "s2", mode: "isolated" }),
+    ];
+    const core = await setup(items, async (c) => {
+      c.listed = [agent("s1", "claude"), agent("s2", "codex"), agent("s3", "claude")];
+      c.tasks = [solo("t1", "s1"), solo("t2", "s2", "t1"), solo("t3", "s3", "t1")];
+      await agentSessions(c).load("p1");
+    });
+    await open();
+    // Attempts stay together under the task's name, with who made each.
+    const names = [...target.querySelectorAll("[data-item] .name")].map((e) => e.textContent);
+    expect(names).toEqual(["Attempt 1 (Claude)", "Attempt 2 (Codex)", "Session s9"]);
+    expect($("[data-testid=inbox-attempts]")?.textContent).toContain("One of 3 attempts at this task");
+
+    button(/^Keep changes$/)?.click();
+    await settle();
+    // On to the next attempt, which offers to discard the rest: it, and the third that never changed a file.
+    expect($("[data-item][aria-current=true]")?.getAttribute("data-item")).toBe("r2");
+    expect($("[data-testid=inbox-attempts]")?.textContent).toContain("You kept Attempt 1 (Claude).");
+    expect($("[data-testid=inbox-discard-attempts]")?.textContent).toBe("Discard the other 2 attempts");
+    $<HTMLButtonElement>("[data-testid=inbox-discard-attempts]")?.click();
+    await settle();
+    expect(core.sent("review.reject").map((c) => c.params.id)).toEqual(["r2"]);
+    expect(core.sent("agents.stop").map((c) => c.params.session)).toEqual(["s2", "s3"]);
+    expect($("[role=status]")?.textContent).toBe("Discarded the other 2 attempts.");
   });
 
   it("does not approve a worker's files when the diff on screen is older than them", async () => {

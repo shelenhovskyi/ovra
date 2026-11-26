@@ -19,6 +19,7 @@ import ViewFrame from "../shell/ViewFrame.svelte";
 import { loadScreenReader } from "../terminal/prefs";
 import AgentLimitField from "./AgentLimitField.svelte";
 import AgentsPane from "./AgentsPane.svelte";
+import AttemptsField from "./AttemptsField.svelte";
 import EditorPane from "./EditorPane.svelte";
 import ProviderCard from "./ProviderCard.svelte";
 import { type PaneId, panesFor, settings } from "./panes.svelte";
@@ -177,6 +178,7 @@ function onListKeydown(event: KeyboardEvent): void {
           <AgentLimitField />
           <AgentLimitField research />
           <ResourcesField />
+          <AttemptsField />
           <KeepAwakeField />
         {:else if pane.id === "setup"}
           <SetupPane />

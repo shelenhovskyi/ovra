@@ -264,6 +264,7 @@ it("turns the agents' resource usage on and off, off at first", async () => {
     unmount(app);
     target.remove();
     agentPrefs.showResources = false;
+    agentPrefs.attempts = false;
   });
   await listCommands()
     .find((c) => c.id === "settings.claude")
@@ -274,6 +275,12 @@ it("turns the agents' resource usage on and off, off at first", async () => {
   toggle?.click();
   await settle();
   expect(agentPrefs.showResources).toBe(true);
+  // Several attempts at one task are off at first too.
+  const attempts = target.querySelector<HTMLInputElement>("[data-testid=offer-attempts]");
+  expect(attempts?.checked).toBe(false);
+  attempts?.click();
+  await settle();
+  expect(agentPrefs.attempts).toBe(true);
 });
 
 it("sets how many research agents work at once, apart from the other agents", async () => {

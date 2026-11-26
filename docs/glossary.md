@@ -10,6 +10,9 @@
 - **Direct mode** - one agent works in the project's main checkout; its
   changes are reviewed as a diff against a baseline snapshot (ADR 0005).
 - **Isolated mode** - an agent works in its own git worktree.
+- **Attempt** - one of up to three agents that try the same task, each as
+  "One agent, own copy"; the person keeps the best in Reviews
+  (`docs/specs/attempts.md`). Off until turned on in Settings > Agents.
 - **Inbox** - the review queue (Reviews in the UI) where a person keeps or
   discards diffs.
 - **Keep / Discard** - what a person does with a review item. The UI never

@@ -3,6 +3,7 @@ import { afterEach, beforeEach, expect, it } from "vitest";
 import type { ProviderInfo } from "../lib/protocol";
 import { Workspace } from "../shell/workspace.svelte";
 import { FakeAgentCore } from "./fake-core";
+import { agentPrefs } from "./prefs.svelte";
 import TestHost from "./TestHost.svelte";
 
 let app: Record<string, unknown> | null = null;
@@ -74,6 +75,8 @@ it("offers no agent picker while Claude is the only ready agent", async () => {
   core.setups.gemini = { ...core.setup, state: { state: "not_found" }, executable: null, version: null };
   await open(core);
   expect(picker()).toBeNull();
+  // Attempts wait until the person turns them on in Settings.
+  expect(target.querySelector("[data-testid=attempts-picker]")).toBeNull();
   expect(await modes()).toEqual(["One agent, here", "One agent, own copy", "Plan and split", "Research"]);
 });
 
@@ -143,4 +146,44 @@ it("starts the picked agent in this folder when it can run there", async () => {
   expect(await modes()).toEqual(["One agent, here", "One agent, own copy"]);
   await submit("Fix the typo");
   expect(core.sent("agents.start").map((c) => [c.params.agent, c.params.mode])).toEqual([["gemini", "direct"]]);
+});
+
+it("starts several attempts at one task, each agent in its own copy, once Settings offers them", async () => {
+  agentPrefs.attempts = true;
+  const core = new FakeAgentCore();
+  core.providers = [...core.providers, GEMINI];
+  core.setups.gemini = { ...core.setup, executable: "/usr/bin/gemini", version: "0.71.1", billing: null };
+  try {
+    await open(core);
+    // Only "One agent, own copy" has attempts.
+    expect(target.querySelector("[data-testid=attempts-picker]")).toBeNull();
+    modeButton()?.click();
+    await settle();
+    target.querySelector<HTMLButtonElement>("[data-mode=own]")?.click();
+    await settle();
+    const tries = target.querySelector<HTMLSelectElement>("[data-testid=attempts-picker] select");
+    if (!tries) throw new Error("no attempts picker");
+    tries.value = "3";
+    tries.dispatchEvent(new Event("change", { bubbles: true }));
+    await settle();
+    expect(target.querySelector("#agent-mode-hint")?.textContent).toContain("3 attempts (Claude, Gemini, Claude)");
+
+    const field = target.querySelector<HTMLTextAreaElement>("#agent-prompt");
+    if (!field) throw new Error("no field");
+    field.value = "Fix the typo";
+    field.dispatchEvent(new Event("input", { bubbles: true }));
+    await settle();
+    target.querySelector<HTMLFormElement>("form")?.requestSubmit();
+    await settle();
+    const starts = core.calls.filter((c) => c.method === "orchestration.start").map((c) => c.params);
+    expect(starts).toEqual([
+      { project: "p1", prompt: "Fix the typo", agent: "claude", solo: true },
+      { project: "p1", prompt: "Fix the typo", agent: "gemini", solo: true, attempt_of: "t1" },
+      { project: "p1", prompt: "Fix the typo", agent: "claude", solo: true, attempt_of: "t1" },
+    ]);
+    // The first attempt opens, named as one of several.
+    expect(target.textContent).toContain("Attempt 1 (Claude) · Fix the typo");
+  } finally {
+    agentPrefs.attempts = false;
+  }
 });

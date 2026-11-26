@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Capabilities } from "../lib/protocol";
-import { modesFor, rememberAgent, rememberedAgent, rememberedMode, rememberMode } from "./task-mode";
+import { attemptAgents, modesFor, rememberAgent, rememberedAgent, rememberedMode, rememberMode } from "./task-mode";
 
 describe("task mode", () => {
   it("remembers the last mode per project and survives a blocked storage", () => {
@@ -60,5 +60,11 @@ describe("task mode", () => {
     // Until its capabilities are known another agent gets only its own copy.
     expect(modesFor("gemini", undefined)).toEqual(["own"]);
     expect(modesFor("codex", { ...none, enforced_policy: true })).toEqual(["here", "own"]);
+  });
+
+  it("lets different agents try a task before one tries it twice", () => {
+    expect(attemptAgents("codex", ["claude", "codex"], 3)).toEqual(["codex", "claude", "codex"]);
+    expect(attemptAgents("claude", ["claude"], 2)).toEqual(["claude", "claude"]);
+    expect(attemptAgents("claude", ["claude", "gemini", "codex"], 1)).toEqual(["claude"]);
   });
 });

@@ -23,12 +23,14 @@ import type {
   SessionInfo,
   SessionResources,
   SetupProgress,
+  Task,
   TaskId,
   TurnUsage,
 } from "../lib/protocol";
-import type { Transport } from "../lib/transport";
+import { CoreError, type Transport } from "../lib/transport";
 import { failedLabel } from "./errors";
 import { hints } from "./hints.svelte";
+import { providerName } from "./providers.svelte";
 import { pressureNote, waitingLabel } from "./resources";
 import { isBusy, isEnded, statusLabel } from "./status";
 import { diskTotal, preparingLabel, waitingReason } from "./worktrees";
@@ -55,6 +57,8 @@ export type SessionRole =
       included: string[];
       /** `null` for one agent in its own copy, which has no coordinator. */
       coordinator: SessionId | null;
+      /** One of several attempts at one prompt: the first attempt's task and its place, from 1. */
+      attempt: { first: TaskId; number: number } | null;
     };
 
 export class AgentSessions {
@@ -248,6 +252,17 @@ export class AgentSessions {
       const total = diskTotal(data.flatMap((task) => task.workers.map((w) => w.disk)));
       if (total) this.disk.set(project, total);
       else this.disk.delete(project);
+      // Several solo tasks trying one prompt, numbered in the order they started.
+      const tries = new Map<TaskId, TaskId[]>();
+      for (const task of data) {
+        const first = task.attempt_of ?? task.id;
+        tries.set(first, [...(tries.get(first) ?? []), task.id]);
+      }
+      const attemptOf = (task: TaskId) => {
+        for (const [first, all] of tries)
+          if (all.length > 1 && all.includes(task)) return { first, number: all.indexOf(task) + 1 };
+        return null;
+      };
       for (const task of data) {
         if (task.coordinator !== null) {
           this.roles.set(task.coordinator, { kind: "coordinator", task: task.id });
@@ -266,6 +281,7 @@ export class AgentSessions {
             waiting: w.waiting ?? null,
             included: w.included ?? [],
             coordinator: task.coordinator,
+            attempt: attemptOf(task.id),
           });
       }
     } catch {
@@ -308,7 +324,21 @@ export class AgentSessions {
       return task ? `${role.name} · ${task}` : `Worker ${role.name}`;
     }
     if (role?.kind === "coordinator") return `Task: ${base}`;
+    if (role?.kind === "worker" && role.attempt) {
+      const agent = this.byId.get(id)?.agent;
+      return `Attempt ${role.attempt.number}${agent ? ` (${providerName(agent)})` : ""} · ${base}`;
+    }
     return base;
+  }
+
+  /** The other attempts at the prompt `id` tries, if it is one of several. */
+  attempts(id: SessionId): SessionId[] {
+    const role = this.roles.get(id);
+    const first = role?.kind === "worker" ? role.attempt?.first : undefined;
+    if (!first) return [];
+    return [...this.roles]
+      .filter(([other, r]) => other !== id && r.kind === "worker" && r.attempt?.first === first)
+      .map(([other]) => other);
   }
 
   /**
@@ -471,12 +501,53 @@ export class AgentSessions {
     agent: AgentKind = "claude",
     context: ContextItem[] = [],
   ): Promise<SessionId> {
-    const { data } = await this.transport.call({
-      method: "orchestration.start",
-      params: { project, prompt, agent, solo: true, ...(context.length > 0 ? { context } : {}) },
-    });
-    await this.load(project);
-    const session = data.workers[0]?.session;
+    return this.startAttempts(project, prompt, [agent], context);
+  }
+
+  /**
+   * Starts one attempt at `prompt` per agent in `agents`, each in its own
+   * worktree (`docs/specs/attempts.md`); one agent is "One agent, own copy".
+   * Resolves with the first attempt's session. When a later one cannot start,
+   * the ones before keep working and the error says which attempt failed.
+   */
+  async startAttempts(
+    project: ProjectId,
+    prompt: string,
+    agents: AgentKind[],
+    context: ContextItem[] = [],
+  ): Promise<SessionId> {
+    const once = async (agent: AgentKind, attemptOf?: TaskId): Promise<Task> => {
+      const { data } = await this.transport.call({
+        method: "orchestration.start",
+        params: {
+          project,
+          prompt,
+          agent,
+          solo: true,
+          ...(context.length > 0 ? { context } : {}),
+          ...(attemptOf ? { attempt_of: attemptOf } : {}),
+        },
+      });
+      return data;
+    };
+    const [lead = "claude", ...more] = agents;
+    let first: Task;
+    try {
+      first = await once(lead);
+      for (const [at, agent] of more.entries()) {
+        try {
+          await once(agent, first.id);
+        } catch (err) {
+          const why = err instanceof CoreError ? err.error.message : err instanceof Error ? err.message : String(err);
+          throw new Error(
+            `attempt ${at + 2} of ${agents.length} did not start (${why}); the ones before it are working`,
+          );
+        }
+      }
+    } finally {
+      await this.load(project);
+    }
+    const session = first.workers[0]?.session;
     if (!session) throw new Error("The agent did not start");
     return session;
   }

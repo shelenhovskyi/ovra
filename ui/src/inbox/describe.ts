@@ -1,7 +1,7 @@
 // Words the inbox uses for review items and their files.
 
 import { taskSummary } from "../agents/summary";
-import type { ChangeKind, FileChange, ReviewCheck, ReviewItem, ReviewState } from "../lib/protocol";
+import type { ChangeKind, FileChange, ReviewCheck, ReviewItem, ReviewState, SessionId } from "../lib/protocol";
 
 export const STATE_LABEL: Record<ReviewState, string> = {
   open: "Waiting for review",
@@ -410,4 +410,37 @@ export function plainLog(lines: string[]): string {
   // biome-ignore lint/suspicious/noControlCharactersInRegex: control characters are what it removes
   const controls = /[\u0000-\u0008\u000b-\u001f\u007f-\u009f\u200e\u200f\u202a-\u202e\u2066-\u2069]/g;
   return lines.map((line) => line.replace(escapes, "").replace(controls, "")).join("\n");
+}
+
+/** Where one of several attempts at one task stands (`docs/specs/attempts.md`). */
+export type AttemptsLeft = {
+  /** How many attempts there are, this one included. */
+  total: number;
+  /** The attempt the person kept, if any. */
+  kept: SessionId | null;
+  /** Attempts other than the kept one that still work or wait for a decision. */
+  rest: SessionId[];
+};
+
+/**
+ * Where `item`'s attempt group stands, from its `others` (the other attempts'
+ * sessions) and the inbox's items, newest first; `ended` says which sessions
+ * no longer run. Null for an item that is no attempt.
+ */
+export function attemptsLeft(
+  item: ReviewItem,
+  others: readonly SessionId[],
+  items: readonly ReviewItem[],
+  ended: (session: SessionId) => boolean,
+): AttemptsLeft | null {
+  if (others.length === 0) return null;
+  const all = [item.session, ...others];
+  const newest = (s: SessionId) => items.find((i) => i.session === s);
+  const kept = all.find((s) => ["approved", "partly_approved"].includes(newest(s)?.state ?? "")) ?? null;
+  const rest = all.filter((s) => {
+    if (s === kept) return false;
+    const state = newest(s)?.state;
+    return state === "open" || state === "published" || !ended(s);
+  });
+  return { total: all.length, kept, rest };
 }

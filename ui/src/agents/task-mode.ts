@@ -72,3 +72,13 @@ export function modesFor(agent: AgentKind, can: Capabilities | undefined): TaskM
       m === "own" || (m === "here" && can.enforced_policy) || (m === "split" && can.ide_tools && can.read_only_role),
   );
 }
+
+/**
+ * Who makes each of `count` attempts at one task (`docs/specs/attempts.md`):
+ * the picked agent first, then every other agent that can start, in turn, so
+ * different agents try it before one tries twice.
+ */
+export function attemptAgents(picked: AgentKind, startable: readonly AgentKind[], count: number): AgentKind[] {
+  const order = [picked, ...startable.filter((a) => a !== picked)];
+  return Array.from({ length: Math.max(1, count) }, (_, i) => order[i % order.length] ?? picked);
+}

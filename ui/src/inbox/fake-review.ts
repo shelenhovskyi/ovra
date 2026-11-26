@@ -10,6 +10,8 @@ import type {
   Request,
   ResponseFor,
   ReviewItem,
+  SessionInfo,
+  Task,
 } from "../lib/protocol";
 import { CoreError, type Transport } from "../lib/transport";
 
@@ -74,6 +76,10 @@ export class FakeReviewCore implements Transport {
    */
   agentAnswer: string | null = null;
   private sessions = 0;
+  /** What `agents.list` answers. */
+  listed: SessionInfo[] = [];
+  /** What `orchestration.list` answers. */
+  tasks: Task[] = [];
   private listeners = new Set<(event: CoreEvent) => void>();
 
   async call<R extends Request>(request: R): Promise<ResponseFor<R>> {
@@ -262,7 +268,9 @@ export class FakeReviewCore implements Transport {
       case "agents.stop":
         return { type: "ok" };
       case "agents.list":
-        return { type: "agents.list", data: [] };
+        return { type: "agents.list", data: structuredClone(this.listed) };
+      case "orchestration.list":
+        return { type: "orchestration.list", data: structuredClone(this.tasks) };
       case "agents.transcript": {
         const messages = this.transcripts.get(request.params.session) ?? [];
         return { type: "agents.transcript", data: { messages, seq: messages.length } };

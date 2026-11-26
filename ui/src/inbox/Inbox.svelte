@@ -10,6 +10,7 @@
 // (after leaving the discard step or the comment field).
 import { tick, untrack } from "svelte";
 import { agentSessions } from "../agents/sessions.svelte";
+import { isEnded } from "../agents/status";
 import { sessionSummary, taskSummary } from "../agents/summary";
 import TaskSummary from "../agents/TaskSummary.svelte";
 import { registerCommand } from "../keys/commands";
@@ -25,6 +26,7 @@ import PatchView from "../viewers/PatchView.svelte";
 import {
   approveDetail,
   approveHint,
+  attemptsLeft,
   checkText,
   defaultCommitMessage,
   fileMarkers,
@@ -142,12 +144,43 @@ const groups = $derived.by(() => {
   for (const review of inbox.items) {
     const task = taskOf(review, sessions.name(review.session));
     const last = out.at(-1);
-    if (last && task !== null && last.task === task) last.items.push(review);
+    // Attempts at one task stay together, even with other items between them.
+    const others = sessions.attempts(review.session);
+    const tried = others.length > 0 ? out.find((g) => g.items.some((i) => others.includes(i.session))) : undefined;
+    if (tried) tried.items.push(review);
+    else if (last && task !== null && last.task === task) last.items.push(review);
     else out.push({ task, items: [review] });
   }
   return out;
 });
 const outcome = $derived(inbox.outcome && inbox.outcome.id === item?.id ? inbox.outcome : null);
+/** The item is one of several attempts at one task: which was kept, which are left. */
+const attempts = $derived(
+  item
+    ? attemptsLeft(item, sessions.attempts(item.session), inbox.items, (s) => {
+        const status = sessions.byId.get(s)?.status;
+        return status === undefined || isEnded(status);
+      })
+    : null,
+);
+let discarding = $state(false);
+
+/** Discards every attempt but the kept one: their changes, and the agents that still run. */
+async function discardRest(rest: readonly SessionId[]): Promise<void> {
+  if (discarding) return;
+  discarding = true;
+  try {
+    for (const session of rest) {
+      const open = inbox.items.find((i) => i.session === session && (i.state === "open" || i.state === "published"));
+      if (open && !(await inbox.reject(open.id))) return;
+      const status = sessions.byId.get(session)?.status;
+      if (status && !isEnded(status)) await sessions.stop(session).catch(() => {});
+    }
+    announcement = rest.length === 1 ? "Discarded the other attempt." : `Discarded the other ${rest.length} attempts.`;
+  } finally {
+    discarding = false;
+  }
+}
 /** The item whose check log is open, and the log as last read. */
 let logFor = $state<ReviewId | null>(null);
 let checkLog = $state<string | null>(null);
@@ -515,11 +548,12 @@ async function approve(review: ReviewItem): Promise<void> {
   }
 }
 
-/** The waiting item after `id` in the list, else the first one before it. */
+/** The waiting item after `id` in the list as shown, else the first one before it. */
 function nextWaiting(id: ReviewId): ReviewItem | null {
-  const at = inbox.items.findIndex((i) => i.id === id);
+  const shown = groups.flatMap((g) => g.items);
+  const at = shown.findIndex((i) => i.id === id);
   const waits = (i: ReviewItem) => i.id !== id && inbox.waiting.includes(i);
-  return inbox.items.slice(at + 1).find(waits) ?? inbox.items.slice(0, at).find(waits) ?? null;
+  return shown.slice(at + 1).find(waits) ?? shown.slice(0, at).find(waits) ?? null;
 }
 
 async function reject(review: ReviewItem): Promise<void> {
@@ -731,6 +765,26 @@ function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
                 {/if}
                 {#if gitText}
                   <p class="protected" id="inbox-git" role="note" data-testid="inbox-git">{gitText}</p>
+                {/if}
+                {#if attempts}
+                  <p class="attempts" data-testid="inbox-attempts">
+                    {#if attempts.kept === null}
+                      One of {attempts.total} attempts at this task. Compare them, keep the best, then discard the rest
+                      here.
+                    {:else if attempts.rest.length > 0}
+                      {attempts.kept === item.session ? "You kept this attempt." : `You kept ${shortTitle(item, sessions.name(attempts.kept))}.`}
+                      <button
+                        type="button"
+                        class="quiet"
+                        disabled={discarding}
+                        data-testid="inbox-discard-attempts"
+                        onclick={() => attempts && void discardRest(attempts.rest)}
+                        >{attempts.rest.length === 1
+                          ? "Discard the other attempt"
+                          : `Discard the other ${attempts.rest.length} attempts`}</button
+                      >
+                    {/if}
+                  </p>
                 {/if}
                 <!-- A plain "Kept." would only repeat the state beside the title. -->
                 {#if outcome && outcomeText(outcome) !== "Kept."}
@@ -1289,6 +1343,11 @@ function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
   .item-head p {
     flex-basis: 100%;
     margin: 0;
+  }
+  .attempts {
+    margin: 0;
+    font: var(--t-small);
+    color: var(--text-2);
   }
   .outcome {
     color: var(--text);

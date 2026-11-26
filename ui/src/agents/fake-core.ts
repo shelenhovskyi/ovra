@@ -209,6 +209,7 @@ export class FakeAgentCore implements Transport {
             ],
             limits: { max_workers: 1, budget_micro_usd: null },
             spent_micro_usd: 0,
+            ...(request.params.attempt_of ? { attempt_of: request.params.attempt_of } : {}),
           };
           this.tasks.push(task);
           return { type: "orchestration.task", data: { ...task } };

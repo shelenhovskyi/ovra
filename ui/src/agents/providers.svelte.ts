@@ -9,6 +9,11 @@ import type { Transport } from "../lib/transport";
 /** What each provider is called until `agents.providers` answers, or if it fails. */
 const FALLBACK: Record<AgentKind, string> = { claude: "Claude", gemini: "Gemini", codex: "Codex" };
 
+/** A provider's usual name, for places that do not ask the runtime. */
+export function providerName(id: AgentKind): string {
+  return FALLBACK[id] ?? id;
+}
+
 export class Providers {
   list = $state<ProviderInfo[] | null>(null);
   /** The setup of every provider but Claude, whose accounts say it. */

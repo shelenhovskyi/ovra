@@ -22,4 +22,14 @@ describe("AgentPrefs", () => {
     prefs.showResources = true;
     expect(prefs.showResources).toBe(true);
   });
+
+  it("offers attempts only once the person turns them on, without touching the other choice", () => {
+    const store = memory();
+    const prefs = new AgentPrefs(store);
+    expect(prefs.attempts).toBe(false);
+    prefs.showResources = true;
+    prefs.attempts = true;
+    const again = new AgentPrefs(store);
+    expect([again.attempts, again.showResources]).toEqual([true, true]);
+  });
 });

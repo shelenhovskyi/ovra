@@ -3,6 +3,7 @@ import type { ReviewCheck, ReviewItem } from "../lib/protocol";
 import {
   approveDetail,
   approveHint,
+  attemptsLeft,
   checkText,
   defaultCommitMessage,
   fileMarkers,
@@ -279,5 +280,25 @@ describe("checkText and plainLog", () => {
     expect(plainLog(["test result: FAILED\rtest result: ok", "\u202Eko\u0007\ttab"])).toBe(
       "test result: FAILEDtest result: ok\nko\ttab",
     );
+  });
+});
+
+describe("attemptsLeft", () => {
+  const ended = (s: string) => s === "s3";
+  it("is null for an item that is no attempt", () => {
+    expect(attemptsLeft(review("r1"), [], [], ended)).toBeNull();
+  });
+
+  it("names the kept attempt and those still working or waiting", () => {
+    const items = [review("r1", { session: "s1", state: "approved" }), review("r2", { session: "s2" })];
+    expect(attemptsLeft(items[1] as ReviewItem, ["s1", "s3", "s4"], items, ended)).toEqual({
+      total: 4,
+      kept: "s1",
+      // s3 ended without changes; s4 still works.
+      rest: ["s2", "s4"],
+    });
+    const none = [review("r1", { session: "s1", state: "rejected" })];
+    // A discarded attempt whose agent ended is done with.
+    expect(attemptsLeft(none[0] as ReviewItem, ["s3"], none, () => true)).toEqual({ total: 2, kept: null, rest: [] });
   });
 });

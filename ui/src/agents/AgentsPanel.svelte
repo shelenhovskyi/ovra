@@ -67,6 +67,7 @@ import { type Starter, starterMode } from "./starters";
 import { sessionSummary } from "./summary";
 import TaskSummary from "./TaskSummary.svelte";
 import {
+  attemptAgents,
   modesFor,
   rememberAgent,
   rememberedAgent,
@@ -123,6 +124,12 @@ const agent = $derived(names.startable.includes(picked) ? picked : "claude");
 const offered = $derived(modesFor(agent, names.info(agent)?.capabilities));
 /** The chosen mode, or the agent's first when it cannot run in that one. */
 const how = $derived(offered.includes(mode) ? mode : (offered[0] ?? "own"));
+/** How many agents try the next task, each in its own copy (Settings > Agents offers it). */
+let tries = $state(1);
+/** Who makes each attempt; one agent unless the person turned attempts on and chose more. */
+const attempting = $derived(
+  how === "own" && agentPrefs.attempts ? attemptAgents(agent, names.startable, tries) : [agent],
+);
 let promptField = $state<HTMLTextAreaElement>();
 /** The agent's setup card is open although the agent is ready (from the start form's footer button). */
 let setupOpen = $state(false);
@@ -216,7 +223,9 @@ const modeHint = $derived(
     : how === "research"
       ? `Reads this folder and searches the web${modeSandbox}. Changes nothing.`
       : how === "own"
-        ? offered.includes("here")
+        ? attempting.length > 1
+          ? `${attempting.length} attempts (${attempting.map((a) => names.name(a)).join(", ")}), each on its own copy${modeSandbox}. Keep the best in Reviews.`
+          : offered.includes("here")
           ? `Works on its own copy${modeSandbox}. You review before anything is merged.`
           : `${names.name(agent)} works only on its own copy: Ovra cannot enforce its rules in this folder. You review first.`
         : `Up to 3 agents on their own copies${modeSandbox}. You review first.`,
@@ -863,6 +872,7 @@ async function begin(
   use: string | null,
   context: ContextItem[] = [],
   who: AgentKind = "claude",
+  attempts: AgentKind[] = [who],
 ): Promise<SessionId> {
   const id = project?.id;
   if (!id) throw new Error("No project is open");
@@ -876,7 +886,7 @@ async function begin(
     how === "split"
       ? await sessions.startTask(id, body, context, who)
       : how === "own"
-        ? await sessions.startSolo(id, body, who, context)
+        ? await sessions.startAttempts(id, body, attempts, context)
         : (await sessions.start(id, body, use, how === "research" ? "research" : "direct", context, who)).id;
   selected = started;
   await tick();
@@ -895,7 +905,7 @@ async function start(): Promise<void> {
   busy = true;
   startError = null;
   try {
-    launched = await begin(body, how, agent === "claude" ? account : null, drafts.items(newBox), agent);
+    launched = await begin(body, how, agent === "claude" ? account : null, drafts.items(newBox), agent, attempting);
     hints.mark("started");
     launchedPrompt = body;
     prompt = "";
@@ -1786,6 +1796,16 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
               {#each names.startable as id (id)}
                 <option value={id}>{names.name(id)}</option>
               {/each}
+            </select>
+          </label>
+        {/if}
+        {#if how === "own" && agentPrefs.attempts}
+          <label class="agent-picker" data-testid="attempts-picker" title="Each attempt is an agent in its own copy">
+            <span class="visually-hidden">Attempts</span>
+            <select bind:value={tries}>
+              <option value={1}>1 attempt</option>
+              <option value={2}>2 attempts</option>
+              <option value={3}>3 attempts</option>
             </select>
           </label>
         {/if}
