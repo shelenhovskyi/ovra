@@ -109,7 +109,7 @@ pub(super) async fn handle(core: &Core, request: PrRequest) -> Result<Response> 
 }
 
 /// A worker's item, its worker and its project's root.
-fn worker_item(core: &Core, id: &ReviewId) -> Result<(review::Entry, Worker, PathBuf)> {
+pub(super) fn worker_item(core: &Core, id: &ReviewId) -> Result<(review::Entry, Worker, PathBuf)> {
     let entry = review::find(core, id)?;
     if entry.mode != SessionMode::Isolated {
         return Err(ProtocolError::new(
@@ -130,36 +130,21 @@ fn worker_item(core: &Core, id: &ReviewId) -> Result<(review::Entry, Worker, Pat
     Ok((entry, worker, root))
 }
 
-/// A branch name git and `gh` take as nothing but a branch.
-fn ref_name(name: &str) -> Result<String> {
-    let plain = |c: char| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | '/');
-    let bad = name.is_empty()
-        || name.len() > 200
-        || name.starts_with(['-', '/', '.'])
-        || name.ends_with(['/', '.'])
-        || name.ends_with(".lock")
-        || name.contains("..")
-        || name.contains("//")
-        || name.contains("/.")
-        || !name.chars().all(plain);
-    if bad {
-        return Err(ProtocolError::new(
-            ErrorCode::BadRequest,
-            format!("{name:?} is not a branch name Ovra pushes to"),
-        ));
-    }
-    Ok(name.to_owned())
-}
-
 /// The branch to ask to merge into when the person names none: the one
 /// the main checkout's branch tracks on `remote`, else `main`.
-async fn default_base(core: &Core, root: PathBuf, remote: &str) -> String {
+pub(super) async fn default_base(core: &Core, root: PathBuf, remote: &str) -> String {
+    tracked(core, root, remote)
+        .await
+        .unwrap_or_else(|| "main".to_owned())
+}
+
+/// The branch the main checkout's branch tracks on `remote`, if any.
+pub(super) async fn tracked(core: &Core, root: PathBuf, remote: &str) -> Option<String> {
     let upstream = core.git_service().status(root).await.ok().flatten();
     upstream
         .and_then(|s| s.upstream)
         .and_then(|u| u.strip_prefix(&format!("{remote}/")).map(str::to_owned))
-        .and_then(|b| ref_name(&b).ok())
-        .unwrap_or_else(|| "main".to_owned())
+        .and_then(|b| crate::pr::ref_name(&b).ok())
 }
 
 /// Title and body drafted from the worker's summary, else its first prompt.
@@ -243,12 +228,21 @@ async fn reviewed(core: &Core, entry: &review::Entry, seen: Seen) -> Result<Stri
             ),
         ));
     }
-    // The review leaves the sandbox's placeholders out, the pick would
-    // not: the commit must hold exactly the files the dialog listed.
+    no_placeholders(core, entry, &snapshot).await?;
+    Ok(snapshot)
+}
+
+/// Refuses a snapshot that holds the sandbox's empty placeholders: the
+/// review leaves them out, a pick would not.
+pub(super) async fn no_placeholders(
+    core: &Core,
+    entry: &review::Entry,
+    snapshot: &str,
+) -> Result<()> {
     let ws = &entry.workspace;
     let deltas = core
         .worktrees()
-        .diff(ws.dir.clone(), ws.base.clone(), snapshot.clone())
+        .diff(ws.dir.clone(), ws.base.clone(), snapshot.to_owned())
         .await?;
     let placeholders: Vec<&str> = deltas
         .iter()
@@ -262,12 +256,12 @@ async fn reviewed(core: &Core, entry: &review::Entry, seen: Seen) -> Result<Stri
             placeholders.join(", ")
         )));
     }
-    Ok(snapshot)
+    Ok(())
 }
 
 /// The worker's changes from `start` to `snapshot` committed on `onto`;
 /// refused when that leaves nothing to push (an empty commit).
-async fn pick(
+pub(super) async fn pick(
     core: &Core,
     root: PathBuf,
     onto: String,
@@ -298,7 +292,7 @@ fn audit(core: &Core, entry: &review::Entry, event: AuditEvent) {
     crate::audit::record(core, &entry.project, Some(&entry.session), event);
 }
 
-fn emit(core: &Core, entry: &review::Entry) {
+pub(super) fn emit(core: &Core, entry: &review::Entry) {
     core.emit(PrEvent::Changed {
         project: entry.project.clone(),
         id: entry.id.clone(),
@@ -323,7 +317,7 @@ async fn prepare(
     let remote = crate::pr::remote_name(remote)?;
     let gh = core.forge().status(root.clone(), remote.clone()).await?;
     let base = match base {
-        Some(base) => ref_name(&base)?,
+        Some(base) => crate::pr::ref_name(&base)?,
         None => default_base(core, root.clone(), &remote).await,
     };
     let (title, body) = drafted(core, &entry, &worker);
@@ -378,7 +372,10 @@ async fn create(core: &Core, id: &ReviewId, draft: PrDraft, seen: Seen) -> Resul
         return Err(conflict("only an open review can become a pull request"));
     }
     let remote = crate::pr::remote_name(Some(draft.remote.clone()))?;
-    let (base, branch) = (ref_name(&draft.base)?, ref_name(&draft.branch)?);
+    let (base, branch) = (
+        crate::pr::ref_name(&draft.base)?,
+        crate::pr::ref_name(&draft.branch)?,
+    );
     let title = draft.title.trim().to_owned();
     if title.is_empty() || title.contains('\n') {
         return Err(ProtocolError::new(
@@ -830,7 +827,7 @@ async fn ask_update(
     let (entry, _, root) = worker_item(core, id)?;
     let remote = crate::pr::remote_name(remote)?;
     let base = match base {
-        Some(base) => ref_name(&base)?,
+        Some(base) => crate::pr::ref_name(&base)?,
         None => default_base(core, root.clone(), &remote).await,
     };
     signed_in(core, root.clone(), &remote).await?;
@@ -868,4 +865,4 @@ async fn ask_update(
 }
 
 #[cfg(test)]
-mod tests;
+pub(super) mod tests;

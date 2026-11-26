@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use super::agents::SessionId;
 use super::context::ContextItem;
 use super::projects::ProjectId;
-use super::review::ReviewId;
+use super::review::{ChangeKind, ReviewId};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(transparent)]
@@ -126,6 +126,44 @@ pub enum ShowTarget {
     File { path: String, line: Option<u32> },
     Agent { session: SessionId },
     Review { id: ReviewId },
+}
+
+/// A worker's `push` waiting for the person (`docs/specs/agent-push.md`):
+/// the `input` of its permission request, whose `tool` is `Push`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PushPlan {
+    /// The remote's name, such as `origin`.
+    pub remote: String,
+    /// The host its URL names, if Ovra could read it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub host: Option<String>,
+    pub branch: String,
+    /// The remote has no such branch yet: it starts from `base`.
+    pub new_branch: bool,
+    /// What a new branch starts from, on the same remote.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub base: Option<String>,
+    /// The commit the push builds on: the branch's head, or `base`'s.
+    pub onto: String,
+    /// The one commit Ovra made of the worker's changes.
+    pub commit: String,
+    /// Its message, written by the agent.
+    pub message: String,
+    /// The files the commit changes on top of `onto`.
+    pub files: Vec<PushedFile>,
+    /// A shared branch such as `main`: only a rule naming it exactly
+    /// pushes to it without asking.
+    pub protected_branch: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PushedFile {
+    pub path: String,
+    pub kind: ChangeKind,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub from: Option<String>,
+    pub additions: u32,
+    pub deletions: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

@@ -1,9 +1,40 @@
 import type { SessionId } from "./agents";
 import type { ContextItem } from "./context";
 import type { ProjectId } from "./projects";
-import type { ReviewId } from "./review";
+import type { ChangeKind, ReviewId } from "./review";
 
 export type TaskId = string;
+
+/** A worker's `push` waiting for the person: the `input` of a permission request whose `tool` is `Push` (`docs/specs/agent-push.md`). */
+export type PushPlan = {
+  /** The remote's name, such as `origin`. */
+  remote: string;
+  /** The host its URL names, if Ovra could read it. */
+  host?: string;
+  branch: string;
+  /** The remote has no such branch yet: it starts from `base`. */
+  new_branch: boolean;
+  /** What a new branch starts from, on the same remote. */
+  base?: string;
+  /** The commit the push builds on. */
+  onto: string;
+  /** The one commit Ovra made of the worker's changes. */
+  commit: string;
+  /** Written by the agent. */
+  message: string;
+  /** The files the commit changes on top of `onto`. */
+  files: PushedFile[];
+  /** A shared branch such as `main`: only a rule naming it exactly pushes to it without asking. */
+  protected_branch: boolean;
+};
+
+export type PushedFile = {
+  path: string;
+  kind: ChangeKind;
+  from?: string;
+  additions: number;
+  deletions: number;
+};
 
 export type TaskLimits = {
   /** Workers that may run at once (default 3). */

@@ -102,8 +102,9 @@ pub enum AuditEvent {
         language: String,
         reason: Option<String>,
     },
-    /// The person pushed a worker's reviewed changes as `commit` to
-    /// `branch` on `remote` (`pr.create`, `pr.update`).
+    /// A worker's changes went out as `commit` to `branch` on `remote`:
+    /// the person's `pr.create` or `pr.update`, or the worker's `push`
+    /// after the `Push` decision recorded before it.
     BranchPushed {
         review: ReviewId,
         remote: String,

@@ -10,7 +10,7 @@ export type PolicyRule = {
   tool: string;
   /**
    * A command prefix for Bash (the whole command with `exact`), a glob on the session-relative path for file tools, the URL's host for
-   * WebFetch; absent matches every call.
+   * WebFetch, `<remote> <branch>` (or `<remote> <prefix>/*`) for Push, a worker's push; absent matches every call.
    */
   match?: string;
   action: PolicyAction;

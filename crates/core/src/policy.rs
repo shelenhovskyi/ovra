@@ -8,6 +8,7 @@ use std::path::{Component, Path, PathBuf};
 use crate::Core;
 use crate::protocol::agents::{SandboxNetwork, SandboxReport, ToolCall, ToolKind};
 use crate::protocol::audit::{AuditEvent, DecidedBy};
+use crate::protocol::orchestration::PushPlan;
 use crate::protocol::permissions::{
     Decision, PermissionAnswer, PermissionId, PermissionRequest, PermissionsEvent,
 };
@@ -169,6 +170,29 @@ const COMMAND_FILES: [&str; 13] = [
 /// their path inside the folder, in any case.
 const COMMAND_FOLDERS: [&str; 3] = [".github/workflows", ".cargo", ".husky"];
 
+/// The pseudo-tool of rules for an agent's pushes (`push`,
+/// `docs/specs/agent-push.md`): `Push(<remote> <branch>)`, where the
+/// branch may end in `/*` for every branch below it.
+pub(crate) const PUSH_TOOL: &str = "Push";
+
+/// Branches an agent's push always asks about unless a rule names them
+/// exactly, compared in any case, with [`PROTECTED_BRANCH_PREFIXES`].
+const PROTECTED_BRANCHES: [&str; 9] = [
+    "main",
+    "master",
+    "trunk",
+    "develop",
+    "development",
+    "production",
+    "prod",
+    "stable",
+    "release",
+];
+const PROTECTED_BRANCH_PREFIXES: [&str; 3] = ["release/", "release-", "hotfix/"];
+
+/// Ovra's own branches for agents' work: "Always allow" covers them all.
+const AGENT_BRANCHES: &str = "ovra/";
+
 /// Held while a `policy.set` compares and stores. One lock for every
 /// project and core: changes are rare and quick.
 static SETTING: std::sync::Mutex<()> = std::sync::Mutex::new(());
@@ -223,6 +247,14 @@ fn check(rule: &PolicyRule) -> Result<(), ProtocolError> {
     }
     if rule.tool.starts_with(crate::orchestration::IDE_TOOL_PREFIX) {
         return bad("Ovra's own tools follow their role's rules, not policies");
+    }
+    if rule.tool == PUSH_TOOL {
+        return match &rule.pattern {
+            Some(pattern) if rule.exact || push_pattern(pattern).is_none() => bad(
+                "a Push match is a remote and a branch, such as origin ovra/* or origin fix-login",
+            ),
+            _ => Ok(()),
+        };
     }
     let kind = matched_kind(&rule.tool);
     if rule.exact && (kind != Some(ToolKind::Execute) || rule.pattern.is_none()) {
@@ -482,7 +514,16 @@ fn added(
     let store = core.project_store();
     let mut policy = store.policy(&request.project)?;
     // Without a sandbox only deny and ask rules decide.
-    if decide(&policy, &request.tool, &request.call, cwd, None).is_some() {
+    let decided = match request.tool.as_str() {
+        PUSH_TOOL => {
+            let plan: PushPlan = serde_json::from_value(request.input.clone()).map_err(|_| {
+                ProtocolError::new(ErrorCode::BadRequest, "this push request is unreadable")
+            })?;
+            decide_push(&policy, &plan.target(), None)
+        }
+        tool => decide(&policy, tool, &request.call, cwd, None),
+    };
+    if decided.is_some() {
         return Err(ProtocolError::new(
             ErrorCode::BadRequest,
             "a project rule now asks about this call; nothing was added",
@@ -529,6 +570,11 @@ pub(crate) fn decide(
     work_dir: &Path,
     sandbox: Option<&SandboxReport>,
 ) -> Option<(PolicyAction, String)> {
+    // Push rules decide Ovra's own pushes, never an agent's tool that
+    // happens to have the name.
+    if tool == PUSH_TOOL {
+        return None;
+    }
     let matching = |action: PolicyAction| {
         policy
             .rules
@@ -726,3 +772,120 @@ fn segment(pattern: &str, name: &str) -> bool {
 
 #[cfg(test)]
 mod tests;
+
+/// A push as rules see it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct PushTarget<'a> {
+    pub(crate) remote: &'a str,
+    pub(crate) branch: &'a str,
+    /// One of [`protected_branch`]'s: only a rule naming it exactly
+    /// pushes to it without asking.
+    pub(crate) protected: bool,
+}
+
+impl PushPlan {
+    pub(crate) fn target(&self) -> PushTarget<'_> {
+        PushTarget {
+            remote: &self.remote,
+            branch: &self.branch,
+            protected: self.protected_branch,
+        }
+    }
+}
+
+/// Whether an agent's push to `branch` always asks unless a rule names
+/// it exactly: a usual name for a shared branch, or `tracked`, the branch
+/// the main checkout's branch tracks on that remote.
+pub(crate) fn protected_branch(branch: &str, tracked: Option<&str>) -> bool {
+    let lower = branch.to_ascii_lowercase();
+    PROTECTED_BRANCHES.contains(&lower.as_str())
+        || PROTECTED_BRANCH_PREFIXES
+            .iter()
+            .any(|p| lower.starts_with(p))
+        || tracked.is_some_and(|t| t.eq_ignore_ascii_case(branch))
+}
+
+/// A Push match's remote and branch, the branch without a trailing `*`
+/// when it ends in `/*`; `None` when it is not one.
+fn push_pattern(pattern: &str) -> Option<(&str, &str, bool)> {
+    let (remote, branch) = pattern.split_once(' ')?;
+    crate::pr::remote_name(Some(remote.to_owned())).ok()?;
+    match branch.strip_suffix("/*") {
+        Some(prefix) => {
+            crate::pr::ref_name(prefix).ok()?;
+            Some((remote, &branch[..=prefix.len()], true))
+        }
+        None => {
+            crate::pr::ref_name(branch).ok()?;
+            Some((remote, branch, false))
+        }
+    }
+}
+
+/// What `policy` says about an agent's push to `target`, as [`decide`]
+/// does for tool calls: `deny` wins, then `ask`, then `auto`, which counts
+/// only in a sandboxed session with a limited network. A protected branch
+/// is pushed to without asking only by a rule that names it exactly.
+pub(crate) fn decide_push(
+    policy: &Policy,
+    target: &PushTarget<'_>,
+    sandbox: Option<&SandboxReport>,
+) -> Option<(PolicyAction, String)> {
+    let matching = |action: PolicyAction| {
+        policy
+            .rules
+            .iter()
+            .filter(|r| r.action == action && r.tool == PUSH_TOOL)
+            .find(|r| push_matches(r, target, action))
+            .map(|r| (action, text(r)))
+    };
+    if let Some(decided) = matching(PolicyAction::Deny).or_else(|| matching(PolicyAction::Ask)) {
+        return Some(decided);
+    }
+    let contained = sandbox.is_some_and(|s| s.network != SandboxNetwork::Open);
+    if contained {
+        return matching(PolicyAction::Auto);
+    }
+    None
+}
+
+fn push_matches(rule: &PolicyRule, target: &PushTarget<'_>, action: PolicyAction) -> bool {
+    let wide_ok = action != PolicyAction::Auto || !target.protected;
+    let Some(pattern) = &rule.pattern else {
+        return wide_ok;
+    };
+    match push_pattern(pattern) {
+        Some((remote, _, _)) if remote != target.remote => false,
+        Some((_, prefix, true)) => target.branch.starts_with(prefix) && wide_ok,
+        Some((_, branch, false)) => branch == target.branch,
+        // A match `check` would refuse, stored anyway: a deny or ask
+        // holds, an auto allows nothing.
+        None => action != PolicyAction::Auto,
+    }
+}
+
+/// The rule "Always allow" offers for a push no rule decided: every one of
+/// Ovra's agent branches on the remote, else the branch itself. None for a
+/// protected branch, or where `auto` never counts.
+pub(crate) fn always_push(
+    target: &PushTarget<'_>,
+    sandbox: Option<&SandboxReport>,
+) -> Option<PolicyRule> {
+    if target.protected || !sandbox.is_some_and(|s| s.network != SandboxNetwork::Open) {
+        return None;
+    }
+    let branch = if target.branch.starts_with(AGENT_BRANCHES) {
+        format!("{AGENT_BRANCHES}*")
+    } else {
+        target.branch.to_owned()
+    };
+    let rule = PolicyRule {
+        tool: PUSH_TOOL.to_owned(),
+        pattern: Some(format!("{} {branch}", target.remote)),
+        action: PolicyAction::Auto,
+        exact: false,
+        from_approval: true,
+    };
+    let fits = check(&rule).is_ok() && push_matches(&rule, target, PolicyAction::Auto);
+    fits.then_some(rule)
+}

@@ -179,7 +179,7 @@ export function describe(entry: AuditEntry): Described {
     case "branch_pushed":
       return {
         title: `Pushed to ${event.remote}/${event.branch}`,
-        detail: `The reviewed changes of review ${event.review}, pushed by a person.`,
+        detail: `The worker changes of review ${event.review}, pushed with the person's git after their approval or a rule.`,
         input: null,
         raw: event.commit,
         tone: "plain",

@@ -957,3 +957,144 @@ async fn always_allow_takes_the_request_first_and_adds_no_rule_twice() {
     let denied = asking.await.unwrap_or_else(|e| panic!("{e}"));
     assert_eq!(denied.decision, Decision::Deny);
 }
+
+fn push_rule(pattern: Option<&str>, action: PolicyAction) -> PolicyRule {
+    PolicyRule {
+        tool: super::PUSH_TOOL.into(),
+        pattern: pattern.map(str::to_owned),
+        action,
+        exact: false,
+        from_approval: false,
+    }
+}
+
+#[test]
+fn push_rules_take_a_remote_and_a_branch_or_every_branch_below_one() {
+    for good in [
+        None,
+        Some("origin ovra/*"),
+        Some("origin fix-login"),
+        Some("up main"),
+    ] {
+        assert!(
+            check(&push_rule(good, PolicyAction::Auto)).is_ok(),
+            "{good:?}"
+        );
+    }
+    for bad in [
+        "origin",
+        "origin *",
+        "origin ovra/**",
+        "https://x@github.com/o/r main",
+        "--upload-pack=x main",
+        "origin --force",
+        "origin a..b",
+        "origin  main",
+    ] {
+        assert!(
+            check(&push_rule(Some(bad), PolicyAction::Deny)).is_err(),
+            "{bad}"
+        );
+    }
+    let exact = PolicyRule {
+        exact: true,
+        ..push_rule(Some("origin main"), PolicyAction::Auto)
+    };
+    assert!(check(&exact).is_err());
+}
+
+#[test]
+fn push_rules_decide_pushes_and_never_a_tool_of_that_name() {
+    use super::{PushTarget, decide_push, protected_branch};
+    let contained = sandboxed(SandboxNetwork::Blocked);
+    let open = sandboxed(SandboxNetwork::Open);
+    let policy = Policy {
+        rules: vec![
+            push_rule(Some("origin ovra/*"), PolicyAction::Auto),
+            push_rule(Some("origin ovra/secret/*"), PolicyAction::Deny),
+            push_rule(Some("origin team"), PolicyAction::Ask),
+            push_rule(None, PolicyAction::Auto),
+        ],
+    };
+    let judge = |remote: &str, branch: &str, sandbox: Option<&SandboxReport>| {
+        let target = PushTarget {
+            remote,
+            branch,
+            protected: protected_branch(branch, Some("trunk-of-team")),
+        };
+        match decide_push(&policy, &target, sandbox) {
+            Some((action, rule)) => format!("{action:?} {rule}"),
+            None => "ask".to_owned(),
+        }
+    };
+    let c = Some(&contained);
+    assert_eq!(judge("origin", "ovra/t1/w", c), "Auto Push(origin ovra/*)");
+    assert_eq!(
+        judge("origin", "ovra/secret/w", c),
+        "Deny Push(origin ovra/secret/*)"
+    );
+    assert_eq!(judge("origin", "team", c), "Ask Push(origin team)");
+    assert_eq!(judge("origin", "feature", c), "Auto Push");
+    // Wide rules never push to a shared branch without asking.
+    for shared in [
+        "main",
+        "Master",
+        "release/1.2",
+        "release-3",
+        "hotfix/x",
+        "trunk-of-team",
+    ] {
+        assert_eq!(judge("origin", shared, c), "ask", "{shared}");
+    }
+    // `auto` counts only where the sandbox limits the network.
+    assert_eq!(judge("origin", "ovra/t1/w", Some(&open)), "ask");
+    assert_eq!(judge("origin", "ovra/t1/w", None), "ask");
+    assert_eq!(judge("upstream", "ovra/t1/w", None), "ask");
+
+    // A rule that names the shared branch exactly does push to it.
+    let named = Policy {
+        rules: vec![push_rule(Some("origin main"), PolicyAction::Auto)],
+    };
+    let main = PushTarget {
+        remote: "origin",
+        branch: "main",
+        protected: true,
+    };
+    assert!(decide_push(&named, &main, c).is_some());
+
+    // An agent's own tool named `Push` is not decided by push rules.
+    let call = crate::protocol::agents::ToolCall::default();
+    assert_eq!(
+        super::decide(&policy, super::PUSH_TOOL, &call, Path::new("/w"), c),
+        None
+    );
+}
+
+#[test]
+fn always_allow_offers_ovras_branches_or_the_branch_and_never_a_shared_one() {
+    use super::{PushTarget, always_push};
+    let contained = sandboxed(SandboxNetwork::Proxy);
+    let offered = |branch: &str, protected: bool| {
+        let target = PushTarget {
+            remote: "origin",
+            branch,
+            protected,
+        };
+        always_push(&target, Some(&contained)).map(|r| text(&r))
+    };
+    assert_eq!(
+        offered("ovra/t1/w", false).as_deref(),
+        Some("Push(origin ovra/*)")
+    );
+    assert_eq!(
+        offered("fix-login", false).as_deref(),
+        Some("Push(origin fix-login)")
+    );
+    assert_eq!(offered("main", true), None);
+    let target = PushTarget {
+        remote: "origin",
+        branch: "fix-login",
+        protected: false,
+    };
+    assert_eq!(always_push(&target, None), None);
+}

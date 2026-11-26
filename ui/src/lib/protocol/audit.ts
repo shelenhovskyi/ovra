@@ -35,7 +35,7 @@ export type AuditEvent =
   | { kind: "language_server_started"; server: LspServerId; name: string; language: string; sandbox: string | null }
   /** `reason` says why it failed; null when it was stopped or exited cleanly. */
   | { kind: "language_server_stopped"; server: LspServerId; name: string; language: string; reason: string | null }
-  /** The person pushed a worker's reviewed changes (`pr.create`, `pr.update`). */
+  /** A worker's changes went out: the person's `pr.create` or `pr.update`, or the worker's `push` after the `Push` decision before it. */
   | { kind: "branch_pushed"; review: ReviewId; remote: string; branch: string; commit: string }
   /** The person opened a pull request of a worker's item. */
   | { kind: "pull_request_opened"; review: ReviewId; remote: string; number: number; url: string }

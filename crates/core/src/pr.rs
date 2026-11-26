@@ -36,6 +36,27 @@ pub(crate) fn remote_name(remote: Option<String>) -> Result<String, ProtocolErro
     Ok(remote)
 }
 
+/// A branch name git and `gh` take as nothing but a branch.
+pub(crate) fn ref_name(name: &str) -> Result<String, ProtocolError> {
+    let plain = |c: char| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | '/');
+    let bad = name.is_empty()
+        || name.len() > 200
+        || name.starts_with(['-', '/', '.'])
+        || name.ends_with(['/', '.'])
+        || name.ends_with(".lock")
+        || name.contains("..")
+        || name.contains("//")
+        || name.contains("/.")
+        || !name.chars().all(plain);
+    if bad {
+        return Err(ProtocolError::new(
+            ErrorCode::BadRequest,
+            format!("{name:?} is not a branch name Ovra pushes to"),
+        ));
+    }
+    Ok(name.to_owned())
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
