@@ -13,7 +13,9 @@ use std::path::PathBuf;
 use std::process::Stdio;
 use std::sync::Arc;
 
-use ovra_core::protocol::agents::{AgentStatus, ProviderInfo, SandboxNetwork, SandboxReport};
+use ovra_core::protocol::agents::{
+    AgentStatus, ProviderInfo, SandboxNetwork, SandboxReport, SessionMode,
+};
 use ovra_core::protocol::{ErrorCode, ProtocolError};
 use ovra_core::services::{
     AgentHost, AgentRuntime, AgentSpec, AgentState, CommandLine, ProfileNetwork, ProviderLists,
@@ -72,6 +74,12 @@ impl AgentRuntime for AcpAgents {
                 format!("no agent {:?} speaks ACP here", spec.agent),
             ));
         };
+        if let Some(what) = unsupported(&spec) {
+            return Err(ProtocolError::new(
+                ErrorCode::Unavailable,
+                format!("{} over ACP cannot {what} yet", agent.info.name),
+            ));
+        }
         if tokio::runtime::Handle::try_current().is_err() {
             return Err(ProtocolError::new(
                 ErrorCode::Internal,
@@ -86,6 +94,23 @@ impl AgentRuntime for AcpAgents {
             reporter.status(status.await);
         });
         Ok(Box::new(AcpProcess(commands)))
+    }
+}
+
+/// What `spec` asks for that an ACP session cannot do, if anything: it is
+/// refused rather than run without it (docs/specs/acp-adapter.md, not goals
+/// for v1).
+fn unsupported(spec: &AgentSpec) -> Option<&'static str> {
+    if spec.mode == SessionMode::Research {
+        Some("run research sessions")
+    } else if spec.tools.is_some() {
+        Some("use Ovra's IDE tools")
+    } else if spec.resume.is_some() {
+        Some("resume a session")
+    } else if spec.config_dir.is_some() {
+        Some("run with another account")
+    } else {
+        None
     }
 }
 

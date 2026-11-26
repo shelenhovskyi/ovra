@@ -645,3 +645,94 @@ async fn an_agent_that_closes_stdout_and_lives_on_is_killed() {
     };
     assert!(message.starts_with("Fake exited with signal"), "{message}");
 }
+
+fn spec() -> AgentSpec {
+    use ovra_core::protocol::agents::{SessionId, SessionMode};
+    use ovra_core::services::{ProfileKind, ProfileNetwork};
+    AgentSpec {
+        session: SessionId("s1".into()),
+        agent: AgentKind::Claude,
+        mode: SessionMode::Isolated,
+        cwd: ROOT.into(),
+        prompt: "hi".into(),
+        executable: None,
+        config_dir: None,
+        tools: None,
+        trusted: true,
+        resume: None,
+        sandbox: SandboxProfile {
+            work_dir: ROOT.into(),
+            work_dir_read_only: false,
+            read: Vec::new(),
+            write: Vec::new(),
+            expose: Vec::new(),
+            forward: Vec::new(),
+            network: ProfileNetwork::Blocked,
+            kind: ProfileKind::Agent,
+            agent_state: None,
+            project: None,
+            work_env: None,
+        },
+        no_web: false,
+    }
+}
+
+#[test]
+fn what_acp_sessions_cannot_do_is_refused() {
+    use ovra_core::protocol::agents::SessionMode;
+    use ovra_core::services::ToolRole;
+    assert_eq!(unsupported(&spec()), None);
+    let research = AgentSpec {
+        mode: SessionMode::Research,
+        ..spec()
+    };
+    let tools = AgentSpec {
+        tools: Some(ToolRole::Worker),
+        ..spec()
+    };
+    let resume = AgentSpec {
+        resume: Some("acp-1".into()),
+        ..spec()
+    };
+    let account = AgentSpec {
+        config_dir: Some("/home/me/.fake-work".into()),
+        ..spec()
+    };
+    let refused: Vec<_> = [research, tools, resume, account]
+        .iter()
+        .map(unsupported)
+        .collect();
+    assert_eq!(
+        refused,
+        [
+            Some("run research sessions"),
+            Some("use Ovra's IDE tools"),
+            Some("resume a session"),
+            Some("run with another account"),
+        ]
+    );
+}
+
+#[tokio::test]
+async fn a_research_session_does_not_start() {
+    let agent = described("fake-acp", &[]);
+    let runtime = AcpAgents::new(vec![agent], Arc::new(FakeSandbox::available()));
+    let core = Core::builder("test")
+        .projects(Arc::new(MemoryProjects::default()))
+        .agents(Arc::new(runtime))
+        .build();
+    call(
+        &core,
+        json!({"method": "projects.add", "params": {"root": ROOT}}),
+    )
+    .await;
+    let start: Request = serde_json::from_value(json!({"method": "agents.start", "params": {
+        "project": "p1", "agent": "claude", "mode": "research", "prompt": "hi"}}))
+    .expect("a request");
+    let refused = core.handle(start).await.expect_err("refused");
+    assert_eq!(refused.code, ErrorCode::Unavailable);
+    assert_eq!(
+        refused.message,
+        "Fake over ACP cannot run research sessions yet"
+    );
+}
