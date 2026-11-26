@@ -10,6 +10,7 @@ use crate::protocol::audit::{AuditEvent, DecidedBy};
 use crate::protocol::fs::FsEvent;
 use crate::protocol::permissions::PermissionsResponse;
 use crate::protocol::projects::ProjectId;
+use crate::protocol::review::{ReviewEvent, ReviewId};
 use crate::protocol::{ErrorCode, Event, Request, Response};
 use crate::services::AuditLog;
 
@@ -79,6 +80,11 @@ fn a_phone_gets_status_and_approvals_but_no_files_or_streamed_text() {
     assert!(!shows(&Event::from(AgentsEvent::TextDelta {
         session: SessionId("s1".into()),
         text: "secret".into(),
+    })));
+    // A phone hears of a review request by push and re-reads on review.changed.
+    assert!(!shows(&Event::Review(ReviewEvent::Requested {
+        project: ProjectId("p1".into()),
+        id: ReviewId("r1".into()),
     })));
     assert!(!shows(&Event::from(FsEvent::GitChanged {
         project: ProjectId("p1".into()),

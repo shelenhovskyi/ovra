@@ -5,6 +5,7 @@ import type { Transport } from "../lib/transport";
 import App from "./App.svelte";
 import Approval from "./Approval.svelte";
 import { memoryStore } from "./identity";
+import { pairLink } from "./pair";
 import { finished, forReview, needsYou, Phone, working } from "./phone.svelte";
 import { pushSupport } from "./push";
 import { parseRoute } from "./route";
@@ -181,5 +182,19 @@ it("the Home Screen app pairs from a pasted link; Safari on an iPhone says to do
   app = mount(App, { target, props: { store: memoryStore(), origin, homeScreen: safari } });
   await vi.waitFor(() => expect(target.querySelector('[data-testid="home-screen-first"]')).not.toBeNull());
   expect(target.querySelector("#pair-link")).toBeNull();
+  let copied = "";
+  Object.defineProperty(navigator, "clipboard", {
+    configurable: true,
+    value: {
+      writeText: (text: string) => {
+        copied = text;
+        return Promise.resolve();
+      },
+    },
+  });
+  const copy = [...target.querySelectorAll("button")].find((b) => b.textContent === "Copy link");
+  copy?.click();
+  await vi.waitFor(() => expect(target.querySelector('[role="status"]')?.textContent).toBe("Copied."));
+  expect(pairLink(copied, origin)).toBe("AbCdEfGhIjKlMnOpQrStUv");
   target.remove();
 });

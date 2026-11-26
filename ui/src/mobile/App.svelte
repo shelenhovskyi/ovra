@@ -111,7 +111,7 @@ const route = $derived(parseRoute(hash));
         On your computer, open Ovra, go to Settings, then Phone, and choose Add a phone. Scan the code with
         this phone's camera.
       </p>
-      {#if homeScreen.standalone}
+      {#if homeScreen.standalone && homeScreen.appleMobile}
         <form class="paste" onsubmit={pairFromLink}>
           <label for="pair-link">Or paste the pairing link</label>
           <input id="pair-link" type="url" bind:value={pasted} autocomplete="off" placeholder="https://" />
