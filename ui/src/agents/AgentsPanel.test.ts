@@ -5,7 +5,7 @@ import { focusMode } from "../focus/mode.svelte";
 import { handleOpenFor } from "../inbox/open";
 import { listCommands, registerCommand } from "../keys/commands";
 import type { BoardEntry, FileChange, Pick, ReviewItem } from "../lib/protocol";
-import type { WindowDrop } from "../lib/transport";
+import { CoreError, type WindowDrop } from "../lib/transport";
 import { closeContextMenu, contextMenu } from "../menu/context-menu.svelte";
 import { Workspace } from "../shell/workspace.svelte";
 import { askAgent } from "./context.svelte";
@@ -1368,6 +1368,10 @@ describe("@ context", () => {
     );
   const options = () =>
     [...target.querySelectorAll("[data-testid=context-menu] [role=option] .name")].map((o) => o.textContent);
+  /** Lets a chosen row's read, its check and the chip land. */
+  const settleReads = async () => {
+    for (let i = 0; i < 4; i++) await settle();
+  };
   const chips = () =>
     [...target.querySelectorAll("[data-testid=context-chip]")].map((c) => c.textContent?.replace(/\s+/g, " ").trim());
 
@@ -1417,6 +1421,87 @@ describe("@ context", () => {
       { kind: "file", path: "src/lib.rs", confirmed: false },
     ]);
     expect(chips()).toEqual([]);
+  });
+
+  it("reads GitHub only after @#, and adds an issue or a failed check's log as a chip", async () => {
+    const core = new FakeAgentCore();
+    core.listed = FILES;
+    core.issues = [
+      { number: 12, title: "Login button does nothing", url: "https://github.com/o/r/issues/12", text: "Steps" },
+      { number: 9, title: "Dark theme contrast", url: "https://github.com/o/r/issues/9", text: "Hard to read" },
+    ];
+    core.branchPr = {
+      number: 7,
+      url: "https://github.com/o/r/pull/7",
+      branch: "fix",
+      failed: [{ name: "test", state: "failed", url: null, run: 3 }],
+    };
+    core.logs.set(3, "error: 1 test failed");
+    await setup(core);
+    // The plain @ menu names the way in last; nothing is read from GitHub yet.
+    type(field(), "Fix @");
+    await settle();
+    expect(options().at(-1)).toBe("GitHub issue or failed check");
+    expect(core.sent("pr.issues")).toHaveLength(0);
+    // Choosing it types @# and lists the branch's failed checks, then the issues.
+    target
+      .querySelectorAll<HTMLElement>("[data-testid=context-menu] [role=option]")
+      [options().length - 1]?.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, cancelable: true }));
+    await settleReads();
+    expect(options()).toEqual(["test", "#12", "#9"]);
+    expect(field()?.value).toBe("Fix @#");
+    // Typing filters them; Enter reads the issue and adds it.
+    type(field(), "Fix @#login");
+    await settle();
+    expect(options()).toEqual(["#12"]);
+    key("Enter");
+    await settleReads();
+    expect(chips()).toEqual(["#12"]);
+    expect(field()?.value).toBe("Fix #12 ");
+    // A failed check's log comes the same way.
+    type(field(), "Fix #12 and @#test");
+    await settleReads();
+    expect(options()[0]).toBe("test");
+    key("Enter");
+    await settleReads();
+    expect(chips()).toEqual(["#12", "test"]);
+    // What the box holds is not offered again; gh's error says what to do.
+    type(field(), "Fix @#");
+    await settleReads();
+    expect(options()).toEqual(["#9"]);
+    type(field(), "Fix ");
+    await settle();
+    core.failNext.set("pr.issues", new CoreError({ code: "unavailable", message: "Install GitHub CLI (gh)" }));
+    type(field(), "Fix @#");
+    await settleReads();
+    expect(target.querySelector("[data-testid=context-menu-empty]")?.textContent?.trim()).toBe(
+      "Install GitHub CLI (gh)",
+    );
+    // An issue that cannot be read adds no chip and gives the typed @# back.
+    type(field(), "Fix ");
+    await settle();
+    type(field(), "Fix @#9");
+    await settleReads();
+    core.failNext.set("pr.issue", new CoreError({ code: "unavailable", message: "gh issue view failed" }));
+    key("Enter");
+    await settleReads();
+    expect(field()?.value).toBe("Fix @#9");
+    expect(target.querySelector(".ctx-error")?.textContent).toBe("gh issue view failed");
+    expect(chips()).toEqual(["#12", "test"]);
+    type(field(), "Fix both");
+    key("Enter");
+    await settle();
+    expect(core.sent("agents.start")[0]?.params.context).toEqual([
+      {
+        kind: "issue",
+        number: 12,
+        title: "Login button does nothing",
+        url: "https://github.com/o/r/issues/12",
+        text: "Steps",
+        confirmed: false,
+      },
+      { kind: "check", pr: 7, name: "test", url: null, text: "error: 1 test failed", confirmed: false },
+    ]);
   });
 
   it("adds files dropped on the box or pasted into it as chips", async () => {

@@ -10,6 +10,7 @@ import { rank } from "../palette/fuzzy";
 import { recentFiles } from "../palette/recent-files.svelte";
 import { useOvra } from "../shell/context";
 import Icon from "../shell/Icon.svelte";
+import type { IconName } from "../shell/icons";
 import { attachFiles, copyDrop, dropZone, insidePaths, itemFor, pastedFiles, secretLooking } from "./attach";
 import {
   atQuery,
@@ -20,6 +21,7 @@ import {
   type Target,
   WARNINGS,
 } from "./context.svelte";
+import { type GitHubList, githubKey, githubRows, loadGitHub, offersGitHub } from "./github-context";
 import { hints } from "./hints.svelte";
 
 let {
@@ -53,7 +55,7 @@ let active = $state(0);
 let error = $state<string | null>(null);
 let files = $state<string[] | null>(null);
 /** The project's file list is on its way. */
-let loading = $state(false);
+let loadingFiles = $state(false);
 let place = $state({ left: 0, bottom: 0, width: 280 });
 
 function base(path: string): string {
@@ -83,6 +85,79 @@ const added = $derived(new Set(chips.map((chip) => JSON.stringify(chip.what))));
 function asFile(path: string): Suggestion {
   return { what: { kind: "file", path }, label: base(path), detail: path };
 }
+
+/**
+ * A row of the menu: an item to add (`what`), one read when chosen (`load`:
+ * a GitHub issue or check's log), or the entry to the GitHub rows (`github`).
+ */
+type Row = {
+  key: string;
+  label: string;
+  detail: string;
+  icon: IconName;
+  what?: ContextWhat;
+  load?: () => Promise<ContextWhat>;
+  github?: true;
+};
+
+/** `@#` lists GitHub's rows instead of the project's. */
+const inGitHub = $derived(at?.query.startsWith("#") ?? false);
+/** What `@#` read; null until asked, `error` when gh could not answer. */
+let gh = $state<{ list: GitHubList | null; error: string | null } | null>(null);
+/** Counts the reads of GitHub's rows, so only the latest one lands. */
+let ghReads = 0;
+
+// Read through the person's gh only once they typed `@#`, again for each menu.
+$effect(() => {
+  if (inGitHub && gh === null) {
+    gh = { list: null, error: null };
+    // A menu closed and opened again meanwhile reads anew: an older answer is dropped.
+    const read = ++ghReads;
+    const mine = () => gh !== null && read === ghReads;
+    void loadGitHub(transport, project).then(
+      (list) => {
+        if (mine()) gh = { list, error: null };
+      },
+      (err: unknown) => {
+        if (mine()) gh = { list: null, error: message(err) };
+      },
+    );
+  }
+});
+$effect(() => {
+  if (at === null) gh = null;
+});
+
+const GITHUB_ENTRY: Row = {
+  key: "github",
+  label: "GitHub issue or failed check",
+  detail: "@#",
+  icon: "issue",
+  github: true,
+};
+
+const rows = $derived.by((): Row[] => {
+  if (!at) return [];
+  if (inGitHub) {
+    const list = gh?.list;
+    if (!list) return [];
+    const taken = new Set(chips.map((chip) => githubKey(chip.what)));
+    return githubRows(transport, project, list, at.query.slice(1), MAX_ROWS + 4)
+      .filter((row) => !taken.has(row.key))
+      .slice(0, MAX_ROWS);
+  }
+  const plain: Row[] = options.map((s) => ({
+    key: `${s.what.kind} ${s.detail}`,
+    label: s.label,
+    detail: s.detail,
+    icon: describeItem(s.what).icon,
+    what: s.what,
+  }));
+  return offersGitHub(at.query) && !loadingFiles ? [...plain.slice(0, MAX_ROWS - 1), GITHUB_ENTRY] : plain;
+});
+
+/** The menu is waiting for files or GitHub: a key waits too. */
+const loading = $derived(inGitHub ? gh !== null && gh.list === null && gh.error === null : loadingFiles);
 
 const options = $derived.by((): Suggestion[] => {
   if (!at) return [];
@@ -117,15 +192,15 @@ let said = $state("");
 $effect(() => {
   if (at && files === null) {
     files = [];
-    loading = true;
+    loadingFiles = true;
     void projectFiles(transport, project).then(
       (list) => {
         files = list;
-        loading = false;
+        loadingFiles = false;
       },
       () => {
         files = null;
-        loading = false;
+        loadingFiles = false;
       },
     );
   }
@@ -140,7 +215,7 @@ $effect(() => {
   box.setAttribute("aria-autocomplete", "list");
   if (open) {
     box.setAttribute("aria-controls", `${id}-menu`);
-    if (options.length > 0) box.setAttribute("aria-activedescendant", `${id}-option-${active}`);
+    if (rows.length > 0) box.setAttribute("aria-activedescendant", `${id}-option-${active}`);
     else box.removeAttribute("aria-activedescendant");
   } else {
     box.removeAttribute("aria-controls");
@@ -353,16 +428,16 @@ export function keydown(event: KeyboardEvent): boolean {
     };
     switch (event.code) {
       case "ArrowDown":
-        if (options.length > 0) active = (active + 1) % options.length;
+        if (rows.length > 0) active = (active + 1) % rows.length;
         return take();
       case "ArrowUp":
-        if (options.length > 0) active = (active - 1 + options.length) % options.length;
+        if (rows.length > 0) active = (active - 1 + rows.length) % rows.length;
         return take();
       case "Enter":
       case "NumpadEnter":
       case "Tab": {
         if (event.shiftKey) return false;
-        const chosen = options[active];
+        const chosen = rows[active];
         // While files load, a key waits for them; with no match, Enter sends
         // the message as typed and Tab moves on.
         if (!chosen) return loading ? take() : false;
@@ -399,10 +474,20 @@ function sendAnyway(key: string): void {
 }
 
 /** Adds the chosen item as a chip; its name takes the typed `@query`'s place, so the sentence still reads. */
-function choose(option: Suggestion): void {
+function choose(option: Row): void {
   const typed = at;
   if (!typed) return;
   const rest = value.slice(typed.start + 1 + typed.query.length);
+  if (option.github) {
+    // The entry types `@#` for the person: the menu stays open on GitHub's rows.
+    value = `${value.slice(0, typed.start)}@#${rest}`;
+    const caret = typed.start + 2;
+    queueMicrotask(() => {
+      field?.setSelectionRange(caret, caret);
+      refresh();
+    });
+    return;
+  }
   const name = /^\s/.test(rest) ? option.label : `${option.label} `;
   value = value.slice(0, typed.start) + name + rest;
   at = null;
@@ -410,10 +495,23 @@ function choose(option: Suggestion): void {
   const box = field;
   const caret = typed.start + name.length;
   queueMicrotask(() => box?.setSelectionRange(caret, caret));
-  drafts.add(project, target, option.what).then(
+  const what = option.what;
+  const load = option.load;
+  if (load) said = `Reading ${option.label}…`;
+  const added = what
+    ? drafts.add(project, target, what)
+    : load
+      ? load().then((read) => drafts.add(project, target, read))
+      : null;
+  added?.then(
     () => (said = `Added ${option.label}`),
     (err: unknown) => {
-      error = err instanceof CoreError ? err.error.message : String(err);
+      error = message(err);
+      // An issue or log that could not be read leaves no chip: the typed
+      // `@#query` comes back, so "Fix #12" is not sent without the issue.
+      if (load && value.slice(typed.start, caret) === name) {
+        value = `${value.slice(0, typed.start)}@${typed.query}${value.slice(caret)}`;
+      }
     },
   );
 }
@@ -430,12 +528,16 @@ function choose(option: Suggestion): void {
     style:bottom="{place.bottom}px"
     style:width="{place.width}px"
   >
-    {#if options.length === 0}
-      <li class="none" role="option" aria-selected="false" aria-disabled="true">
-        {loading ? "Looking…" : "No matches"}
+    {#if rows.length === 0}
+      <li class="none" role="option" aria-selected="false" aria-disabled="true" data-testid="context-menu-empty">
+        {#if inGitHub}
+          {loading ? "Reading GitHub…" : (gh?.error ?? "No open issues or failed checks")}
+        {:else}
+          {loading ? "Looking…" : "No matches"}
+        {/if}
       </li>
     {/if}
-    {#each options as option, i (`${option.what.kind} ${option.detail}`)}
+    {#each rows as option, i (option.key)}
       <li
         id="{id}-option-{i}"
         role="option"
@@ -446,7 +548,7 @@ function choose(option: Suggestion): void {
         }}
         onpointermove={() => (active = i)}
       >
-        <Icon name={describeItem(option.what).icon} small />
+        <Icon name={option.icon} small />
         <span class="name">{option.label}</span>
         <span class="detail">{option.detail}</span>
       </li>

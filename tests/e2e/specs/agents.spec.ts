@@ -579,6 +579,11 @@ test("add a file with @ and send it with the task", async ({ page }) => {
   await page.keyboard.press("Enter");
   await expect(field).toHaveValue("Fix the typo in README.md ");
   await expect(page.getByTestId("context-chip")).toHaveText(/README\.md/);
+  // `@#` lists GitHub issues through the fake forge; the chosen one goes too.
+  await page.keyboard.type("and @#login");
+  await expect(page.getByTestId("context-menu").getByRole("option", { name: /#12/ })).toBeVisible();
+  await page.keyboard.press("Enter");
+  await expect(page.getByTestId("context-chip")).toHaveText([/README\.md/, /#12/]);
   await page.keyboard.press("Enter");
 
   // The agent gets the file's name after the task; the transcript folds it.
@@ -587,6 +592,7 @@ test("add a file with @ and send it with the task", async ({ page }) => {
   await expect(sent).toBeVisible();
   await sent.locator("summary").click();
   await expect(sent).toContainText("File: `README.md`");
+  await expect(sent).toContainText("GitHub issue #12");
   await session.getByRole("button", { name: "End task" }).click();
   await expect(session.getByRole("status")).toHaveText("Stopped");
 });

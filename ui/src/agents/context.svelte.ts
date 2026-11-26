@@ -96,6 +96,18 @@ export function describeItem(what: ContextWhat): Pick<Chip, "label" | "title" | 
       };
     case "page":
       return { label: "Screenshot", title: "What the page shows when you send", icon: "image" };
+    case "issue":
+      return {
+        label: `#${what.number}`,
+        title: `Issue #${what.number}: ${what.title}\n${what.url}\n${preview(what.text)}`,
+        icon: "issue",
+      };
+    case "check":
+      return {
+        label: what.name,
+        title: `Failed check ${what.name} of pull request #${what.pr}\n${preview(what.text.split("\n").slice(-6).join("\n"))}`,
+        icon: "error",
+      };
   }
 }
 

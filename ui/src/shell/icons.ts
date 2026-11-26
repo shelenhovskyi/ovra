@@ -103,7 +103,9 @@ export const ICONS = {
     '<rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/>',
   /** at-sign: add context to a task */
   at: '<circle cx="12" cy="12" r="4"/><path d="M16 8v5a3 3 0 0 0 6 0v-1a10 10 0 1 0-4 8"/>',
-  /** circle-x: an error in the Problems list */
+  /** circle-dot: a GitHub issue in the @ menu */
+  issue: '<circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="1"/>',
+  /** circle-x: an error in the Problems list, a failed CI check */
   error: '<circle cx="12" cy="12" r="10"/><path d="m15 9-6 6"/><path d="m9 9 6 6"/>',
   /** triangle-alert: a warning in the Problems list */
   warning:

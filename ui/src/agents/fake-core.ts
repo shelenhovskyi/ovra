@@ -11,9 +11,11 @@ import type {
   AgentSetup,
   AgentStatus,
   BoardEntry,
+  BranchPr,
   Checkpoint,
   ContextWarning,
   CoreEvent,
+  Issue,
   Leftover,
   PermissionRequest,
   Project,
@@ -110,6 +112,11 @@ export class FakeAgentCore implements Transport {
   noRepo = false;
   /** The project's files, for the @ menu (`fs.list_files`). */
   listed: string[] = [];
+  /** The repository's open issues (`pr.issues`, `pr.issue`). */
+  issues: Issue[] = [];
+  /** What `pr.branch_checks` answers; `pr.check_log` reads its failed runs' logs from `logs`. */
+  branchPr: BranchPr | null = null;
+  logs = new Map<number, string>();
   /** What `context.check` answers for an item's path or text. */
   contextNotes = new Map<string, ContextWarning>();
   /** What `agents.checkpoints` answers. */
@@ -351,6 +358,21 @@ export class FakeAgentCore implements Transport {
             }),
           },
         };
+      case "pr.issues":
+        return { type: "pr.issues", data: this.issues.map(({ number, title, url }) => ({ number, title, url })) };
+      case "pr.issue": {
+        const issue = this.issues.find((i) => i.number === request.params.number);
+        if (!issue) throw new CoreError({ code: "not_found", message: `issue ${request.params.number}` });
+        return { type: "pr.issue", data: issue };
+      }
+      case "pr.branch_checks":
+        return { type: "pr.branch_checks", data: this.branchPr };
+      case "pr.check_log": {
+        const check = this.branchPr?.failed.find((c) => c.run === request.params.run);
+        if (!check || !this.branchPr) throw new CoreError({ code: "not_found", message: "no such check" });
+        const text = this.logs.get(request.params.run) ?? "";
+        return { type: "pr.check_log", data: { pr: this.branchPr.number, name: check.name, url: check.url, text } };
+      }
       case "review.list":
         return { type: "review.list", data: this.reviews.filter((r) => r.project === request.params.project) };
       case "permissions.pending":
