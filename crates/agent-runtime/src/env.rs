@@ -167,7 +167,8 @@ mod tests {
         assert_eq!(kept, expected);
 
         let windows = include_str!("../../sandbox-windows/src/plan.rs");
-        for name in list(windows, "ENV_KEPT") {
+        let everyone = [list(windows, "ENV_PERSON"), list(windows, "ENV_TOOLS")];
+        for name in everyone.concat() {
             let found = super::kept(&CLAUDE_LISTS, true).any(|k| k == name);
             assert!(found, "{name} of the Windows sandbox is not kept");
         }

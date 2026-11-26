@@ -136,7 +136,7 @@ fn a_direct_session_behind_a_proxy() {
     root.dir("sys/bin");
     let profile = SandboxProfile {
         kind: ovra_core::services::ProfileKind::Agent,
-        agent_state: None,
+        agent_state: claude_state(None),
         project: None,
         work_env: None,
         work_dir: work.clone(),
@@ -167,7 +167,7 @@ fn a_worker_reads_its_git_folder() {
     let setup = root.setup(&["sys/bin"]);
     let profile = SandboxProfile {
         kind: ovra_core::services::ProfileKind::Agent,
-        agent_state: None,
+        agent_state: claude_state(None),
         project: None,
         work_env: None,
         work_dir: work.clone(),
@@ -192,7 +192,7 @@ fn a_read_only_folder_is_refused_until_it_can_be_kept_read_only() {
     let setup = root.setup(&["sys/bin"]);
     let profile = SandboxProfile {
         kind: ovra_core::services::ProfileKind::Agent,
-        agent_state: None,
+        agent_state: claude_state(None),
         work_dir: work.clone(),
         work_dir_read_only: true,
         read: Vec::new(),
@@ -216,7 +216,7 @@ fn folders_holding_the_home_folder_or_ovras_data_are_refused() {
     for work in [root.0.clone(), root.dir("home"), root.dir("home/.claude/x")] {
         let profile = SandboxProfile {
             kind: ovra_core::services::ProfileKind::Agent,
-            agent_state: None,
+            agent_state: claude_state(None),
             project: None,
             work_env: None,
             work_dir: work.clone(),
@@ -246,7 +246,7 @@ fn a_protected_path_that_is_a_link_refuses_the_session() {
     let setup = root.setup(&["sys/bin"]);
     let profile = SandboxProfile {
         kind: ovra_core::services::ProfileKind::Agent,
-        agent_state: None,
+        agent_state: claude_state(None),
         project: None,
         work_env: None,
         work_dir: work,
@@ -269,7 +269,7 @@ fn variable_names_match_without_case() {
     let setup = root.setup(&["sys/bin"]);
     let profile = SandboxProfile {
         kind: ovra_core::services::ProfileKind::Agent,
-        agent_state: None,
+        agent_state: claude_state(None),
         project: None,
         work_env: None,
         work_dir: work.clone(),
@@ -323,7 +323,7 @@ fn a_helper_installed_in_the_home_folder_can_be_started() {
     setup.helper = root.file("home/AppData/Local/Programs/Ovra/ovra.exe");
     let profile = SandboxProfile {
         kind: ovra_core::services::ProfileKind::Agent,
-        agent_state: None,
+        agent_state: claude_state(None),
         project: None,
         work_env: None,
         work_dir: work,
@@ -348,7 +348,7 @@ fn secret_folders_stay_hidden_whatever_the_case_of_their_name() {
     let setup = root.setup(&["home/.SSH/bin", "sys/bin"]);
     let profile = SandboxProfile {
         kind: ovra_core::services::ProfileKind::Agent,
-        agent_state: None,
+        agent_state: claude_state(None),
         project: None,
         work_env: None,
         work_dir: work,
@@ -364,7 +364,7 @@ fn secret_folders_stay_hidden_whatever_the_case_of_their_name() {
     let home_claude = root.dir("home/.Claude/x");
     let profile = SandboxProfile {
         kind: ovra_core::services::ProfileKind::Agent,
-        agent_state: None,
+        agent_state: claude_state(None),
         project: None,
         work_env: None,
         work_dir: home_claude,
@@ -386,7 +386,7 @@ fn server_pods_are_refused_and_forwards_left_out() {
     let setup = root.setup(&["sys/bin"]);
     let mut profile = SandboxProfile {
         kind: ovra_core::services::ProfileKind::Agent,
-        agent_state: None,
+        agent_state: claude_state(None),
         project: None,
         work_env: None,
         work_dir: work,
@@ -424,4 +424,39 @@ fn an_account_with_its_own_folder_is_refused() {
     };
     let err = Plan::new(&setup, &profile, &claude).unwrap_err();
     assert!(err.to_string().contains("account"), "{err}");
+}
+
+#[test]
+fn a_profile_without_agent_state_gets_none_of_claudes() {
+    let root = Root::new("stateless");
+    let work = root.dir("projects/app");
+    root.file("home/.claude/.credentials.json");
+    root.file("home/.claude.json");
+    let claude = root.file("sys/bin/claude.exe");
+    let setup = root.setup(&["sys/bin"]);
+    let profile = SandboxProfile {
+        kind: ovra_core::services::ProfileKind::Agent,
+        agent_state: None,
+        project: None,
+        work_env: None,
+        work_dir: work,
+        work_dir_read_only: false,
+        read: Vec::new(),
+        write: Vec::new(),
+        expose: Vec::new(),
+        forward: Vec::new(),
+        network: ProfileNetwork::Blocked,
+    };
+    let plan = Plan::new(&setup, &profile, &claude).unwrap();
+    let home = root.0.join("home");
+    let claudes = |p: &Path| p.starts_with(home.join(".claude")) || p == home.join(".claude.json");
+    assert!(!plan.grants.iter().any(|(p, _)| claudes(p)), "{plan:?}");
+    for name in [
+        "ANTHROPIC_API_KEY",
+        "CLAUDE_CODE_GIT_BASH_PATH",
+        "OVRA_FAKE_CLAUDE_FIXTURE",
+    ] {
+        assert!(!plan.kept.contains(&name), "{name}");
+    }
+    assert!(plan.kept.contains(&"SystemRoot"));
 }

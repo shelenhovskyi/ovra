@@ -7,17 +7,21 @@ use std::ffi::{OsStr, OsString};
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use ovra_core::services::{CommandLine, ProfileNetwork, Result, SandboxProfile};
+use ovra_core::protected::AGENT_STATE_IN_HOME;
+use ovra_core::services::{CommandLine, ProfileNetwork, ProviderLists, Result, SandboxProfile};
 
 use crate::{HELPER_FLAG, Setup, invalid};
 
-/// The variables a session keeps from Ovra's environment, as on Linux
-/// (`ENV_KEPT` in `sandbox-linux`), plus what Windows programs need to
-/// start. Whole names only, compared without case as Windows does: a
-/// prefix such as `CLAUDE_CODE_` would let `CLAUDE_CODE_OAUTH_TOKEN`
-/// through. `PATH`, `TEMP`, `TMP`, the proxy and cache variables are set
-/// by the plan itself.
-const ENV_KEPT: [&str; 52] = [
+/// The variables a session keeps from Ovra's environment besides its
+/// agent's own ([`ProviderLists::env`] and `windows_env`), as on Linux
+/// (`ENV_PERSON` and `ENV_TOOLS` in `sandbox-linux`), plus what Windows
+/// programs need to start. Whole names only, compared without case as
+/// Windows does: a prefix such as `CLAUDE_CODE_` would let
+/// `CLAUDE_CODE_OAUTH_TOKEN` through. `PATH`, `TEMP`, `TMP`, the proxy and
+/// cache variables are set by the plan itself. First the person's own and
+/// their terminal's, then ([`ENV_TOOLS`]) what their tools and Windows
+/// need.
+const ENV_PERSON: [&str; 9] = [
     "USERNAME",
     "LANG",
     "LANGUAGE",
@@ -27,26 +31,10 @@ const ENV_KEPT: [&str; 52] = [
     "TERM",
     "COLORTERM",
     "NO_COLOR",
-    // Where usage is billed, and the gateway it goes through.
-    "ANTHROPIC_API_KEY",
-    "ANTHROPIC_AUTH_TOKEN",
-    "ANTHROPIC_BASE_URL",
-    "ANTHROPIC_MODEL",
-    "ANTHROPIC_SMALL_FAST_MODEL",
-    // Cloud providers: which one, its region and project, never its keys.
-    "CLAUDE_CODE_USE_BEDROCK",
-    "CLAUDE_CODE_USE_VERTEX",
-    "CLAUDE_CODE_USE_FOUNDRY",
-    "ANTHROPIC_BEDROCK_BASE_URL",
-    "ANTHROPIC_VERTEX_BASE_URL",
-    "ANTHROPIC_VERTEX_PROJECT_ID",
-    "ANTHROPIC_FOUNDRY_RESOURCE",
-    "ANTHROPIC_FOUNDRY_BASE_URL",
-    "AWS_REGION",
-    "CLOUD_ML_REGION",
-    "GOOGLE_CLOUD_PROJECT",
-    // Where `claude` finds Git Bash.
-    "CLAUDE_CODE_GIT_BASH_PATH",
+];
+
+/// See [`ENV_PERSON`].
+const ENV_TOOLS: [&str; 25] = [
     // Certificate bundles, for networks that inspect TLS.
     "SSL_CERT_FILE",
     "NODE_EXTRA_CA_CERTS",
@@ -55,7 +43,7 @@ const ENV_KEPT: [&str; 52] = [
     "NVM_HOME",
     "NVM_SYMLINK",
     "GOPATH",
-    // Windows itself. `USERPROFILE` stays the person's, so `claude` finds
+    // Windows itself. `USERPROFILE` stays the person's, so the agent finds
     // its login there.
     "SystemRoot",
     "SystemDrive",
@@ -76,9 +64,6 @@ const ENV_KEPT: [&str; 52] = [
     "NUMBER_OF_PROCESSORS",
     "PROCESSOR_ARCHITECTURE",
     "OS",
-    // The recording Ovra's own stand-in for `claude` plays in e2e and UX
-    // runs.
-    "OVRA_FAKE_CLAUDE_FIXTURE",
 ];
 
 /// Where TLS clients look for a CA bundle: OpenSSL and rustls, Node,
@@ -102,29 +87,6 @@ const CACHES: [(&str, &str); 4] = [
     ("PIP_CACHE_DIR", "pip"),
     ("npm_config_store_dir", "pnpm"),
 ];
-
-/// Folders under `~/.claude` that `claude` writes during a session. On
-/// Windows they cannot be private to the session: the sandbox user writes
-/// the person's own. `shell-snapshots/` and `session-env/` are left out on
-/// purpose: the person's own sessions source them later, so an agent must
-/// not plant commands there (they stay read-only with `~/.claude`).
-const CLAUDE_WRITES: [&str; 11] = [
-    "backups",
-    "cache",
-    "debug",
-    "file-history",
-    "ide",
-    "logs",
-    "paste-cache",
-    "plans",
-    "sessions",
-    "statsig",
-    "todos",
-];
-
-/// Files `claude` rewrites: its login (the known limit in the spec) and its
-/// prompt history.
-const CLAUDE_FILES: [&str; 2] = [".credentials.json", "history.jsonl"];
 
 /// Files that stay readable from the home folder. Not all of
 /// `~/.config/git`: git's credential store keeps `credentials` there.
@@ -191,6 +153,8 @@ pub(crate) struct Plan {
     pub(crate) set: Vec<(OsString, Option<OsString>)>,
     /// The project's SID ([`project_sid`]).
     pub(crate) sid: String,
+    /// The variables the session keeps from Ovra's environment.
+    pub(crate) kept: Vec<&'static str>,
 }
 
 impl Plan {
@@ -214,15 +178,15 @@ impl Plan {
                 "the Windows sandbox cannot keep a folder read-only yet, so research agents cannot run in it",
             ));
         }
-        // It would show `~/.claude` instead of the account's folder.
-        if profile
-            .agent_state
-            .as_ref()
-            .is_some_and(|state| state.config_dir.is_some())
+        // It would show the default folder instead of the account's.
+        let lists = profile.agent_state.as_ref().map(|state| state.lists);
+        if let Some(state) = &profile.agent_state
+            && state.config_dir.is_some()
         {
-            return Err(invalid(
-                "the Windows sandbox cannot run a Claude account with its own folder yet; use the default account",
-            ));
+            return Err(invalid(format!(
+                "the Windows sandbox cannot run a {} account with its own folder yet; use the default account",
+                state.lists.name
+            )));
         }
         let mut plan = Self {
             grants: Vec::new(),
@@ -230,8 +194,8 @@ impl Plan {
             path: OsString::new(),
             set: Vec::new(),
             sid: project_sid(&work_dir),
+            kept: env_kept(lists),
         };
-        let claude = (home.join(".claude"), home.join(".claude.json"));
         let data = real(&setup.data_dir).unwrap_or_else(|_| setup.data_dir.clone());
         for path in std::iter::once(&profile.work_dir)
             .chain(&profile.read)
@@ -247,9 +211,12 @@ impl Plan {
         }
         for path in std::iter::once(&profile.work_dir).chain(&profile.write) {
             let path = real(path).unwrap_or_else(|_| path.clone());
-            if within(&path, &claude.0) || within(&path, &claude.1) {
+            if AGENT_STATE_IN_HOME
+                .iter()
+                .any(|name| within(&path, &home.join(name)))
+            {
                 return Err(invalid(format!(
-                    "the sandbox does not let an agent write {}: it holds claude's settings",
+                    "the sandbox does not let an agent write {}: it holds an agent's own settings",
                     path.display()
                 )));
             }
@@ -263,7 +230,9 @@ impl Plan {
                 plan.grant(read, Right::Read);
             }
         }
-        plan.claude_state(&home, &work_dir);
+        if let Some(lists) = lists {
+            plan.agent_state(lists, &home, &work_dir);
+        }
         plan.program(&home, program);
         // The sandbox user starts the helper too.
         plan.program(&home, &setup.helper);
@@ -301,45 +270,48 @@ impl Plan {
         self.grants.push((path, right));
     }
 
-    /// What `claude` reads and writes of its own in the home folder.
-    fn claude_state(&mut self, home: &Path, work_dir: &Path) {
-        let claude = home.join(".claude");
-        let _ = fs::create_dir_all(&claude);
-        let Ok(claude) = real(&claude).map(|c| c.starts_with(home).then_some(c)) else {
+    /// What the agent (`lists`) reads and writes of its own in the home
+    /// folder, and the git settings there. On Windows the folders it writes
+    /// cannot be private to the session: the sandbox user writes the
+    /// person's own, so only `lists.in_place` are writable.
+    fn agent_state(&mut self, lists: &ProviderLists, home: &Path, work_dir: &Path) {
+        let config = home.join(lists.home_dir);
+        let _ = fs::create_dir_all(&config);
+        let Ok(config) = real(&config).map(|c| c.starts_with(home).then_some(c)) else {
             return;
         };
-        let Some(claude) = claude else { return };
-        self.grant(claude.clone(), Right::Read);
-        for dir in CLAUDE_WRITES {
-            let dir = claude.join(dir);
+        let Some(config) = config else { return };
+        self.grant(config.clone(), Right::Read);
+        for dir in lists.in_place {
+            let dir = config.join(dir);
             if fs::create_dir_all(&dir).is_ok()
                 && let Ok(dir) = real(&dir)
-                && dir.starts_with(&claude)
+                && dir.starts_with(&config)
             {
                 self.grant(dir, Right::Modify);
             }
         }
         // The transcripts of this folder's sessions, which a resume reads;
-        // their `memory/` loads into every later session there, the
-        // person's own too, so it stays read-only like `CLAUDE.md`.
-        let transcripts = claude.join("projects").join(project_key(work_dir));
-        if fs::create_dir_all(transcripts.join("memory")).is_ok()
+        // their memory loads into every later session there, the person's
+        // own too, so it stays read-only like a rules file.
+        let transcripts = config.join(lists.projects).join(project_key(work_dir));
+        if fs::create_dir_all(transcripts.join(lists.project_memory)).is_ok()
             && let Ok(transcripts) = real(&transcripts)
-            && transcripts.starts_with(&claude)
+            && transcripts.starts_with(&config)
         {
             self.grant(transcripts.clone(), Right::Modify);
-            self.denied.push(transcripts.join("memory"));
+            self.denied.push(transcripts.join(lists.project_memory));
         }
-        for file in CLAUDE_FILES {
-            let file = claude.join(file);
-            if file.ends_with("history.jsonl") {
+        for name in lists.files {
+            let file = config.join(name);
+            if lists.files_made.contains(name) {
                 let _ = fs::OpenOptions::new().create(true).append(true).open(&file);
             }
             if fs::symlink_metadata(&file).is_ok_and(|m| m.is_file()) {
                 self.grant(file, Right::Modify);
             }
         }
-        let state = home.join(".claude.json");
+        let state = home.join(lists.state_file);
         if fs::symlink_metadata(&state).is_ok_and(|m| m.is_file()) {
             self.grant(state, Right::Modify);
         }
@@ -448,14 +420,14 @@ impl Plan {
         env.extend(self.set.iter().cloned());
         env.push(("PATH".into(), Some(self.path.clone())));
         for name in outer_env {
-            let kept = ENV_KEPT.iter().any(|k| same_name(name, k));
+            let kept = self.kept.iter().any(|k| same_name(name, k));
             if !kept && !env.iter().any(|(n, _)| same_name(n, name)) {
                 env.push((name.clone(), None));
             }
         }
         // The helper passes on only these, whatever its own environment
         // gains later.
-        let mut kept: Vec<OsString> = ENV_KEPT.iter().map(OsString::from).collect();
+        let mut kept: Vec<OsString> = self.kept.iter().map(OsString::from).collect();
         for (name, value) in &env {
             if value.is_some() && !kept.iter().any(|k| same_name(k, name)) {
                 kept.push(name.clone());
@@ -477,6 +449,22 @@ impl Plan {
             cwd: line.cwd,
         }
     }
+}
+
+/// The variables a session of the agent `lists` describes keeps: its own
+/// among everyone's; without an agent only everyone's.
+fn env_kept(lists: Option<&'static ProviderLists>) -> Vec<&'static str> {
+    ENV_PERSON
+        .iter()
+        .chain(
+            lists
+                .into_iter()
+                .flat_map(|l| l.env.iter().chain(l.windows_env)),
+        )
+        .chain(&ENV_TOOLS)
+        .chain(lists.map(|l| &l.fixture_var))
+        .copied()
+        .collect()
 }
 
 /// Whether `path` is `base` or inside it, ignoring case as Windows does:
