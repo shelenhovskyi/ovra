@@ -67,8 +67,11 @@ macOS sandbox (see "Open question").
    the mode too.
 4. **Descriptors.** In `ovra-acp-client`, as data:
    - Gemini: program `gemini`, args `--acp`, home folder `.gemini`
-     (read-only, with `tmp/` and `history/` private to the session, and
-     its sign-in files rewritable for token refresh), variables
+     (read-only, with `tmp/`, `history/`, `projects.json` and the MCP
+     servers' OAuth tokens, `mcp-oauth-tokens.json` and
+     `mcp-oauth-tokens-v2.json`, private to the session, and its sign-in
+     files rewritable for token refresh), variables `GEMINI_API_KEY`,
+     `GOOGLE_API_KEY`, `GEMINI_MODEL`, `GOOGLE_GEMINI_BASE_URL`,
      `GOOGLE_CLOUD_PROJECT`, `GOOGLE_CLOUD_LOCATION`,
      `GOOGLE_GENAI_USE_VERTEXAI`, `GOOGLE_GENAI_USE_GCA`, hosts
      `generativelanguage.googleapis.com`, `cloudcode-pa.googleapis.com`,
@@ -80,12 +83,19 @@ macOS sandbox (see "Open question").
      the agent adds lost with the session. A bare program name is looked
      up on the login shell's `PATH` before the sandbox wraps it.
    - Codex: program `codex-acp`, no args, home folder `.codex` with
-     `sessions/`, `log/` and `tmp/` private and `auth.json` rewritable,
-     no variables, hosts `api.openai.com`, `chatgpt.com`, `auth.openai.com`.
-     Like Claude's, API key variables are never passed into the sandbox; the
-     person signs in through the vendor's flow. The netproxy gets each
-     provider's base list, so a Gemini session cannot reach Anthropic or
-     OpenAI.
+     `sessions/`, `log/`, `tmp/`, `shell_snapshots/`, its databases, its
+     prompt history `history.jsonl` (one file for every project) and the
+     MCP servers' OAuth tokens `.credentials.json` private, and `auth.json`
+     rewritable, variables `OPENAI_API_KEY`, `CODEX_API_KEY`,
+     `OPENAI_BASE_URL`, hosts `api.openai.com`, `chatgpt.com`,
+     `auth.openai.com`.
+   - The API key variables are passed into the sandbox, as Claude's
+     `ANTHROPIC_API_KEY` is: each is the person's own key for that
+     agent, which it signs in with when the person chose a key over the
+     vendor's login, and its usage is billed to that key's account. Each
+     session gets only its own provider's variables, never another
+     provider's key or any other secret. The netproxy gets each provider's
+     base list, so a Gemini session cannot reach Anthropic or OpenAI.
 5. **Setup and sign-in.** `setup` runs `<program> --version` outside the
    sandbox and reports `NotFound`, `Broken` or `Ready`. Sign-in is learned
    from the agent: a `session/new` error that says it needs a login ends
