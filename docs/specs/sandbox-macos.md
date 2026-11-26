@@ -27,8 +27,8 @@ must do) and ADR 0011 (`ProviderLists`).
 - **Reading.** Everything outside the hidden folders: the home folder,
   Ovra's data folder, the temporary folder (every session's netproxy
   socket), `/private/tmp`, `/private/var/tmp`, `/private/var/folders`,
-  `/Volumes` and `/System/Volumes/Data` (the data volume under its own
-  name). Given back: the work dir, the profile's `read` and `write`, the
+  `/Volumes`, `/System/Volumes/Data` (the data volume under its own
+  name) and `/.vol` (files by volume and inode number). Given back: the work dir, the profile's `read` and `write`, the
   agent's state (below), git's settings in the home folder, toolchain
   homes and `PATH` folders under the home folder (a toolchain's `bin`
   brings the toolchain), the program's own folder, the CA bundle.
@@ -39,7 +39,8 @@ must do) and ADR 0011 (`ProviderLists`).
   file exists, its size) is readable everywhere, because tools resolve
   every folder of a path.
 - **Writing.** The work dir (unless research), the profile's `write`, the
-  project's own package caches and temporary folder in Ovra's data folder
+  project's own package caches and the work dir's own temporary folder in
+  Ovra's data folder
   (`CARGO_HOME`, `npm_config_cache`, `PIP_CACHE_DIR`,
   `npm_config_store_dir` and `TMPDIR` point at them, as on Windows), and
   the agent's state. Never: the protected paths of `ovra-sandbox` (`**/`
@@ -70,6 +71,10 @@ must do) and ADR 0011 (`ProviderLists`).
   preferences (read only), logging, notifications, certificate checks and
   the keychain, which `claude` keeps its login in. No Launch Services and
   no `launchd` jobs, which would start programs outside the sandbox.
+  `git-credential-osxkeychain` may not run, and git's `credential.helper`
+  is emptied (`GIT_CONFIG_COUNT`), so git does not hand an agent the
+  person's GitHub login from the keychain. Terminals: `/dev/tty` and
+  ptys the sandbox opened itself, never the person's other terminals.
 - **Environment.** The same allowlist as on Linux; the helper starts
   `sandbox-exec` with only the kept names.
 - **Language servers** (`wrap_server`): the project read-only, the
@@ -85,13 +90,18 @@ must do) and ADR 0011 (`ProviderLists`).
 
 Sessions report these (`GAPS` in `src/lib.rs`):
 
-- keychain items command-line tools may read: `security
-  find-generic-password` answers for any item whose access list trusts
-  `/usr/bin/security`;
+- the keychain: `security find-generic-password` answers for any item
+  whose access list trusts `/usr/bin/security`, among them the `gh` login
+  (`gh:github.com`), and items can be added, changed and deleted. `claude`
+  needs `security` for its own login, so a profile rule cannot close it;
+  the owner must accept this before the sandbox is turned on;
+- other apps' preferences, read through `cfprefsd` (`defaults read`);
 - whether a file exists, and its size, anywhere on the Mac;
 - the session's proxy port, for other users of this Mac;
 - processes an agent leaves running after its session (no PID namespace;
-  they stay sandboxed, without network once the bridge stops);
+  they stay sandboxed and may reach a later bridge that gets the same
+  port);
+- a dev build of Ovra inside a writable work dir (as on Linux);
 - git config values that name project files (as on Linux);
 - the agent's session folders in its settings (`todos`, `logs`, ...) are
   the person's own, not private to the session (as on Windows).
@@ -124,11 +134,14 @@ must happen.
 6. In the work dir: editing a source file works; `echo x >> .git/config`,
    `touch .git/hooks/pre-commit`, `touch .GIT/hooks/x`, `mkdir -p
    sub/.git`, `echo x > sub/CLAUDE.md`, `echo x > .claude/settings.json`,
-   `mkdir .claude` (when missing), `mv .git g`, `rm -rf .vscode`: all
+   `mkdir .claude` (when missing), `mv .git g`, `rm -rf .vscode`, and
+   `mkdir .vſcode` (long s; does `ls -d .vscode` then show it?): all
    refused.
-7. Hard links: `ln .git/config x && echo pwn >> x` is refused, or
-   `.git/config` is unchanged afterwards. If the link works and the write
-   lands, the sandbox must stay off until a `file-link` rule closes it.
+7. Hard links and clones: `ln .git/config x && echo pwn >> x` is
+   refused, or `.git/config` is unchanged afterwards; `ln ~/.ssh/id_* x &&
+   cat x`, `cp -c ~/.ssh/id_* x` and `cat /.vol/<dev>/<inode>` (from
+   `stat -f '%d %i'`) are refused. If a link or clone works, the sandbox
+   must stay off until a `file-link` rule closes it.
 8. A protected name that is a link (`.claude -> notes`): writing through it
    is refused.
 9. Writing `~/.claude/settings.json`, `~/.claude/agents/x.md`,
@@ -145,17 +158,22 @@ must happen.
     "id"'`, `launchctl submit -l x -- /usr/bin/touch /tmp/x`: none starts
     anything.
 13. `defaults write com.apple.Terminal x 1`: refused.
-14. `env` shows none of `GITHUB_TOKEN`, `SSH_AUTH_SOCK`,
+14. `printf 'protocol=https\nhost=github.com\n\n' | git credential fill`
+    and `.../git-credential-osxkeychain get` give no token; `security
+    find-generic-password -s gh:github.com -w` is the known gap (write
+    down whether it answers). `cat /dev/ttys000` with another Terminal
+    open is refused; `defaults read com.apple.Terminal` is the known gap.
+15. `env` shows none of `GITHUB_TOKEN`, `SSH_AUTH_SOCK`,
     `CLAUDE_CODE_OAUTH_TOKEN`; `HTTPS_PROXY` names the bridge.
-15. Builds work through the netproxy: `cargo build` of a crate with one
+16. Builds work through the netproxy: `cargo build` of a crate with one
     dependency, `npm install` of one package, `git fetch` over HTTPS.
-16. Stopping the session in Ovra ends `claude`; the bridge process is gone
+17. Stopping the session in Ovra ends `claude`; the bridge process is gone
     within a second.
-17. A research session cannot write its folder; a worker cannot write the
+18. A research session cannot write its folder; a worker cannot write the
     main checkout or `git commit`.
-18. A language server starts (rust-analyzer or the TypeScript server),
+19. A language server starts (rust-analyzer or the TypeScript server),
     reads the project and cannot write it.
-19. The attack tests in `tests/security` that are not Linux-only pass.
+20. The attack tests in `tests/security` that are not Linux-only pass.
 
 Record each result in the commit that turns it on. A step that fails is a
 bug in `ovra-sandbox-macos`, not a gap to add, unless the owner says so.
