@@ -27,8 +27,10 @@ pub(crate) fn allows(request: &Request) -> bool {
             | ProjectsRequest::SetState { .. } => false,
         },
         Request::Agents(r) => match r {
+            // A phone sends plain text; context items (selections, terminal
+            // text, confirmed secrets) are attached only on the computer.
+            AgentsRequest::Send { context, .. } => context.is_empty(),
             AgentsRequest::List { .. }
-            | AgentsRequest::Send { .. }
             | AgentsRequest::Interrupt { .. }
             | AgentsRequest::Stop { .. }
             | AgentsRequest::Transcript { .. }

@@ -48,6 +48,10 @@ fn a_phone_reads_answers_replies_and_stops_but_changes_nothing_else() {
         json!({"method": "agents.start", "params": {
             "project": "p1", "agent": "claude", "mode": "direct", "prompt": "x"}}),
         json!({"method": "agents.resume", "params": {"session": "s1", "prompt": "x"}}),
+        json!({"method": "agents.send", "params": {"session": "s1", "text": "go on",
+            "context": [{"kind": "terminal", "title": "zsh", "text": "x", "confirmed": true}]}}),
+        json!({"method": "agents.send", "params": {"session": "s1", "text": "go on",
+            "context": [{"kind": "file", "path": ".env", "confirmed": true}]}}),
         json!({"method": "agents.set_limit", "params": {"limit": 8}}),
         json!({"method": "projects.add", "params": {"root": "/"}}),
         json!({"method": "projects.trust", "params": {"id": "p1", "trusted": true}}),
