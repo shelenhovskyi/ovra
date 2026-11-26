@@ -1,0 +1,44 @@
+/* The phone app: Ovra's tokens (shell/theme.css) at phone sizes. Text is 16 px
+   so iOS does not zoom into fields; every target is at least 44 px tall. */
+html,
+body {
+  overflow: auto;
+  background: var(--s1);
+  font: 400 16px / 22px var(--font);
+  -webkit-text-size-adjust: 100%;
+}
+#app {
+  height: auto;
+  min-height: 100%;
+}
+:where(button, summary, a.row) {
+  min-height: 44px;
+}
+:where(button) {
+  font: 600 16px / 22px var(--font);
+  border-radius: var(--r-lg);
+  padding: 0 var(--sp-4);
+  border: 1px solid var(--separator);
+  background: var(--s3);
+  color: var(--text);
+}
+:where(button.primary) {
+  background: var(--accent);
+  border-color: transparent;
+  color: var(--accent-ink);
+}
+:where(button.danger) {
+  color: var(--danger);
+}
+:where(button[aria-disabled="true"], button:disabled) {
+  opacity: 0.5;
+}
+:where(input[type="text"], textarea) {
+  font: 400 16px / 22px var(--font);
+  width: 100%;
+  padding: var(--sp-3);
+  border-radius: var(--r-lg);
+  border: 1px solid var(--separator);
+  background: var(--s2);
+  color: var(--text);
+}
