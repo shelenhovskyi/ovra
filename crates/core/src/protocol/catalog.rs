@@ -9,6 +9,7 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 
 use super::agents::AgentKind;
+use super::netproxy::AllowedHost;
 use super::projects::ProjectId;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -121,7 +122,7 @@ pub struct ServerPin {
     /// Tools the person turned off.
     pub tools_off: Vec<String>,
     /// The host Ovra added to the allowlist for it, removed with it.
-    pub added_host: Option<String>,
+    pub added_host: Option<AllowedHost>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]

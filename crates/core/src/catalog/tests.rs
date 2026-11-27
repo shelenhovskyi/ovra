@@ -294,42 +294,173 @@ async fn a_server_is_off_until_the_person_turns_it_on_and_pinned_as_it_was() {
 
 #[tokio::test]
 async fn an_https_server_puts_its_host_on_the_allowlist_while_it_is_on() {
-    let (core, project, _) = fixture_fs(&[(".mcp.json", SERVERS)]).await;
+    let (core, project, fs) = fixture_fs(&[(".mcp.json", SERVERS)]).await;
     let hosts = || {
         core.project_store()
             .allowlist(&project)
             .unwrap_or_default()
             .hosts
     };
-    set(&core, server("docs", true, &project))
-        .await
-        .unwrap_or_else(|e| panic!("{e:?}"));
-    assert_eq!(
-        hosts(),
-        [AllowedHost {
-            host: "docs.example".into(),
-            port: Some(8443)
-        }]
-    );
-    set(&core, server("docs", false, &project))
-        .await
-        .unwrap_or_else(|e| panic!("{e:?}"));
+    let at = |host: &str, port: Option<u16>| AllowedHost {
+        host: host.into(),
+        port,
+    };
+    let turn = |name: &'static str, on: bool| {
+        let core = &core;
+        let request = server(name, on, &project);
+        async move {
+            set(core, request)
+                .await
+                .unwrap_or_else(|e| panic!("{name}: {e:?}"));
+        }
+    };
+    turn("docs", true).await;
+    assert_eq!(hosts(), [at("docs.example", Some(8443))]);
+    turn("docs", false).await;
     assert_eq!(hosts(), []);
-    // A host the person listed themselves stays when the server goes.
+
+    // The person's own entry for the host on other ports stays.
     let mine = Allowlist {
-        hosts: vec![AllowedHost {
-            host: "docs.example".into(),
-            port: None,
-        }],
+        hosts: vec![at("docs.example", None)],
     };
     core.project_store()
         .set_allowlist(&project, &mine)
         .unwrap_or_else(|e| panic!("{e:?}"));
-    set(&core, server("docs", true, &project))
-        .await
-        .unwrap_or_else(|e| panic!("{e:?}"));
-    set(&core, server("docs", false, &project))
-        .await
-        .unwrap_or_else(|e| panic!("{e:?}"));
+    turn("docs", true).await;
+    assert_eq!(
+        hosts(),
+        [at("docs.example", None), at("docs.example", Some(8443))]
+    );
+    turn("docs", false).await;
     assert_eq!(hosts(), mine.hosts);
+    core.project_store()
+        .set_allowlist(&project, &Allowlist::default())
+        .unwrap_or_else(|e| panic!("{e:?}"));
+
+    // Two servers on one host: it stays until the last one goes.
+    let two = SERVERS.replace(
+        r#""plain""#,
+        r#""docs2": {"type": "sse", "url": "https://docs.example:8443/sse"}, "plain""#,
+    );
+    fs.put(Path::new(ROOT), ".mcp.json", &two);
+    turn("docs", true).await;
+    turn("docs2", true).await;
+    turn("docs", false).await;
+    assert_eq!(hosts(), [at("docs.example", Some(8443))]);
+    turn("docs2", false).await;
+    assert_eq!(hosts(), []);
+
+    // A new url turned on again swaps the host Ovra added.
+    turn("docs", true).await;
+    fs.put(
+        Path::new(ROOT),
+        ".mcp.json",
+        &two.replace("Docs.Example:8443/mcp", "api.example/mcp"),
+    );
+    turn("docs", true).await;
+    assert_eq!(hosts(), [at("api.example", None)]);
+    turn("docs", false).await;
+    assert_eq!(hosts(), []);
+
+    // A command with a url reaches nothing: no host, and none shown.
+    fs.put(
+        Path::new(ROOT),
+        ".mcp.json",
+        r#"{"mcpServers": {"db": {"command": "npx", "url": "https://evil.example"}}}"#,
+    );
+    turn("db", true).await;
+    assert_eq!(hosts(), []);
+    let shown = uses(&core, &project).await;
+    assert_eq!(shown[0].1.as_ref().map(|u| u.host.clone()), Some(None));
+}
+
+#[test]
+fn names_kinds_and_urls_ovra_refuses() {
+    use serde_json::json;
+    let stdio = json!({"command": "x"});
+    for name in [
+        "ovra", "Ovra", "ovra_", "ovra__x", "ovrax", "a__b", "a b", "", "é",
+    ] {
+        assert!(servers::blocked(name, &stdio).is_some(), "{name}");
+    }
+    for name in ["db", "my-docs", "a_b", "x1"] {
+        assert_eq!(servers::blocked(name, &stdio), None, "{name}");
+    }
+    for definition in [
+        json!({"type": "sdk", "name": "x"}),
+        json!({"type": 7, "command": "x"}),
+        json!({"type": "ws", "url": "https://a.example"}),
+        json!({"command": " "}),
+        json!({"type": "http"}),
+        json!({"command": "x", "disabled": true}),
+        json!({"command": "x", "enabled": false}),
+        json!({"command": "x", "args": ["${HOME}/x"]}),
+        json!("x"),
+    ] {
+        assert!(servers::blocked("s", &definition).is_some(), "{definition}");
+    }
+    let host = |url: &str| servers::host(url).map(|h| (h.host, h.port));
+    assert_eq!(
+        host("https://Docs.Example./mcp"),
+        Ok(("docs.example".into(), None))
+    );
+    assert_eq!(
+        host("https://docs.example:443"),
+        Ok(("docs.example".into(), None))
+    );
+    assert_eq!(
+        host("https://docs.example:8443?x"),
+        Ok(("docs.example".into(), Some(8443)))
+    );
+    assert_eq!(
+        host("https://[2606:4700::1111]:8443/x"),
+        Ok(("2606:4700::1111".into(), Some(8443)))
+    );
+    for url in [
+        "http://docs.example",
+        "HTTPS://docs.example",
+        "https:///evil",
+        "https://a@b.example",
+        "https://a.example\\@b.example",
+        "https://docs.example:x",
+        "https://docs.example:",
+        "https://docs.example:99999",
+        "https://[::1]",
+        "https://10.0.0.1",
+        "https://127.0.0.1:8443",
+        "https://*.example",
+        "ftp://docs.example",
+    ] {
+        assert!(host(url).is_err(), "{url}");
+    }
+}
+
+#[tokio::test]
+async fn only_tools_a_session_listed_can_be_turned_off() {
+    let (core, project, _) = fixture_fs(&[(".mcp.json", SERVERS)]).await;
+    set(&core, server("db", true, &project))
+        .await
+        .unwrap_or_else(|e| panic!("{e:?}"));
+    let listed = [
+        "mcp__db__query",
+        "mcp__db__a b",
+        "mcp__db__x,y",
+        "mcp__db__",
+        "mcp__dbx__z",
+    ]
+    .map(String::from);
+    servers::tools_listed(&core, &project, &listed);
+    let pins = core.project_store().servers(&project).unwrap_or_default();
+    assert_eq!(pins.servers["db"].tools, ["query"]);
+    let unknown = set(
+        &core,
+        CatalogRequest::SetTool {
+            project: project.clone(),
+            server: "db".into(),
+            tool: "a b".into(),
+            on: false,
+        },
+    )
+    .await;
+    assert_eq!(unknown.map_err(|e| e.code), Err(ErrorCode::NotFound));
 }

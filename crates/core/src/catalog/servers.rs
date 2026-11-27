@@ -7,6 +7,7 @@
 //! server's host goes on the project's netproxy allowlist while it is on.
 
 use std::path::PathBuf;
+use std::sync::{Mutex, MutexGuard, PoisonError};
 
 use serde_json::{Map, Value};
 
@@ -26,6 +27,14 @@ const IDE_SERVER: &str = "ovra";
 const MAX_NAME: usize = 64;
 /// Tools kept per server.
 const MAX_TOOLS: usize = 200;
+
+/// Held while the stored pins are read, changed and written back, so a
+/// session listing its tools cannot undo a tool the person turned off.
+static PINS: Mutex<()> = Mutex::new(());
+
+fn pins_held() -> MutexGuard<'static, ()> {
+    PINS.lock().unwrap_or_else(PoisonError::into_inner)
+}
 
 /// The `mcpServers` of the project's `.mcp.json`; empty when it has none
 /// or cannot be read.
@@ -55,16 +64,15 @@ fn compact(definition: &Value) -> String {
 
 /// Why Ovra does not give this server to agents, in words; `None` if it can.
 pub(crate) fn blocked(name: &str, definition: &Value) -> Option<String> {
-    let plain = !name.is_empty()
-        && name.len() <= MAX_NAME
-        && name
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_');
-    if !plain {
-        return Some("Ovra gives agents only servers named with letters, digits, - and _.".into());
+    // `__` separates the server from the tool in `mcp__<server>__<tool>`.
+    if !plain(name) || name.len() > MAX_NAME || name.contains("__") {
+        return Some(
+            "Ovra gives agents only servers named with letters, digits, - and single _.".into(),
+        );
     }
-    if name == IDE_SERVER {
-        return Some("This name is taken by Ovra's own tools.".into());
+    // Its tools would look like Ovra's own (`mcp__ovra__...`).
+    if name.to_ascii_lowercase().starts_with(IDE_SERVER) {
+        return Some("Names that start with ovra are kept for Ovra's own tools.".into());
     }
     let Some(server) = definition.as_object() else {
         return Some("Not a server definition.".into());
@@ -82,20 +90,53 @@ pub(crate) fn blocked(name: &str, definition: &Value) -> Option<String> {
         ));
     }
     let text = |key: &str| server.get(key).and_then(Value::as_str);
-    let kind = text("type").unwrap_or(if server.contains_key("command") {
-        "stdio"
-    } else {
-        "http"
-    });
-    match kind {
-        "stdio" if text("command").is_some_and(|c| !c.trim().is_empty()) => None,
-        "http" | "sse" => match text("url").map(host) {
+    match kind(definition) {
+        Some(Kind::Stdio) if text("command").is_some_and(|c| !c.trim().is_empty()) => None,
+        Some(Kind::Remote) => match text("url").map(host) {
             Some(Ok(_)) => None,
             Some(Err(why)) => Some(why.into()),
             None => Some("Has no url.".into()),
         },
         _ => Some("Ovra cannot run this kind of server.".into()),
     }
+}
+
+/// Letters, digits, `-` and `_`, and something.
+fn plain(name: &str) -> bool {
+    !name.is_empty()
+        && name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum Kind {
+    /// A command Claude starts inside the session's sandbox.
+    Stdio,
+    /// An `http` or `sse` server Claude reaches at its `url`.
+    Remote,
+}
+
+/// How Claude reaches the server, as it reads `type`: stdio without one
+/// when there is a `command`, else `http`. `None` for any other kind.
+fn kind(definition: &Value) -> Option<Kind> {
+    let server = definition.as_object()?;
+    match server.get("type") {
+        None if server.contains_key("command") => Some(Kind::Stdio),
+        None => Some(Kind::Remote),
+        Some(Value::String(t)) if t == "stdio" => Some(Kind::Stdio),
+        Some(Value::String(t)) if t == "http" || t == "sse" => Some(Kind::Remote),
+        Some(_) => None,
+    }
+}
+
+/// The host a remote server reaches, as the allowlist keeps it; none for
+/// a stdio server, whatever else its definition says.
+fn server_host(definition: &Value) -> Option<AllowedHost> {
+    if kind(definition) != Some(Kind::Remote) {
+        return None;
+    }
+    host(definition.get("url")?.as_str()?).ok()
 }
 
 /// The names in `${NAME}` and `${NAME:-default}`, in order, once each.
@@ -119,7 +160,7 @@ fn variables(text: &str) -> Vec<String> {
 }
 
 /// An HTTPS URL's host and port as the allowlist keeps them.
-fn host(url: &str) -> Result<AllowedHost, &'static str> {
+pub(super) fn host(url: &str) -> Result<AllowedHost, &'static str> {
     let rest = url
         .trim()
         .strip_prefix("https://")
@@ -159,11 +200,10 @@ pub(crate) fn server_use(name: &str, definition: &Value, pins: &ServerPins) -> S
     ServerUse {
         on: same && blocked.is_none(),
         changed: pin.is_some() && !same,
-        host: definition
-            .get("url")
-            .and_then(Value::as_str)
-            .and_then(|u| host(u).ok())
-            .map(|h| h.host),
+        host: server_host(definition).map(|h| match h.port {
+            Some(port) => format!("{}:{port}", h.host),
+            None => h.host,
+        }),
         blocked,
         tools: pin
             .filter(|_| same)
@@ -207,58 +247,87 @@ pub(crate) async fn for_session(core: &Core, project: &ProjectId) -> Vec<Project
         .collect()
 }
 
+/// Turns the server `name` on or off. On pins its definition and puts its
+/// host on the allowlist unless the list has it already; the host Ovra
+/// added comes off again with the server, unless another turned-on server
+/// still reaches it, which then keeps it.
 pub(crate) async fn set_server(
     core: &Core,
     project: &ProjectId,
     name: &str,
     on: bool,
 ) -> Result<(), ProtocolError> {
-    let store = core.project_store();
-    let mut pins = store.servers(project)?;
-    if !on {
-        if let Some(pin) = pins.servers.remove(name) {
-            store.set_servers(project, &pins)?;
-            if let Some(added) = pin.added_host {
-                change_hosts(core, project, |hosts| hosts.retain(|h| h.host != added))?;
-            }
+    let current = definitions(core, core.root(project)?).await;
+    let definition = current.get(name);
+    if on {
+        let definition = definition.ok_or_else(|| {
+            ProtocolError::new(ErrorCode::NotFound, format!("{FILE} has no server {name}"))
+        })?;
+        if let Some(why) = blocked(name, definition) {
+            return Err(ProtocolError::new(ErrorCode::BadRequest, why));
         }
+    }
+    let store = core.project_store();
+    let _held = pins_held();
+    let mut pins = store.servers(project)?;
+    let old = pins.servers.remove(name);
+    if !on && old.is_none() {
         return Ok(());
     }
-    let current = definitions(core, core.root(project)?).await;
-    let definition = current.get(name).ok_or_else(|| {
-        ProtocolError::new(ErrorCode::NotFound, format!("{FILE} has no server {name}"))
-    })?;
-    if let Some(why) = blocked(name, definition) {
-        return Err(ProtocolError::new(ErrorCode::BadRequest, why));
+    let old = old.unwrap_or_default();
+    let wanted = definition.filter(|_| on).and_then(server_host);
+    let mut added = old.added_host.clone();
+    let mut release = None;
+    if added.is_some() && added != wanted {
+        release = added
+            .take()
+            .filter(|host| !hand_over(&mut pins, &current, host));
     }
-    let old = pins.servers.remove(name).unwrap_or_default();
-    let mut added_host = old.added_host;
-    if let Some(wanted) = definition
-        .get("url")
-        .and_then(Value::as_str)
-        .and_then(|u| host(u).ok())
+    let mut add = None;
+    if let Some(wanted) = wanted
+        && added.is_none()
+        && !store.allowlist(project)?.hosts.contains(&wanted)
     {
-        let listed = store
-            .allowlist(project)?
-            .hosts
-            .iter()
-            .any(|h| h.host == wanted.host);
-        if !listed {
-            added_host = Some(wanted.host.clone());
-            change_hosts(core, project, |hosts| hosts.push(wanted))?;
-        }
+        added = Some(wanted.clone());
+        add = Some(wanted);
     }
-    // A changed server's old tools may be gone; its choices stay for those that are not.
-    pins.servers.insert(
-        name.to_owned(),
-        ServerPin {
-            definition: compact(definition),
-            tools: old.tools,
-            tools_off: old.tools_off,
-            added_host,
-        },
-    );
-    store.set_servers(project, &pins)
+    if let Some(definition) = definition.filter(|_| on) {
+        // A changed server's old tools may be gone; its choices stay for those that are not.
+        pins.servers.insert(
+            name.to_owned(),
+            ServerPin {
+                definition: compact(definition),
+                tools: old.tools,
+                tools_off: old.tools_off,
+                added_host: added,
+            },
+        );
+    }
+    // The pin first: a host Ovra adds is always one it knows it added.
+    store.set_servers(project, &pins)?;
+    if add.is_some() || release.is_some() {
+        change_hosts(core, project, |hosts| {
+            hosts.retain(|h| Some(h) != release.as_ref());
+            hosts.extend(add);
+        })?;
+    }
+    Ok(())
+}
+
+/// Gives `host` to another turned-on server that reaches it now, which then
+/// removes it in its turn; false when none does.
+fn hand_over(pins: &mut ServerPins, current: &Map<String, Value>, host: &AllowedHost) -> bool {
+    let other = pins.servers.iter_mut().find(|(name, pin)| {
+        pin.added_host.is_none()
+            && current.get(name.as_str()).and_then(server_host).as_ref() == Some(host)
+    });
+    match other {
+        Some((_, pin)) => {
+            pin.added_host = Some(host.clone());
+            true
+        }
+        None => false,
+    }
 }
 
 pub(crate) fn set_tool(
@@ -269,10 +338,17 @@ pub(crate) fn set_tool(
     on: bool,
 ) -> Result<(), ProtocolError> {
     let store = core.project_store();
+    let _held = pins_held();
     let mut pins = store.servers(project)?;
     let pin = pins.servers.get_mut(server).ok_or_else(|| {
         ProtocolError::new(ErrorCode::NotFound, format!("{server} is not turned on"))
     })?;
+    if !pin.tools.iter().any(|t| t == tool) {
+        return Err(ProtocolError::new(
+            ErrorCode::NotFound,
+            format!("{server} has no tool {tool}"),
+        ));
+    }
     pin.tools_off.retain(|t| t != tool);
     if !on {
         pin.tools_off.push(tool.to_owned());
@@ -281,9 +357,11 @@ pub(crate) fn set_tool(
 }
 
 /// A session listed its tools (`mcp__<server>__<tool>`): each turned-on
-/// server keeps its own, so the person can turn one off.
+/// server keeps its own, so the person can turn one off. Only plain names:
+/// `--disallowedTools` splits at commas and spaces.
 pub(crate) fn tools_listed(core: &Core, project: &ProjectId, tools: &[String]) {
     let store = core.project_store();
+    let _held = pins_held();
     let Ok(mut pins) = store.servers(project) else {
         return;
     };
@@ -293,7 +371,7 @@ pub(crate) fn tools_listed(core: &Core, project: &ProjectId, tools: &[String]) {
         let mut listed: Vec<String> = tools
             .iter()
             .filter_map(|t| t.strip_prefix(&prefix))
-            .filter(|t| !t.is_empty())
+            .filter(|t| plain(t))
             .map(str::to_owned)
             .take(MAX_TOOLS)
             .collect();

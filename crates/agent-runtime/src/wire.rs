@@ -18,9 +18,9 @@ pub(crate) const IDE_SERVER: &str = "ovra";
 #[derive(Debug, PartialEq)]
 pub(crate) enum Incoming {
     /// `system/init`: the session is up and works on the turn, billed as
-    /// `billing` says (a cloud provider's name is left empty here).
-    /// `system/init`: who pays, and the tools of the project's own MCP
-    /// servers (`mcp__<server>__<tool>`, not Ovra's own).
+    /// `billing` says (a cloud provider's name is left empty here), with
+    /// the tools of the project's own MCP servers (`mcp__<server>__<tool>`,
+    /// not Ovra's own).
     Started {
         billing: Option<Billing>,
         tools: Vec<String>,

@@ -28,7 +28,9 @@ keep one server or one tool off (claude-code#6915).
   on again, like project trust today.
 - **Every MCP tool call asks**, as any tool does (`can_use_tool`). "Always
   allow" works per tool as it does for others. Ovra's own policies still
-  apply to the call's input.
+  apply to the call's input. In a trusted project, a `permissions.allow`
+  entry in `.claude/settings.json` skips the question for MCP tools as it
+  does for built-in ones.
 - **Who gets it.** Direct sessions and workers. Coordinators keep only
   `ovra` (owner decision 2026-11-24); research sessions get none (they are
   read-only, ADR 0013).
@@ -39,8 +41,19 @@ keep one server or one tool off (claude-code#6915).
   so they get its file rules, its protected paths and its netproxy. A
   server fetched with `npx`/`uvx` needs its registry host; the per-session
   package cache applies.
-- **HTTP/SSE servers**: turning one on adds its URL's host to that
-  project's netproxy allowlist, shown under Network like any other host.
+- **HTTP/SSE servers**: turning one on adds its URL's host and port to that
+  project's netproxy allowlist, shown under Network like any other host,
+  unless the list has that entry already. Ovra removes only an entry it
+  added, when the last turned-on server that reaches it is turned off. The
+  list is the project's, so every session of the project (coordinators and
+  research sessions too) can reach that host with its other tools, and a
+  host without a port allows 80 as well as 443. A server that `.mcp.json`
+  changed or removed keeps its entry until the person turns it off or on
+  again; sessions no longer get the server meanwhile.
+- **Names**: only letters, digits, `-` and single `_` (`__` splits
+  `mcp__<server>__<tool>`), and nothing that starts with `ovra`, so no
+  server's tools look like Ovra's own. Only `https://` URLs without a name
+  and password.
   OAuth servers are out of v1 (Claude keeps their tokens in its home
   state, which the sandbox keeps read-only).
 - **Variables** (`${VAR}` in `command`, `args`, `env`, `headers`) are not
