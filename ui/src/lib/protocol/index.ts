@@ -25,6 +25,7 @@ import type { SearchEvent, SearchRequest, SearchResponse } from "./search";
 import type { SecretsEvent, SecretsRequest, SecretsResponse } from "./secrets";
 import type { ServersEvent, ServersRequest, ServersResponse, ServersResponseFor } from "./servers";
 import type { SetupRequest, SetupResponse } from "./setup";
+import type { SshEvent, SshRequest, SshResponse, SshResponseFor } from "./ssh";
 import type { TerminalsEvent, TerminalsRequest, TerminalsResponse } from "./terminals";
 
 export type * from "./agents";
@@ -59,6 +60,7 @@ export type * from "./secrets";
 export type * from "./servers";
 export type { ServerId as DevServerId, ServerInfo as DevServerInfo } from "./servers";
 export type * from "./setup";
+export type * from "./ssh";
 export type * from "./terminals";
 
 export type Request =
@@ -86,7 +88,8 @@ export type Request =
   | BoardRequest
   | RemoteRequest
   | SetupRequest
-  | CatalogRequest;
+  | CatalogRequest
+  | SshRequest;
 
 export type Response =
   | InfoResponse
@@ -113,6 +116,7 @@ export type Response =
   | RemoteResponse
   | SetupResponse
   | CatalogResponse
+  | SshResponse
   | { type: "ok" };
 
 export type CoreEvent =
@@ -136,7 +140,8 @@ export type CoreEvent =
   | ResourcesEvent
   | PowerEvent
   | BoardEvent
-  | RemoteEvent;
+  | RemoteEvent
+  | SshEvent;
 
 export type ErrorCode = "bad_request" | "not_found" | "conflict" | "forbidden" | "unavailable" | "internal";
 
@@ -301,4 +306,6 @@ type LaterResponseFor<R extends Request> = R extends ServersRequest
                   ? SetupResponse
                   : R extends CatalogRequest
                     ? CatalogResponse
-                    : never;
+                    : R extends SshRequest
+                      ? SshResponseFor<R["method"]>
+                      : never;

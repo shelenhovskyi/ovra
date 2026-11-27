@@ -102,7 +102,8 @@ pub(crate) fn allows(request: &Request) -> bool {
         | Request::Board(_)
         | Request::Remote(_)
         | Request::Setup(_)
-        | Request::Catalog(_) => false,
+        | Request::Catalog(_)
+        | Request::Ssh(_) => false,
     }
 }
 
@@ -140,7 +141,8 @@ pub(crate) fn shows(event: &Event) -> bool {
         | Event::Browser(_)
         | Event::Pr(_)
         | Event::Board(_)
-        | Event::Remote(_) => false,
+        | Event::Remote(_)
+        | Event::Ssh(_) => false,
     }
 }
 

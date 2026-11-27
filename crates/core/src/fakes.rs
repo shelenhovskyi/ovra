@@ -13,6 +13,7 @@ mod lsp;
 mod power;
 mod remote;
 mod servers;
+mod ssh;
 mod tools;
 mod worktrees;
 
@@ -37,6 +38,7 @@ pub use lsp::{FakeLanguageServers, FakeServer, HostRecord};
 pub use power::FakeKeepAwake;
 pub use remote::FakeRemote;
 pub use servers::{FakeDevServer, FakeDevServers};
+pub use ssh::MemoryRemoteHosts;
 #[cfg(test)]
 pub(crate) use tools::before_hook;
 pub use tools::tool;

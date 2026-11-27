@@ -21,8 +21,8 @@ use crate::search::{self, Searches};
 use crate::servers::DevServerState;
 use crate::services::{
     AgentRuntime, AuditLog, Browser, DevServers, EventSink, Forge, FsService, GitService, IdeTools,
-    KeepAwake, LanguageServers, NetProxy, Opener, ProjectStore, RemoteAccess, ResourceMonitor,
-    Sandbox, Secrets, SessionStore, TerminalService, Unavailable, Worktrees,
+    KeepAwake, LanguageServers, NetProxy, Opener, ProjectStore, RemoteAccess, RemoteHosts,
+    ResourceMonitor, Sandbox, Secrets, SessionStore, TerminalService, Unavailable, Worktrees,
 };
 
 const EVENT_CAPACITY: usize = 1024;
@@ -51,6 +51,7 @@ pub struct CoreBuilder {
     resources: Option<Arc<dyn ResourceMonitor>>,
     keep_awake: Arc<dyn KeepAwake>,
     remote: Arc<dyn RemoteAccess>,
+    ssh: Arc<dyn RemoteHosts>,
     sandbox: Option<Arc<dyn Sandbox>>,
 }
 
@@ -173,6 +174,12 @@ impl CoreBuilder {
         self
     }
 
+    /// Remote machines over the person's own SSH (ADR 0016).
+    pub fn ssh(mut self, ssh: Arc<dyn RemoteHosts>) -> Self {
+        self.ssh = ssh;
+        self
+    }
+
     /// The sandbox agents run in, for `setup.check` only: the runtimes
     /// get their own.
     pub fn sandbox(mut self, sandbox: Arc<dyn Sandbox>) -> Self {
@@ -216,6 +223,7 @@ impl CoreBuilder {
                 audit_state: crate::audit::State::default(),
                 power: crate::power::State::new(self.keep_awake),
                 remote: self.remote,
+                ssh: self.ssh,
                 sandbox: self.sandbox,
             }),
             events,
@@ -266,6 +274,7 @@ struct Inner {
     resources: crate::resources::Resources,
     power: crate::power::State,
     remote: Arc<dyn RemoteAccess>,
+    ssh: Arc<dyn RemoteHosts>,
     sandbox: Option<Arc<dyn Sandbox>>,
 }
 
@@ -373,6 +382,7 @@ impl Core {
             resources: None,
             keep_awake: Arc::new(Unavailable("keeping the computer awake")),
             remote: Arc::new(Unavailable("phone access")),
+            ssh: Arc::new(Unavailable("remote machines")),
             sandbox: None,
         }
     }
@@ -488,6 +498,7 @@ impl Core {
             Request::Remote(r) => crate::remote::handle(self, r),
             Request::Setup(r) => crate::setup::handle(self, r).await,
             Request::Catalog(r) => crate::catalog::handle(self, r).await,
+            Request::Ssh(r) => crate::ssh::handle(self, r),
         }
     }
 
@@ -542,6 +553,10 @@ impl Core {
 
     pub(crate) fn remote(&self) -> &dyn RemoteAccess {
         self.inner.remote.as_ref()
+    }
+
+    pub(crate) fn ssh(&self) -> &dyn RemoteHosts {
+        self.inner.ssh.as_ref()
     }
 
     pub(crate) fn power(&self) -> &crate::power::State {

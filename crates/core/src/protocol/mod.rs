@@ -30,6 +30,7 @@ pub mod search;
 pub mod secrets;
 pub mod servers;
 pub mod setup;
+pub mod ssh;
 pub mod terminals;
 
 use serde::{Deserialize, Serialize};
@@ -63,6 +64,7 @@ pub enum Request {
     Remote(remote::RemoteRequest),
     Setup(setup::SetupRequest),
     Catalog(catalog::CatalogRequest),
+    Ssh(ssh::SshRequest),
 }
 
 /// The core's answer to a [`Request`]. Wire form: `{"type": "<domain>.<name>", "data": ...}`.
@@ -93,6 +95,7 @@ pub enum Response {
     Remote(remote::RemoteResponse),
     Setup(setup::SetupResponse),
     Catalog(catalog::CatalogResponse),
+    Ssh(ssh::SshResponse),
     /// The request succeeded and has nothing to return.
     Ok(OkResponse),
 }
@@ -128,6 +131,7 @@ pub enum Event {
     Resources(resources::ResourcesEvent),
     Power(power::PowerEvent),
     Remote(remote::RemoteEvent),
+    Ssh(ssh::SshEvent),
 }
 
 /// An error returned instead of a [`Response`].
@@ -294,5 +298,11 @@ impl From<power::PowerEvent> for Event {
 impl From<remote::RemoteEvent> for Event {
     fn from(e: remote::RemoteEvent) -> Self {
         Self::Remote(e)
+    }
+}
+
+impl From<ssh::SshEvent> for Event {
+    fn from(e: ssh::SshEvent) -> Self {
+        Self::Ssh(e)
     }
 }

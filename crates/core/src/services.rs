@@ -2,6 +2,8 @@
 //! implementation in its own crate and a fake in [`crate::fakes`].
 
 use crate::protocol::remote::{Device, Pairing, RemoteStatus};
+use crate::protocol::ssh::{PreparedHost, RemoteHost};
+use crate::ssh::{DaemonPath, Destination, HostId, MachineName};
 use std::collections::BTreeMap;
 use std::ffi::OsString;
 use std::fmt::Debug;
@@ -213,6 +215,28 @@ pub trait RemoteAccess: Send + Sync + Debug {
     fn devices(&self) -> Result<Vec<Device>>;
     /// Forgets a phone and closes its connections.
     fn forget(&self, device: &str) -> Result<()>;
+}
+
+/// The remote machines this computer reaches over the person's own SSH
+/// (ADR 0016; implemented by `ovra-ssh`). The core checks every value
+/// before it gets here.
+pub trait RemoteHosts: Send + Sync + Debug {
+    fn list(&self) -> Result<Vec<RemoteHost>>;
+    /// What `ssh -G` resolves for `destination` and the keys the person's
+    /// own `known_hosts` has for it. Never accepts a key and never runs
+    /// `ssh-keyscan`.
+    fn prepare(&self, destination: &Destination) -> Result<PreparedHost>;
+    /// Pins exactly `fingerprints`; `Conflict` when the person's
+    /// `known_hosts` no longer has each of them for `destination`.
+    fn add(
+        &self,
+        name: &MachineName,
+        destination: &Destination,
+        daemon: &DaemonPath,
+        fingerprints: &[String],
+    ) -> Result<RemoteHost>;
+    fn remove(&self, id: &HostId) -> Result<()>;
+    fn rename(&self, id: &HostId, name: &MachineName) -> Result<RemoteHost>;
 }
 
 /// Keeps the computer from sleeping while it is idle (implemented by
@@ -1884,6 +1908,30 @@ impl RemoteAccess for Unavailable {
         self.err()
     }
     fn forget(&self, _: &str) -> Result<()> {
+        self.err()
+    }
+}
+
+impl RemoteHosts for Unavailable {
+    fn list(&self) -> Result<Vec<RemoteHost>> {
+        self.err()
+    }
+    fn prepare(&self, _: &Destination) -> Result<PreparedHost> {
+        self.err()
+    }
+    fn add(
+        &self,
+        _: &MachineName,
+        _: &Destination,
+        _: &DaemonPath,
+        _: &[String],
+    ) -> Result<RemoteHost> {
+        self.err()
+    }
+    fn remove(&self, _: &HostId) -> Result<()> {
+        self.err()
+    }
+    fn rename(&self, _: &HostId, _: &MachineName) -> Result<RemoteHost> {
         self.err()
     }
 }

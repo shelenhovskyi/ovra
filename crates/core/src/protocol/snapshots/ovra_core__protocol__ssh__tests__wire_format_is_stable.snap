@@ -1,0 +1,103 @@
+---
+source: crates/core/src/protocol/ssh.rs
+expression: "serde_json::json!({\n    \"requests\":\n    [Request::Ssh(SshRequest::List),\n    Request::Ssh(SshRequest::Prepare { destination: \"build\".into() }),\n    Request::Ssh(SshRequest::Add(NewRemoteHost\n    {\n        name: \"Build box\".into(), destination: \"dev@build\".into(), daemon:\n        None, fingerprints: vec![\"SHA256:abc\".into()],\n    })), Request::Ssh(SshRequest::Remove { id: \"h1\".into() }),\n    Request::Ssh(SshRequest::Rename\n    { id: \"h1\".into(), name: \"Box\".into() }),], \"responses\":\n    [Response::Ssh(SshResponse::Hosts(vec![host.clone()])),\n    Response::Ssh(SshResponse::Prepared(PreparedHost\n    {\n        destination: \"build\".into(), host_name: \"build.example.org\".into(),\n        port: 22, user: \"dev\".into(), key_name: \"build.example.org\".into(),\n        keys:\n        vec![HostKey\n        { kind: \"ssh-ed25519\".into(), fingerprint: \"SHA256:abc\".into() }],\n    })), Response::Ssh(SshResponse::Host(host.clone())),], \"events\":\n    [Event::from(SshEvent::Changed(vec![host]))],\n})"
+---
+{
+  "events": [
+    {
+      "data": [
+        {
+          "daemon": "ovra-daemon",
+          "destination": "dev@build",
+          "fingerprints": [
+            "SHA256:abc"
+          ],
+          "id": "h1",
+          "last_connected": 1,
+          "name": "Build box"
+        }
+      ],
+      "type": "ssh.changed"
+    }
+  ],
+  "requests": [
+    {
+      "method": "ssh.list"
+    },
+    {
+      "method": "ssh.prepare",
+      "params": {
+        "destination": "build"
+      }
+    },
+    {
+      "method": "ssh.add",
+      "params": {
+        "destination": "dev@build",
+        "fingerprints": [
+          "SHA256:abc"
+        ],
+        "name": "Build box"
+      }
+    },
+    {
+      "method": "ssh.remove",
+      "params": {
+        "id": "h1"
+      }
+    },
+    {
+      "method": "ssh.rename",
+      "params": {
+        "id": "h1",
+        "name": "Box"
+      }
+    }
+  ],
+  "responses": [
+    {
+      "data": [
+        {
+          "daemon": "ovra-daemon",
+          "destination": "dev@build",
+          "fingerprints": [
+            "SHA256:abc"
+          ],
+          "id": "h1",
+          "last_connected": 1,
+          "name": "Build box"
+        }
+      ],
+      "type": "ssh.hosts"
+    },
+    {
+      "data": {
+        "destination": "build",
+        "host_name": "build.example.org",
+        "key_name": "build.example.org",
+        "keys": [
+          {
+            "fingerprint": "SHA256:abc",
+            "kind": "ssh-ed25519"
+          }
+        ],
+        "port": 22,
+        "user": "dev"
+      },
+      "type": "ssh.prepared"
+    },
+    {
+      "data": {
+        "daemon": "ovra-daemon",
+        "destination": "dev@build",
+        "fingerprints": [
+          "SHA256:abc"
+        ],
+        "id": "h1",
+        "last_connected": 1,
+        "name": "Build box"
+      },
+      "type": "ssh.host"
+    }
+  ]
+}
