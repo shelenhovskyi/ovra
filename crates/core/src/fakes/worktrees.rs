@@ -82,6 +82,11 @@ impl MemoryWorktrees {
         lock(&self.dirs).contains_key(&dir.into())
     }
 
+    /// How many commits it holds: snapshots and commits alike.
+    pub fn commit_count(&self) -> usize {
+        lock(&self.commits).len()
+    }
+
     fn tree(&self, dir: &PathBuf) -> Result<Files> {
         lock(&self.dirs)
             .get(dir)
