@@ -142,6 +142,16 @@ async fn one_agent_changes_two_repositories_each_in_its_own_copy() {
             .map(|d| d.clone())
             .unwrap_or_default();
     assert_eq!(deleted.len(), 2, "{deleted:?}");
+    // With its copy gone, the api item's pull request actions still find
+    // it: this one has none to refresh.
+    let refresh = json!({"method": "pr.refresh", "params": {"id": api_item.id.0}});
+    let refused = call(&f.core, refresh).await.err();
+    assert!(
+        refused
+            .as_ref()
+            .is_some_and(|e| e.message.contains("no pull request")),
+        "{refused:?}"
+    );
     // Now api can go.
     let remove = json!({"method": "projects.remove", "params": {"id": "p2"}});
     ok(&f.core, remove).await;
@@ -176,6 +186,10 @@ async fn linked_repositories_are_refused_unless_they_fit() {
         (
             json!({"repos": ["p2"], "solo": false}),
             "only one agent in its own copy",
+        ),
+        (
+            json!({"repos": ["p2"], "attempt_of": "t1"}),
+            "as a first attempt",
         ),
         (json!({"repos": ["p1"]}), "once"),
         (json!({"repos": ["p2", "p2"]}), "once"),
@@ -229,4 +243,32 @@ async fn a_linked_project_with_untrusted_agent_settings_is_refused() {
     )
     .await;
     ok(&f.core, linked(json!(["p2"]))).await;
+}
+
+#[tokio::test]
+async fn a_task_across_repositories_is_refused_when_disk_is_low() {
+    let f = fx_api().await;
+    if let Ok(mut free) = f.wt.free.lock() {
+        *free = Some(1024);
+    }
+    let refused = call(&f.core, linked(json!(["p2"]))).await.err();
+    assert!(
+        refused
+            .as_ref()
+            .is_some_and(|e| e.code == ErrorCode::Conflict && e.message.contains("disk space")),
+        "{refused:?}"
+    );
+    assert!(
+        f.agent
+            .started
+            .lock()
+            .map(|s| s.is_empty())
+            .unwrap_or(false)
+    );
+    let tasks = json!({"method": "orchestration.list", "params": {"project": "p1"}});
+    let Response::Orchestration(OrchestrationResponse::List(tasks)) = ok(&f.core, tasks).await
+    else {
+        panic!("no tasks");
+    };
+    assert!(tasks.is_empty(), "{tasks:?}");
 }

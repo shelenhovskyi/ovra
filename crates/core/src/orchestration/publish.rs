@@ -112,8 +112,10 @@ pub(super) async fn handle(core: &Core, request: PrRequest) -> Result<Response> 
     }
 }
 
-/// A worker's item, its worker and its project's root.
-pub(super) fn worker_item(core: &Core, id: &ReviewId) -> Result<(review::Entry, Worker, PathBuf)> {
+/// A worker's item and its project's root, for the actions that need no
+/// copy: a linked repository's pull request is still refreshed, updated and
+/// polled after the task removed that copy.
+fn item_root(core: &Core, id: &ReviewId) -> Result<(review::Entry, PathBuf)> {
     let entry = review::find(core, id)?;
     if entry.mode != SessionMode::Isolated {
         return Err(ProtocolError::new(
@@ -121,6 +123,14 @@ pub(super) fn worker_item(core: &Core, id: &ReviewId) -> Result<(review::Entry, 
             "only a worker's changes can become a pull request",
         ));
     }
+    let root = core.root(&entry.project)?;
+    Ok((entry, root))
+}
+
+/// A worker's item, its worker (with the branch and copy of the item's
+/// repository) and its project's root.
+pub(super) fn worker_item(core: &Core, id: &ReviewId) -> Result<(review::Entry, Worker, PathBuf)> {
+    let (entry, root) = item_root(core, id)?;
     let worker = core
         .orchestration_state()
         .lock()
@@ -148,7 +158,6 @@ pub(super) fn worker_item(core: &Core, id: &ReviewId) -> Result<(review::Entry, 
         // Its copy of this repository is gone.
         None => return Err(not_found("the copy of this repository")),
     };
-    let root = core.root(&entry.project)?;
     Ok((entry, worker, root))
 }
 
@@ -384,7 +393,7 @@ fn message(title: &str, body: &str) -> String {
 }
 
 async fn create(core: &Core, id: &ReviewId, draft: PrDraft, seen: Seen) -> Result<PullRequest> {
-    let (entry, _, root) = worker_item(core, id)?;
+    let (entry, root) = item_root(core, id)?;
     if entry.pull_request.is_some() {
         return Err(conflict(
             "this item has a pull request already; update it instead",
@@ -532,7 +541,7 @@ async fn create(core: &Core, id: &ReviewId, draft: PrDraft, seen: Seen) -> Resul
 }
 
 async fn update(core: &Core, id: &ReviewId, seen: Seen) -> Result<PullRequest> {
-    let (entry, _, root) = worker_item(core, id)?;
+    let (entry, root) = item_root(core, id)?;
     let (Some(pr), Some(from)) = (entry.pull_request.clone(), entry.published_from.clone()) else {
         return Err(conflict("this item has no pull request to update"));
     };
@@ -608,7 +617,7 @@ async fn update(core: &Core, id: &ReviewId, seen: Seen) -> Result<PullRequest> {
 
 /// Asks `gh` about the item's pull request now and keeps what it says.
 async fn refresh(core: &Core, id: &ReviewId) -> Result<PullRequest> {
-    let (entry, _, root) = worker_item(core, id)?;
+    let (entry, root) = item_root(core, id)?;
     let Some(pr) = entry.pull_request.clone() else {
         return Err(conflict("this item has no pull request"));
     };
@@ -810,7 +819,7 @@ fn tail(log: &str) -> String {
 /// Sends a failed check's log to the worker, framed as CI output, and
 /// reopens a published item.
 async fn send_log(core: &Core, id: &ReviewId, run: u64) -> Result<()> {
-    let (entry, _, root) = worker_item(core, id)?;
+    let (entry, root) = item_root(core, id)?;
     let Some(pr) = entry.pull_request.clone() else {
         return Err(conflict("this item has no pull request"));
     };
@@ -855,7 +864,7 @@ async fn ask_update(
     remote: Option<String>,
     base: Option<String>,
 ) -> Result<()> {
-    let (entry, _, root) = worker_item(core, id)?;
+    let (entry, root) = item_root(core, id)?;
     let remote = crate::pr::remote_name(remote)?;
     let base = match base {
         Some(base) => crate::pr::ref_name(&base)?,
