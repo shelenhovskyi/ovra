@@ -85,6 +85,10 @@ pub(super) struct Entry {
     /// The project's last finished check of this item.
     #[serde(default)]
     pub(super) check: Option<super::check::Saved>,
+    /// What `review.update` brought in since the agent last heard from the
+    /// person: the next comment tells it.
+    #[serde(default)]
+    pub(super) updates: super::behind::Updates,
 }
 
 /// Open, or published and so still the worker's live work.
@@ -166,6 +170,7 @@ pub(crate) fn set_workspace(core: &Core, session: &SessionId, workspace: Workspa
         discarded: None,
         discards: BTreeSet::new(),
         check: None,
+        updates: super::behind::Updates::default(),
     });
     orchestration.save(&state);
 }
@@ -201,6 +206,7 @@ pub(super) async fn handle(core: &Core, request: ReviewRequest) -> Result<Respon
                 .filter(|r| r.project == project)
                 .cloned()
                 .collect();
+            let mut shown_entries = Vec::new();
             let mut items = Vec::new();
             for entry in entries {
                 let item = item(core, &entry).await?;
@@ -208,8 +214,10 @@ pub(super) async fn handle(core: &Core, request: ReviewRequest) -> Result<Respon
                 // A planted hook alone is a change to show.
                 if shown || !item.files.is_empty() || !item.git_changes.is_empty() {
                     items.push(item);
+                    shown_entries.push(entry);
                 }
             }
+            super::behind::fill_all(core, &shown_entries, &mut items).await;
             Ok(Response::Review(ReviewResponse::List(items)))
         }
         ReviewRequest::Diff { id, path } => {
@@ -385,6 +393,15 @@ pub(super) async fn handle(core: &Core, request: ReviewRequest) -> Result<Respon
             let warnings = super::warnings::of(core, &entry).await?;
             Ok(Response::Review(ReviewResponse::Warnings { warnings }))
         }
+        ReviewRequest::Update { id, conflicts } => {
+            let done = super::behind::update(core, &id, conflicts).await?;
+            Ok(Response::Review(ReviewResponse::Updated {
+                item: done.item,
+                files: done.files,
+                conflicts: done.conflicts,
+                written: done.written,
+            }))
+        }
     }
 }
 
@@ -503,6 +520,7 @@ async fn current(core: &Core, entry: &Entry) -> Result<(ReviewItem, Option<Strin
         git_unchecked: git.unchecked,
         pull_request: entry.pull_request.clone().map(Box::new),
         check: super::check::view(core, entry, tree.as_ref()),
+        behind: None,
     };
     Ok((item, tree))
 }
@@ -755,7 +773,7 @@ fn kind_name(kind: ChangeKind) -> &'static str {
 
 /// Files the direct session of `project` changed and nobody has approved or
 /// rejected yet; workers' changes to them wait (ADR 0005).
-async fn direct_touched(core: &Core, project: &ProjectId) -> BTreeSet<String> {
+pub(super) async fn direct_touched(core: &Core, project: &ProjectId) -> BTreeSet<String> {
     let open: Vec<Entry> = core
         .orchestration_state()
         .lock()
@@ -977,7 +995,7 @@ async fn approve(
 /// Whether `session` is at work: neither idle nor ended.
 /// Ends the servers of a worker's worktree before its files are copied:
 /// they run commands that write it.
-async fn servers_stopped(core: &Core, session: &SessionId) -> Result<()> {
+pub(super) async fn servers_stopped(core: &Core, session: &SessionId) -> Result<()> {
     if crate::servers::worktree_stopped(core, session).await {
         return Ok(());
     }
@@ -1237,6 +1255,9 @@ async fn comment(core: &Core, id: &ReviewId, text: String) -> Result<()> {
         let note = super::hunks::discards_note(&entry.discards);
         message.push((note, MessageFrom::Ovra));
     }
+    if !entry.updates.is_empty() {
+        message.push((entry.updates.note(), MessageFrom::Ovra));
+    }
     if let Some(diff) = entry
         .rejected
         .as_ref()
@@ -1254,8 +1275,11 @@ async fn comment(core: &Core, id: &ReviewId, text: String) -> Result<()> {
         update(core, id, |e| e.state = ReviewState::Open)?;
     }
     continue_session(core, &entry.session, message).await?;
-    if !entry.discards.is_empty() {
-        update(core, id, |e| e.discards.clear())?;
+    if !entry.discards.is_empty() || !entry.updates.is_empty() {
+        update(core, id, |e| {
+            e.discards.clear();
+            e.updates = super::behind::Updates::default();
+        })?;
     }
     Ok(())
 }
@@ -1386,6 +1410,7 @@ fn open_after(core: &Core, decided: &Entry) -> Entry {
         agent_pushed: None,
         discarded: None,
         check: None,
+        updates: super::behind::Updates::default(),
         ..decided.clone()
     };
     // New work ends the undo of the decided item's last replace.

@@ -8,6 +8,7 @@
 //! lock, never the other way round; sessions call in here only without
 //! holding theirs.
 
+mod behind;
 mod board;
 mod check;
 pub(crate) mod direct;

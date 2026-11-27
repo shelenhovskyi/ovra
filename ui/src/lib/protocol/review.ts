@@ -67,6 +67,19 @@ export type ReviewItem = {
   pull_request?: PullRequest;
   /** The project's check, run when a worker asked for review or a person's own agent ended a turn with changes; absent without one. */
   check?: ReviewCheck;
+  /**
+   * An open worker item whose project changed since its base (`docs/specs/main-moved.md`).
+   * Only `review.list` and `review.updated` fill it.
+   */
+  behind?: Behind;
+};
+
+/** How far the project moved on since a worker's base. */
+export type Behind = {
+  /** Files of the project, uncommitted ones too, that differ from the worker's base. */
+  files: number;
+  /** The worker's files among them: Keep would not copy these. */
+  clashes: string[];
 };
 
 /** `not_run`: it could not run here (no sandbox for it, for example); `detail` says why. */
@@ -154,7 +167,12 @@ export type ReviewRequest =
   /** Runs the project's check again for an open item (once its agent's turn ends). Answers `ok`. */
   | { method: "review.run_check"; params: { id: ReviewId } }
   /** What the agent's changes do to the project's tests and checks. */
-  | { method: "review.warnings"; params: { id: ReviewId } };
+  | { method: "review.warnings"; params: { id: ReviewId } }
+  /**
+   * Brings the project's changes since a worker's base into its worktree, merged with the worker's.
+   * Conflicting files are written (with markers) only with `conflicts`.
+   */
+  | { method: "review.update"; params: { id: ReviewId; conflicts?: boolean } };
 
 export type ReviewResponse =
   | { type: "review.list"; data: ReviewItem[] }
@@ -164,7 +182,9 @@ export type ReviewResponse =
   | { type: "review.done"; data: { item: ReviewItem; conflicts: string[]; restored: string[] } }
   /** Stdout and stderr merged, oldest first. */
   | { type: "review.check_log"; data: { lines: string[] } }
-  | { type: "review.warnings"; data: { warnings: ReviewWarning[] } };
+  | { type: "review.warnings"; data: { warnings: ReviewWarning[] } }
+  /** After `review.update`: `files` that came in, `conflicts` written with markers when `written`, else why nothing was. */
+  | { type: "review.updated"; data: { item: ReviewItem; files: number; conflicts: string[]; written: boolean } };
 
 export type ReviewEvent =
   /** Re-fetch the list. */

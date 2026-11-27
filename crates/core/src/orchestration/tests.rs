@@ -3710,6 +3710,7 @@ async fn a_workers_worktree_is_watched_once_and_let_go_when_it_ends() {
     );
 }
 
+mod behind;
 mod check;
 
 /// A file change by `session` in its worktree, as the runtime maps one.

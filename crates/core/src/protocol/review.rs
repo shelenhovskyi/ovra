@@ -122,6 +122,21 @@ pub struct ReviewItem {
     /// `None` without a check.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub check: Option<Box<ReviewCheck>>,
+    /// An open worker item whose project changed since its base
+    /// (`docs/specs/main-moved.md`); `None` when it did not, and for direct
+    /// and decided items. Only `review.list` and `review.updated` fill it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub behind: Option<Behind>,
+}
+
+/// How far the project moved on since a worker's base.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Behind {
+    /// Files of the project, uncommitted ones too, that differ from the
+    /// worker's base.
+    pub files: u32,
+    /// The worker's files among them: Keep would not copy these.
+    pub clashes: Vec<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -292,6 +307,18 @@ pub enum ReviewRequest {
     /// checks. Answers `review.warnings`.
     #[serde(rename = "review.warnings")]
     Warnings { id: ReviewId },
+    /// Brings the project's changes since an open worker item's base into
+    /// its worktree, merged with the worker's (`docs/specs/main-moved.md`);
+    /// the base becomes the project as it is now. Refused while the worker
+    /// works. When files conflict nothing is written, unless `conflicts`:
+    /// then they are written with conflict markers. Answers
+    /// `review.updated`.
+    #[serde(rename = "review.update")]
+    Update {
+        id: ReviewId,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        conflicts: bool,
+    },
 }
 
 /// The person's comment on one line of a file's diff (`review.comment`).
@@ -338,6 +365,18 @@ pub enum ReviewResponse {
     /// In file order, then line order; at most a few per file.
     #[serde(rename = "review.warnings")]
     Warnings { warnings: Vec<ReviewWarning> },
+    /// After `review.update`.
+    #[serde(rename = "review.updated")]
+    Updated {
+        item: ReviewItem,
+        /// Files of the project that came into the worktree (none when
+        /// nothing was written).
+        files: u32,
+        /// Files both sides changed in the same place: written with
+        /// conflict markers when `written`, else the reason nothing was.
+        conflicts: Vec<String>,
+        written: bool,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
