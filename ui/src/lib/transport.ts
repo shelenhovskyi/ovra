@@ -49,7 +49,7 @@ export interface Transport {
 }
 
 /** A remote machine as its window knows it: from the app, never from the machine. */
-export type RemoteMachine = { id: string; name: string };
+type RemoteMachine = { id: string; name: string };
 
 /** The link to a remote machine; `reason` and `details` come with `closed` and `failed`. */
 export type RemoteLink = {
