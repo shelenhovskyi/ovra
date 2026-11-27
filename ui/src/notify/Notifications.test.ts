@@ -188,6 +188,19 @@ describe("Notifications", () => {
     flushSync();
   });
 
+  it("moves the stack to the top while Reviews is open, off its Keep and Discard", () => {
+    app = mount(TestHost, { target, props: { transport: new FakeAgentCore(), workspace: new Workspace() } });
+    flushSync();
+    const stack = () => target.querySelector("[data-testid=notifications]");
+    expect(stack()?.classList.contains("top")).toBe(false);
+    mainView.show("reviews");
+    flushSync();
+    expect(stack()?.classList.contains("top")).toBe(true);
+    mainView.close(false);
+    flushSync();
+    expect(stack()?.classList.contains("top")).toBe(false);
+  });
+
   it("counts waiting requests in the window title", async () => {
     const core = new FakeAgentCore();
     app = mount(TestHost, { target, props: { transport: core, workspace: new Workspace() } });

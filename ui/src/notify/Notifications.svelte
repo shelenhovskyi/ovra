@@ -106,6 +106,8 @@ function showApprovals(): void {
 const urgent = $derived(shown.filter((t) => t.level !== "info"));
 const polite = $derived(shown.filter((t) => t.level === "info"));
 
+/** Reviews keeps its decision (Keep changes, Discard) at the bottom: the stack sits at the top there. */
+const reviewsOpen = $derived(mainView.current === "reviews");
 /** The gap under the stack, as in the styles. */
 const BOTTOM = 32;
 let stack = $state<HTMLElement>();
@@ -177,7 +179,7 @@ $effect(() => {
     <button type="button" class="act" onclick={showApprovals}>Show</button>
   </div>
 {/if}
-<div class="notifications" class:top={atTop} data-testid="notifications" bind:this={stack}>
+<div class="notifications" class:top={atTop || reviewsOpen} data-testid="notifications" bind:this={stack}>
   <div aria-live="assertive">
     {#each urgent as item (item.id)}{@render toast(item)}{/each}
   </div>
