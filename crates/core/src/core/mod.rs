@@ -723,6 +723,8 @@ impl Core {
             ProjectsRequest::Remove { id } => {
                 let changing = self.changing_secrets().await;
                 store.get(&id)?;
+                // A task across repositories still has its copy of it.
+                crate::orchestration::refuse_linked(self, &id)?;
                 // Its id is never reused, so its secrets could not be
                 // listed again: they go first, and a keychain error keeps
                 // the project.

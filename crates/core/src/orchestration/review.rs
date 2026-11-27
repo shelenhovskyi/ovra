@@ -211,6 +211,18 @@ fn workspace_in(core: &Core, session: &SessionId, linked: Option<ProjectId>, wor
     orchestration.save(&state);
 }
 
+/// [`super::tasks::clean_up`] after a decision on an item of `project`:
+/// for an item of a linked repository, the task's own project's too,
+/// where its worker is listed.
+async fn clean_up(core: &Core, project: ProjectId, session: SessionId) {
+    super::tasks::clean_up(core, &project).await;
+    if let Some(main) = super::repos::task_repos(core, &session).first()
+        && *main != project
+    {
+        super::tasks::clean_up(core, main).await;
+    }
+}
+
 /// Records the person's decision on `item` in the audit log.
 fn audit(core: &Core, item: &ReviewItem, action: ReviewAction) {
     let event = AuditEvent::ReviewDecided {
@@ -327,8 +339,12 @@ pub(super) async fn handle(core: &Core, request: ReviewRequest) -> Result<Respon
             fingerprint,
             include_protected,
         } => {
-            // A check still running must not touch files being applied.
-            super::check::forget(core, &find(core, &id)?.session);
+            // A check still running must not touch files being applied;
+            // it runs in the main repository's copy only.
+            let entry = find(core, &id)?;
+            if main_item(core, &entry) {
+                super::check::forget(core, &entry.session);
+            }
             let choice = Approval {
                 commit,
                 reviewed: fingerprint,
@@ -344,7 +360,7 @@ pub(super) async fn handle(core: &Core, request: ReviewRequest) -> Result<Respon
             };
             audit(core, &item, action);
             prune(core, &item.project).await;
-            super::tasks::clean_up(core, &item.project).await;
+            clean_up(core, item.project.clone(), item.session.clone()).await;
             let what = if item.state == ReviewState::PartlyApproved {
                 "had its work approved by the person, except files the person had changed too, that wait for the direct session, or protected files the person did not include: those were not copied and wait for the person"
             } else if conflicts.is_empty() {
@@ -356,12 +372,15 @@ pub(super) async fn handle(core: &Core, request: ReviewRequest) -> Result<Respon
             Ok(done((item, conflicts, Vec::new())))
         }
         ReviewRequest::Reject { id } => {
-            super::check::forget(core, &find(core, &id)?.session);
+            let entry = find(core, &id)?;
+            if main_item(core, &entry) {
+                super::check::forget(core, &entry.session);
+            }
             let outcome = reject(core, &id).await?;
             audit(core, &outcome.0, ReviewAction::Rejected);
             end_other_keeps(core, &outcome.0).await;
             prune(core, &outcome.0.project).await;
-            super::tasks::clean_up(core, &outcome.0.project).await;
+            clean_up(core, outcome.0.project.clone(), outcome.0.session.clone()).await;
             super::tasks::tell_coordinator(
                 core,
                 &outcome.0.session,
@@ -382,7 +401,7 @@ pub(super) async fn handle(core: &Core, request: ReviewRequest) -> Result<Respon
                 e.kept = None;
             })?;
             end_keep_undo(core, &entry).await;
-            super::tasks::clean_up(core, &entry.project).await;
+            clean_up(core, entry.project.clone(), entry.session.clone()).await;
             let resolved = item(core, &entry).await?;
             // The person settled what was left: the work counts as approved.
             audit(core, &resolved, ReviewAction::Approved);
@@ -396,7 +415,7 @@ pub(super) async fn handle(core: &Core, request: ReviewRequest) -> Result<Respon
             audit(core, &outcome.0, ReviewAction::Taken);
             end_other_keeps(core, &outcome.0).await;
             prune(core, &outcome.0.project).await;
-            super::tasks::clean_up(core, &outcome.0.project).await;
+            clean_up(core, outcome.0.project.clone(), outcome.0.session.clone()).await;
             Ok(done(outcome))
         }
         ReviewRequest::UndoTake { id } => {
@@ -475,8 +494,31 @@ pub(super) fn find(core: &Core, id: &ReviewId) -> Result<Entry> {
 /// The session's latest review item in its own project; a worker across
 /// repositories has more in the others ([`of_session_in`]).
 pub(super) fn of_session(core: &Core, session: &SessionId) -> Option<Entry> {
-    let project = core.sessions().find(session, |s| s.info().project).ok()?;
-    of_session_in(core, session, &project)
+    match own_project(core, session) {
+        Some(project) => of_session_in(core, session, &project),
+        // Not a worker and not kept: its latest item, as always.
+        None => core
+            .orchestration_state()
+            .lock()
+            .reviews
+            .iter()
+            .rev()
+            .find(|r| &r.session == session)
+            .cloned(),
+    }
+}
+
+/// `session`'s own project: its task's for a worker, else its own as the
+/// sessions know it; `None` if neither knows it.
+fn own_project(core: &Core, session: &SessionId) -> Option<ProjectId> {
+    let task = core
+        .orchestration_state()
+        .lock()
+        .tasks
+        .iter()
+        .find(|t| t.has_session(session))
+        .map(|t| t.project.clone());
+    task.or_else(|| core.sessions().find(session, |s| s.info().project).ok())
 }
 
 /// The session's latest review item in `project`.
@@ -497,9 +539,7 @@ pub(super) fn of_session_in(
 /// `entry` is its session's item in the session's own project, not one of
 /// a linked repository. Unknown sessions count as their own.
 fn main_item(core: &Core, entry: &Entry) -> bool {
-    core.sessions()
-        .find(&entry.session, |s| s.info().project)
-        .map_or(true, |p| p == entry.project)
+    own_project(core, &entry.session).is_none_or(|p| p == entry.project)
 }
 
 /// The base of `session`'s last decision, if nothing of its work waits for
@@ -1027,7 +1067,10 @@ async fn approve(
         return Ok((item(core, &entry).await?, outcome.conflicts));
     }
     let root = core.root(&entry.project)?;
-    servers_stopped(core, &entry.session).await?;
+    // The servers run in the main repository's copy only.
+    if main_item(core, &entry) {
+        servers_stopped(core, &entry.session).await?;
+    }
     let ws = entry.workspace.clone();
     let worktrees = core.worktrees();
     // Only what the person reviewed may land: everything below reads and
@@ -1215,7 +1258,10 @@ async fn take(
             )
         });
     }
-    servers_stopped(core, &entry.session).await?;
+    // The servers run in the main repository's copy only.
+    if main_item(core, &entry) {
+        servers_stopped(core, &entry.session).await?;
+    }
     let ws = entry.workspace.clone();
     let worktrees = core.worktrees();
     // Since the approve the base is the worktree as the person approved it.
@@ -1502,7 +1548,9 @@ async fn reject(core: &Core, id: &ReviewId) -> Result<(ReviewItem, Vec<String>, 
         e.decided = files;
         e.decided_diffs = diffs;
     })?;
-    super::overlap::discarded(core, &entry.session);
+    if main_item(core, &entry) {
+        super::overlap::discarded(core, &entry.session);
+    }
     Ok((item(core, &entry).await?, Vec::new(), restored))
 }
 

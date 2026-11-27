@@ -30,9 +30,13 @@ and reviews and lands two unrelated results.
 2. **Protocol.** `orchestration.start` with `solo` takes `repos`: the ids of
    the linked projects. The core refuses `repos` without `solo`, with
    `attempt_of`, the task's own project, a project twice, more than three,
-   a project that is not a git repository, and a provider that cannot add
-   folders (only Claude can, for now). `Task.repos` and `Worker.repos`
-   (project, worktree, branch) tell clients.
+   a project that is not a git repository, a project with agent
+   configuration (`.claude`, skills, hooks) the person has not trusted as
+   it is now, since the CLI may load an added folder's own skills and
+   trust is decided for the main folder only, and a provider that cannot
+   add folders (only Claude can, for now). `Worker.repos` (project,
+   worktree, branch) tells clients. A project a task still has a copy of
+   cannot be removed from the list until the task is cleaned up.
 3. **Copies.** The worker gets one worktree per repository, made the way a
    worker's worktree is made today: a snapshot of that repository's main
    checkout, branch `ovra/<task>/<name>` in that repository, worktree
@@ -40,16 +44,17 @@ and reviews and lands two unrelated results.
    none stay and the start fails with that repository's name.
 4. **The agent.** It works in the main repository's copy and gets each
    linked copy with `--add-dir`. Its first message names every copy and
-   its project's name, so it knows where `frontend` is. Ovra's notes and
-   tools that name files name a linked repository's file as
-   `<project name>/<path>`.
+   its project's name, so it knows where `frontend` is.
 5. **Sandbox.** Each linked copy is one more work dir
    (`SandboxProfile::more_work_dirs`): readable and writable, with the same
    protected paths as the main one (`.git` internals, hooks, agent
    configuration). The main checkouts stay hidden, as today. A sandbox
    that cannot protect more work dirs (macOS and Windows for now) refuses
    the profile, so the task does not start rather than start with less
-   protection. The netproxy allowlist is the main project's.
+   protection. Where no sandbox runs at all (for now macOS with its
+   sandbox off), the session runs unsandboxed with the copies added, as
+   every session there does, and says so. The netproxy allowlist is the
+   main project's.
 6. **Policies.** A file tool's path inside a linked copy is judged by that
    project's rules, relative to its copy. A deny or ask rule of any of
    the task's projects holds; an allow rule of a linked project allows
@@ -65,7 +70,9 @@ and reviews and lands two unrelated results.
    the session's items together under the task's name, each entry naming
    its repository, and the item says which other repositories the task
    changed. Keep moves on to the next item, so the next repository comes
-   up. There is no "Keep all": each repository's diff is kept only after
+   up. Only the main item counts as the agent's `request_review` and
+   carries its summary; linked items show when they have changes, with
+   the same summary. There is no "Keep all": each repository's diff is kept only after
    the person saw it, as today. A comment on any of them goes to the one
    session. Checks across items of other workers compare only items of
    the same repository.
@@ -99,3 +106,5 @@ and reviews and lands two unrelated results.
   and `backend/` that is not a repository itself).
 - Other providers, once their runtime can add folders.
 - One pull request description that links the others.
+- Ovra's notes and tools naming a linked repository's file as
+  `<project name>/<path>`; they name absolute paths for now.

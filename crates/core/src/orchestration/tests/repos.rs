@@ -92,7 +92,38 @@ async fn one_agent_changes_two_repositories_each_in_its_own_copy() {
     assert_eq!(api_item.files[0].path, "lib.rs");
     assert_eq!(list(&f.core, "p2").await.len(), 2);
 
-    // Keeping the api item lands in the api repository only.
+    // While it works, its copy is no leftover of api, and api stays listed.
+    let leftovers = json!({"method": "orchestration.leftovers", "params": {"project": "p2"}});
+    let Response::Orchestration(OrchestrationResponse::Leftovers(left)) =
+        ok(&f.core, leftovers).await
+    else {
+        panic!("no leftovers");
+    };
+    assert!(left.is_empty(), "{left:?}");
+    let remove = json!({"method": "projects.remove", "params": {"id": "p2"}});
+    assert_eq!(code(call(&f.core, remove).await), ErrorCode::Conflict);
+
+    // The main item first: nothing lands in api.
+    let main_item = items.iter().find(|i| i.project.0 == "p1").cloned();
+    let main_item = main_item.unwrap_or_else(|| panic!("no main item"));
+    let reject = json!({"method": "review.reject", "params": {"id": main_item.id.0}});
+    ok(&f.core, reject).await;
+    assert_eq!(
+        f.wt.files(API).get("lib.rs").map(String::as_str),
+        Some("pub fn v1() {}\n")
+    );
+    // Stopped with one repository still undecided, both copies stay.
+    ok(
+        &f.core,
+        json!({"method": "orchestration.stop", "params": {"task": task.id.0}}),
+    )
+    .await;
+    until(&mut rx, &worker.session.0, AgentStatus::Stopped).await;
+    let tasks = json!({"method": "orchestration.list", "params": {"project": "p1"}});
+    ok(&f.core, tasks).await;
+    assert!(f.wt.has(&copy.worktree) && f.wt.has(&worker.worktree));
+    // Keeping the api item last lands in api only, and both copies go with
+    // their branches, without another look at the task.
     let keep = json!({"method": "review.approve", "params": {
         "id": api_item.id.0, "commit": null, "fingerprint": api_item.fingerprint}});
     ok(&f.core, keep).await;
@@ -104,28 +135,6 @@ async fn one_agent_changes_two_repositories_each_in_its_own_copy() {
         f.wt.files(ROOT).get("a.rs").map(String::as_str),
         Some("one\n")
     );
-
-    // Stopped with one repository still undecided, both copies stay.
-    ok(
-        &f.core,
-        json!({"method": "orchestration.stop", "params": {"task": task.id.0}}),
-    )
-    .await;
-    until(&mut rx, &worker.session.0, AgentStatus::Stopped).await;
-    let tasks = json!({"method": "orchestration.list", "params": {"project": "p1"}});
-    ok(&f.core, tasks.clone()).await;
-    assert!(f.wt.has(&copy.worktree) && f.wt.has(&worker.worktree));
-    // Once that one is decided, both go, with their branches.
-    let main_item = items
-        .iter()
-        .find(|i| i.project.0 == "p1")
-        .map(|i| i.id.0.clone());
-    ok(
-        &f.core,
-        json!({"method": "review.reject", "params": {"id": main_item}}),
-    )
-    .await;
-    ok(&f.core, tasks).await;
     assert!(!f.wt.has(&copy.worktree) && !f.wt.has(&worker.worktree));
     let deleted =
         f.wt.deleted_branches
@@ -133,6 +142,9 @@ async fn one_agent_changes_two_repositories_each_in_its_own_copy() {
             .map(|d| d.clone())
             .unwrap_or_default();
     assert_eq!(deleted.len(), 2, "{deleted:?}");
+    // Now api can go.
+    let remove = json!({"method": "projects.remove", "params": {"id": "p2"}});
+    ok(&f.core, remove).await;
 }
 
 #[tokio::test]
@@ -188,4 +200,33 @@ async fn linked_repositories_are_refused_unless_they_fit() {
             .unwrap_or(false)
     );
     assert!(!f.wt.has(format!("{WORKTREES}/p1/t1/agent")));
+}
+
+#[tokio::test]
+async fn a_linked_project_with_untrusted_agent_settings_is_refused() {
+    let f = fx_api().await;
+    let config = crate::protocol::agents::ProjectAgentConfig {
+        fingerprint: "f1".into(),
+        items: vec![crate::protocol::agents::ConfigItem {
+            path: ".claude/commands/x.md".into(),
+            kind: crate::protocol::agents::ConfigKind::Commands,
+            entries: vec!["x".into()],
+        }],
+    };
+    if let Ok(mut configs) = f.agent.configs.lock() {
+        configs.insert(PathBuf::from(API), config);
+    }
+    let err = call(&f.core, linked(json!(["p2"]))).await.err();
+    assert!(
+        err.as_ref()
+            .is_some_and(|e| e.code == ErrorCode::BadRequest && e.message.contains("not trusted")),
+        "{err:?}"
+    );
+    // Trusted as it is, it may go.
+    ok(
+        &f.core,
+        json!({"method": "projects.trust", "params": {"id": "p2", "trusted": true, "fingerprint": "f1"}}),
+    )
+    .await;
+    ok(&f.core, linked(json!(["p2"]))).await;
 }

@@ -696,13 +696,20 @@ pub(super) async fn leftovers(core: &Core, project: &ProjectId) -> Result<Vec<Le
         let guard = state.lock();
         let workers = guard.tasks.iter().flat_map(|t| &t.workers);
         // A worker still starting has its folder being made, under the
-        // path `tasks::create_worker` gives it.
+        // path `tasks::create_worker` gives it; one across repositories
+        // has its copies of this project made under the same task and
+        // name (task ids are unique across projects).
         let starting = guard.tasks.iter().flat_map(|t| {
-            let task = dir.join(&t.project.0).join(&t.id.0);
-            t.starting_names().map(move |name| task.join(name))
+            let own = dir.join(&t.project.0).join(&t.id.0);
+            let here = dir.join(&project.0).join(&t.id.0);
+            t.starting_names()
+                .flat_map(move |name| [own.join(name), here.join(name)])
         });
         workers
-            .map(|w| PathBuf::from(&w.worktree))
+            .flat_map(|w| {
+                std::iter::once(PathBuf::from(&w.worktree))
+                    .chain(w.repos.iter().map(|c| PathBuf::from(&c.worktree)))
+            })
             .chain(starting)
             .collect()
     };

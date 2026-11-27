@@ -64,14 +64,23 @@ pub(super) async fn check(
             return Err(bad("each repository can be in a task once"));
         }
         let found = core.project_store().get(repo)?;
-        if core
-            .worktrees()
-            .snapshot(PathBuf::from(&found.root))
-            .await
-            .is_err()
-        {
+        let root = PathBuf::from(&found.root);
+        if core.worktrees().look(root.clone()).await.is_err() {
             return Err(bad(format!(
                 "{} is not a git repository, so the agent cannot get its own copy of it",
+                found.name
+            )));
+        }
+        // The CLI may load an added folder's own skills and settings, and
+        // trust is decided for the main folder only: a linked project with
+        // agent configuration must be trusted as it is now.
+        let config = core.agents_ctx().runtime.project_config(root).await?;
+        let trusted = core.project_store().trusted_config(repo)?;
+        let applies = trusted.is_some_and(|t| t.fingerprint == config.fingerprint);
+        if !config.items.is_empty() && !applies {
+            return Err(bad(format!(
+                "{} has its own agent settings (such as .claude or skills) that you have not \
+                 trusted as they are now. Trust them for that project first, or leave it out",
                 found.name
             )));
         }
@@ -331,4 +340,27 @@ pub(super) async fn remove_settled(
         state.save(&guard);
     }
     Ok(())
+}
+
+/// Refuses to let go of `project` while a worker still has a copy of it as
+/// a linked repository: its rules, review items and copy would be lost.
+pub(crate) fn refuse_linked(core: &Core, project: &ProjectId) -> Result<()> {
+    let state = core.orchestration_state();
+    let guard = state.lock();
+    let task = guard.tasks.iter().find(|t| {
+        t.workers
+            .iter()
+            .any(|w| w.repos.iter().any(|c| &c.project == project))
+    });
+    match task {
+        Some(task) => Err(ProtocolError::new(
+            ErrorCode::Conflict,
+            format!(
+                "an agent's task ({}) still has its own copy of this project: stop the task and \
+                 decide its changes in Reviews first",
+                task.id.0
+            ),
+        )),
+        None => Ok(()),
+    }
 }

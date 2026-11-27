@@ -646,10 +646,12 @@ pub(crate) fn decide(
 
 /// [`decide`] for a worker across repositories
 /// (`docs/specs/multi-repo.md`): `main` is its project's policy and folder,
-/// `linked` each linked repository's policy and copy. A deny or ask of any
-/// of them holds; an auto rule of a linked one allows only a file tool
-/// whose every path is in that copy (its matching already needs that),
-/// so commands and fetches are allowed by the main rules alone.
+/// `linked` each linked repository's policy and copy. Relative paths are
+/// the agent's, so they are made absolute against the main folder first.
+/// A deny or ask of any of them holds; an auto rule of a linked one allows
+/// only a file tool that names paths, every one inside that copy, so
+/// commands, fetches and paths elsewhere are allowed by the main rules
+/// alone.
 pub(crate) fn decide_across(
     main: (&Policy, &Path),
     linked: &[(Policy, std::path::PathBuf)],
@@ -660,6 +662,15 @@ pub(crate) fn decide_across(
     if tool == PUSH_TOOL || tool == keys::KEY_TOOL {
         return None;
     }
+    let absolute = ToolCall {
+        paths: call
+            .paths
+            .iter()
+            .map(|p| main.1.join(p).to_string_lossy().into_owned())
+            .collect(),
+        ..call.clone()
+    };
+    let call = &absolute;
     let parts = || std::iter::once(main).chain(linked.iter().map(|(p, d)| (p, d.as_path())));
     let matching = |policy: &Policy, dir: &Path, action: PolicyAction| {
         policy
@@ -682,10 +693,12 @@ pub(crate) fn decide_across(
         return Some(found);
     }
     let file_tool = matches!(call.kind, ToolKind::Read | ToolKind::Edit)
-        && matches!(matched_kind(tool), Some(ToolKind::Read | ToolKind::Edit));
+        && matches!(matched_kind(tool), Some(ToolKind::Read | ToolKind::Edit))
+        && !call.paths.is_empty();
     linked
         .iter()
         .filter(|_| file_tool)
+        .filter(|(_, d)| call.paths.iter().all(|p| inside(d, Path::new(p)).is_some()))
         .find_map(|(p, d)| matching(p, d, PolicyAction::Auto))
 }
 

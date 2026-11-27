@@ -36,7 +36,7 @@ pub(crate) use board::claimed_write;
 pub use ide::{Output, WorkerState};
 pub(crate) use policy::{IDE_TOOL_PREFIX, decide};
 pub use push::{PushArgs, Pushed};
-pub(crate) use repos::{linked, linked_projects};
+pub(crate) use repos::{linked, linked_projects, refuse_linked};
 
 use crate::Core;
 use crate::protocol::agents::{AgentStatus, SessionId};

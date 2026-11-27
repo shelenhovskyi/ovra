@@ -1166,6 +1166,7 @@ fn a_linked_repositorys_rules_decide_paths_in_its_copy() {
         Policy {
             rules: vec![
                 rule("Edit", Some("src/**"), PolicyAction::Auto),
+                rule("Read", None, PolicyAction::Auto),
                 rule("Edit", Some("src/keys.rs"), PolicyAction::Deny),
                 rule("Bash", Some("cargo test"), PolicyAction::Auto),
                 rule("Bash", Some("rm"), PolicyAction::Ask),
@@ -1204,6 +1205,21 @@ fn a_linked_repositorys_rules_decide_paths_in_its_copy() {
     // The main rules do not reach into the copy, nor its rules out of it.
     assert_eq!(decide("Edit", edit(file(api, "docs/a.md"))), None);
     assert_eq!(decide("Edit", edit(file(WORK, "src/lib.rs"))), None);
+    // A linked rule without a pattern stays in its copy, and a relative
+    // path is the main folder's.
+    let read = |path: String| json!({"file_path": path});
+    assert_eq!(
+        decide("Read", read(file(api, "x.rs"))),
+        Some(PolicyAction::Auto)
+    );
+    assert_eq!(decide("Read", read(file(WORK, "x.rs"))), None);
+    let elsewhere = if cfg!(windows) {
+        "C:\\etc\\x"
+    } else {
+        "/etc/x"
+    };
+    assert_eq!(decide("Read", read(elsewhere.to_owned())), None);
+    assert_eq!(decide("Edit", edit("src/lib.rs".to_owned())), None);
     // Commands are allowed by the main rules only; any deny or ask holds.
     let bash = |command: &str| json!({"command": command});
     assert_eq!(decide("Bash", bash("cargo test")), None);
