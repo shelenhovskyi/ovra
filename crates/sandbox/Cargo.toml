@@ -24,3 +24,4 @@ workspace = true
 
 [dev-dependencies]
 tempfile = "3"
+ovra-core = { workspace = true, features = ["fakes"] }

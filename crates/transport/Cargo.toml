@@ -10,6 +10,8 @@ publish = false
 [features]
 default = []
 ws = ["dep:axum", "dep:futures-util", "dep:tokio", "dep:tracing"]
+# One client over stdin and stdout: `ovra-daemon --stdio` (ADR 0016).
+stdio = ["dep:futures-util", "dep:tokio"]
 
 [dependencies]
 ovra-core.workspace = true
@@ -17,13 +19,13 @@ serde.workspace = true
 serde_json.workspace = true
 axum = { workspace = true, optional = true }
 futures-util = { workspace = true, optional = true }
-tokio = { workspace = true, optional = true }
+tokio = { workspace = true, optional = true, features = ["io-util", "time"] }
 tracing = { workspace = true, optional = true }
 
 [dev-dependencies]
 insta.workspace = true
 ovra-core = { workspace = true, features = ["fakes"] }
-tokio.workspace = true
+tokio = { workspace = true, features = ["io-util", "time", "test-util"] }
 tokio-tungstenite.workspace = true
 futures-util.workspace = true
 

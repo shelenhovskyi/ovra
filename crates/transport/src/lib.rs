@@ -8,6 +8,8 @@
 //!   or `{"event": ...}`
 
 mod frame;
+#[cfg(feature = "stdio")]
+pub mod stdio;
 #[cfg(feature = "ws")]
 pub mod ws;
 

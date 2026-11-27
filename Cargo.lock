@@ -3597,6 +3597,7 @@ dependencies = [
  "ovra-worktree",
  "rand 0.9.5",
  "serde_json",
+ "tempfile",
  "tokio",
  "tower-http",
  "tracing",

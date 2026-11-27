@@ -13,7 +13,7 @@ use ovra_agent_runtime::ClaudeCli;
 use ovra_core::Core;
 use ovra_core::services::{
     AgentRuntime, Browser, DevServers, Forge, KeepAwake, LanguageServers, RemoteAccess,
-    ResourceMonitor, Secrets,
+    ResourceMonitor, Sandbox, SandboxStatus, Secrets,
 };
 use ovra_forge::GhForge;
 use ovra_fs_index::FsIndex;
@@ -39,9 +39,18 @@ struct Args {
     /// Directory with the built UI (`pnpm --dir ui build`).
     #[arg(long, default_value = "ui/dist")]
     ui_dir: PathBuf,
-    /// Where the project list and other state are kept.
-    #[arg(long, default_value = ".ovra-data")]
+    /// Where the project list and other state are kept. Default:
+    /// `.ovra-data`, or with `--stdio` `$XDG_DATA_HOME/ovra` (else
+    /// `~/.local/share/ovra`).
+    #[arg(long = "data-dir")]
+    data_dir_flag: Option<PathBuf>,
+    #[arg(skip)]
     data_dir: PathBuf,
+    /// Serves one client over stdin and stdout instead of a port and the UI:
+    /// a remote machine reached over SSH (ADR 0016). Nothing runs for
+    /// agents without a working sandbox.
+    #[arg(long)]
+    stdio: bool,
     /// Runs a scripted fake agent instead of the user's `claude` (tests and UX reviews).
     #[cfg(feature = "fake-agent")]
     #[arg(long)]
@@ -81,8 +90,40 @@ impl Args {
     /// core checks agents' absolute file paths against them (board claims,
     /// policies), which a relative folder would never match.
     fn absolute(mut self) -> anyhow::Result<Self> {
-        self.data_dir = std::path::absolute(&self.data_dir).context("resolving --data-dir")?;
+        let dir = match (self.data_dir_flag.take(), self.stdio) {
+            (Some(dir), _) => dir,
+            (None, false) => PathBuf::from(".ovra-data"),
+            (None, true) => remote_data_dir().context("finding the data directory")?,
+        };
+        self.data_dir = std::path::absolute(dir).context("resolving --data-dir")?;
         Ok(self)
+    }
+}
+
+/// `$XDG_DATA_HOME/ovra`, else `~/.local/share/ovra`.
+fn remote_data_dir() -> Option<PathBuf> {
+    let xdg = std::env::var_os("XDG_DATA_HOME")
+        .map(PathBuf::from)
+        .filter(|dir| dir.is_absolute());
+    let base = xdg.or_else(|| {
+        let home = PathBuf::from(std::env::var_os("HOME")?);
+        Some(home.join(".local").join("share"))
+    })?;
+    Some(base.join("ovra"))
+}
+
+/// The sandbox agents, language servers, dev servers and the browser run
+/// in. With `--stdio` it refuses to run anything when the machine has no
+/// working sandbox, instead of running it unsandboxed.
+fn services_sandbox(args: &Args) -> Arc<dyn Sandbox> {
+    services_sandbox_from(ovra_sandbox::for_this_os(&args.data_dir), args.stdio)
+}
+
+fn services_sandbox_from(sandbox: Arc<dyn Sandbox>, stdio: bool) -> Arc<dyn Sandbox> {
+    if stdio {
+        Arc::new(ovra_sandbox::Required::new(sandbox))
+    } else {
+        sandbox
     }
 }
 
@@ -95,6 +136,9 @@ async fn serve() -> anyhow::Result<()> {
         .with_writer(std::io::stderr)
         .init();
     let args = Args::parse().absolute()?;
+    if args.stdio {
+        return serve_stdio(&args).await;
+    }
 
     // Loopback only: headless mode must never be reachable from the network.
     let listener =
@@ -115,33 +159,13 @@ async fn serve() -> anyhow::Result<()> {
     }
     let static_files = ServeDir::new(&args.ui_dir).fallback(ServeFile::new(index));
     std::fs::create_dir_all(&args.data_dir).context("creating the data directory")?;
-    let store = Arc::new(Store::open(&args.data_dir)?);
-    let secrets: Arc<dyn Secrets> = Arc::new(KeychainSecrets::new(&args.data_dir));
     // Dropped last, after the core and its pods.
     let (dev_servers, _servers_dir) = dev_servers(&args)?;
     let (remote, restore) = phone_access(&args);
-    let core = Core::builder("headless")
-        .secrets(secrets.clone())
-        .projects(store.clone())
-        .sessions(store.clone())
-        .audit(store)
-        .fs(Arc::new(FsIndex::new()))
+    let core = services(&args, Core::builder("headless"), dev_servers)?
         .opener(Arc::new(SystemOpener::new()))
-        .worktrees(Arc::new(GitWorktrees::new()))
-        .git(Arc::new(GitRepo::new()))
-        .worktrees_dir(args.data_dir.join("worktrees"))
-        .ide_tools(Arc::new(IdeServer::new()))
-        .terminals(Arc::new(Pty::new()))
-        .netproxy(Arc::new(ovra_netproxy::NetProxies::from_env(secrets)?))
-        .lsp(language_servers(&args))
-        .agents(agents(&args))
-        .dev_servers(dev_servers)
-        .browser(agent_browser(&args))
-        .forge(forge(&args))
-        .resources(resources(&args))
         .keep_awake(keep_awake(&args))
         .remote(remote)
-        .sandbox(ovra_sandbox::for_this_os(&args.data_dir))
         .build();
     if let Some(server) = restore {
         server.restore(core.clone());
@@ -164,6 +188,124 @@ async fn serve() -> anyhow::Result<()> {
         })
         .await?;
     Ok(())
+}
+
+/// The services headless mode and `--stdio` share: everything but the
+/// opener, phone access and keeping the computer awake, which a remote
+/// machine never gets.
+fn services(
+    args: &Args,
+    builder: ovra_core::CoreBuilder,
+    dev_servers: Arc<dyn DevServers>,
+) -> anyhow::Result<ovra_core::CoreBuilder> {
+    let store = Arc::new(Store::open(&args.data_dir)?);
+    let secrets: Arc<dyn Secrets> = Arc::new(KeychainSecrets::new(&args.data_dir));
+    Ok(builder
+        .secrets(secrets.clone())
+        .projects(store.clone())
+        .sessions(store.clone())
+        .audit(store)
+        .fs(Arc::new(FsIndex::new()))
+        .worktrees(Arc::new(GitWorktrees::new()))
+        .git(Arc::new(GitRepo::new()))
+        .worktrees_dir(args.data_dir.join("worktrees"))
+        .ide_tools(Arc::new(IdeServer::new()))
+        .terminals(Arc::new(Pty::new()))
+        .netproxy(Arc::new(ovra_netproxy::NetProxies::from_env(secrets)?))
+        .lsp(language_servers(args))
+        .agents(agents(args))
+        .dev_servers(dev_servers)
+        .browser(agent_browser(args))
+        .forge(forge(args))
+        .resources(resources(args))
+        .sandbox(ovra_sandbox::for_this_os(&args.data_dir)))
+}
+
+/// `--stdio`: one client, the laptop's Ovra over the person's `ssh`
+/// (ADR 0016, `docs/specs/ssh-remotes.md`). No port and no UI. Sessions
+/// stop when the client goes or stays silent for a minute.
+async fn serve_stdio(args: &Args) -> anyhow::Result<()> {
+    private_dir(&args.data_dir)?;
+    let Some(lock) = lock_data_dir(&args.data_dir, 40).await? else {
+        // Another `--stdio` core still uses this data (a laptop that went
+        // away less than a minute ago).
+        println!("{}", ovra_transport::stdio::BUSY);
+        anyhow::bail!(
+            "another ovra-daemon --stdio uses {}",
+            args.data_dir.display()
+        );
+    };
+    let no_sandbox = match ovra_sandbox::for_this_os(&args.data_dir).status() {
+        SandboxStatus::Available { .. } => None,
+        SandboxStatus::Unavailable { reason } => Some(reason),
+    };
+    if let Some(reason) = &no_sandbox {
+        tracing::warn!(%reason, "no sandbox: nothing runs for agents on this machine");
+    }
+    // Dropped last, after the core and its pods.
+    let (dev_servers, _servers_dir) = dev_servers(args)?;
+    let core = services(args, Core::builder("remote"), dev_servers)?.build();
+    let hello = ovra_transport::stdio::Hello {
+        version: env!("CARGO_PKG_VERSION").to_owned(),
+        protocol: ovra_transport::stdio::PROTOCOL,
+        os: std::env::consts::OS.to_owned(),
+        no_sandbox,
+    };
+    let input = tokio::io::BufReader::new(tokio::io::stdin());
+    let ended = ovra_transport::stdio::serve(core, input, tokio::io::stdout(), &hello).await;
+    tracing::info!(?ended, "the client went away; stopping");
+    // Held until the process exits: its sessions, pods and servers end
+    // only when the runtime shuts down, after this returns.
+    std::mem::forget(lock);
+    Ok(())
+}
+
+/// Makes `dir` and keeps it to this user alone (0700). A symlink, or a
+/// folder this user cannot make private, is refused.
+fn private_dir(dir: &std::path::Path) -> anyhow::Result<()> {
+    let mut builder = std::fs::DirBuilder::new();
+    builder.recursive(true);
+    #[cfg(unix)]
+    std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
+    builder.create(dir).context("creating the data directory")?;
+    let meta = std::fs::symlink_metadata(dir).context("reading the data directory")?;
+    anyhow::ensure!(meta.is_dir(), "{} is not a folder", dir.display());
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700))
+            .context("making the data directory private")?;
+    }
+    Ok(())
+}
+
+/// Holds `<dir>/stdio.lock` for this process, trying `tries` times 250 ms
+/// apart (40: 10 s) while a core is still stopping; `None` when it stays
+/// taken.
+async fn lock_data_dir(dir: &std::path::Path, tries: u32) -> anyhow::Result<Option<std::fs::File>> {
+    let path = dir.join("stdio.lock");
+    if std::fs::symlink_metadata(&path).is_ok_and(|m| m.file_type().is_symlink()) {
+        anyhow::bail!("{} is a symlink", path.display());
+    }
+    let file = std::fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(&path)
+        .context("opening the lock file")?;
+    for attempt in 0..tries {
+        if attempt > 0 {
+            tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+        }
+        match file.try_lock() {
+            Ok(()) => return Ok(Some(file)),
+            Err(std::fs::TryLockError::WouldBlock) => {}
+            Err(std::fs::TryLockError::Error(e)) => {
+                return Err(e).context("locking the data directory");
+            }
+        }
+    }
+    Ok(None)
 }
 
 /// Phone access (ADR 0014), serving the mobile app from the same build,
@@ -398,14 +540,14 @@ fn agent_browser(args: &Args) -> Arc<dyn Browser> {
 
 /// The user's Chromium found on `PATH`, in the sandbox; never downloaded.
 fn chromium(args: &Args) -> Arc<dyn Browser> {
-    let sandbox = ovra_sandbox::for_this_os(&args.data_dir);
+    let sandbox = services_sandbox(args);
     Arc::new(ovra_browser::ChromiumBrowser::new(sandbox, None))
 }
 
 #[cfg(not(feature = "fake-agent"))]
 fn language_servers(args: &Args) -> Arc<dyn LanguageServers> {
     Arc::new(ovra_lsp::Servers::new(
-        ovra_sandbox::for_this_os(&args.data_dir),
+        services_sandbox(args),
         args.data_dir.join("lsp"),
     ))
 }
@@ -415,7 +557,7 @@ fn language_servers(args: &Args) -> Arc<dyn LanguageServers> {
 /// and `typescript` a server that is never installed.
 #[cfg(feature = "fake-agent")]
 fn language_servers(args: &Args) -> Arc<dyn LanguageServers> {
-    let sandbox = ovra_sandbox::for_this_os(&args.data_dir);
+    let sandbox = services_sandbox(args);
     let caches = args.data_dir.join("lsp");
     if !args.fake_agent {
         return Arc::new(ovra_lsp::Servers::new(sandbox, caches));
@@ -477,7 +619,7 @@ fn resources(args: &Args) -> Arc<dyn ResourceMonitor> {
 /// Claude through its own runtime, every other provider over ACP, each
 /// sandboxed for this OS.
 fn real_agents(args: &Args) -> Arc<dyn AgentRuntime> {
-    let sandbox = || ovra_sandbox::for_this_os(&args.data_dir);
+    let sandbox = || services_sandbox(args);
     Arc::new(ovra_core::runtimes::AgentRuntimes::new(vec![
         Arc::new(ClaudeCli::new(None, sandbox())),
         Arc::new(ovra_acp_client::AcpAgents::new(
@@ -665,7 +807,7 @@ fn agents(args: &Args) -> Arc<dyn AgentRuntime> {
         sandboxed,
         streaming,
         checkpoints,
-        claude: ClaudeCli::new(None, ovra_sandbox::for_this_os(&args.data_dir)),
+        claude: ClaudeCli::new(None, services_sandbox(args)),
     })
 }
 
@@ -769,7 +911,7 @@ impl Drop for ServersDir {
 /// Servers in sandbox pods, with the pods' sockets in a new private folder.
 fn pod_servers(args: &Args) -> anyhow::Result<(Arc<dyn DevServers>, ServersDir)> {
     let dir = ovra_servers::servers_dir().context("making the folder for server pods")?;
-    let servers = PodServers::new(ovra_sandbox::for_this_os(&args.data_dir), dir.clone());
+    let servers = PodServers::new(services_sandbox(args), dir.clone());
     Ok((Arc::new(servers), ServersDir(Some(dir))))
 }
 
@@ -889,6 +1031,79 @@ mod tests {
     use clap::Parser;
 
     use super::Args;
+
+    #[test]
+    fn a_remote_core_keeps_its_data_in_the_users_data_folder() {
+        let args = Args::parse_from(["ovra-daemon", "--stdio"]).absolute();
+        let args = args.unwrap_or_else(|e| panic!("{e}"));
+        assert!(args.data_dir.is_absolute());
+        assert!(
+            args.data_dir.ends_with("ovra"),
+            "{}",
+            args.data_dir.display()
+        );
+        let args = Args::parse_from(["ovra-daemon", "--stdio", "--data-dir", "/d"]).absolute();
+        assert_eq!(
+            args.map(|a| a.data_dir).ok(),
+            Some(std::path::PathBuf::from("/d"))
+        );
+    }
+
+    #[test]
+    fn a_remote_core_never_runs_agents_unsandboxed() {
+        use ovra_core::services::{CommandLine, SandboxStatus};
+        let none = std::sync::Arc::new(ovra_sandbox::Unsandboxed);
+        let line = CommandLine {
+            program: "claude".into(),
+            args: Vec::new(),
+            env: Vec::new(),
+            cwd: "/w".into(),
+        };
+        let profile = ovra_core::services::SandboxProfile {
+            kind: ovra_core::services::ProfileKind::Agent,
+            agent_state: None,
+            project: None,
+            work_env: None,
+            work_dir: "/w".into(),
+            work_dir_read_only: false,
+            read: Vec::new(),
+            write: Vec::new(),
+            expose: Vec::new(),
+            forward: Vec::new(),
+            network: ovra_core::services::ProfileNetwork::Open,
+        };
+        let remote = super::services_sandbox_from(none.clone(), true);
+        assert!(matches!(remote.status(), SandboxStatus::Available { .. }));
+        assert!(remote.wrap(&profile, line.clone()).is_err());
+        // Headless mode on the person's own computer keeps today's rule.
+        let local = super::services_sandbox_from(none, false);
+        assert!(matches!(local.status(), SandboxStatus::Unavailable { .. }));
+        assert!(local.wrap(&profile, line).is_ok());
+    }
+
+    #[tokio::test]
+    async fn a_second_remote_core_finds_the_data_taken() {
+        let dir = tempfile::tempdir().unwrap_or_else(|e| panic!("{e}"));
+        super::private_dir(dir.path()).unwrap_or_else(|e| panic!("{e}"));
+        let first = super::lock_data_dir(dir.path(), 1).await.ok().flatten();
+        assert!(first.is_some());
+        let second = super::lock_data_dir(dir.path(), 2).await.ok().flatten();
+        assert!(second.is_none());
+        drop(first);
+        assert!(
+            super::lock_data_dir(dir.path(), 1)
+                .await
+                .ok()
+                .flatten()
+                .is_some()
+        );
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(dir.path()).map(|m| m.permissions().mode() & 0o777);
+            assert_eq!(mode.ok(), Some(0o700));
+        }
+    }
 
     #[test]
     fn the_default_data_folder_is_made_absolute() {

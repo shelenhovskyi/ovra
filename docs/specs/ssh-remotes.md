@@ -72,11 +72,12 @@ Each lands on its own, in this order.
 
 - Reads one frame per line from stdin, writes one per line to stdout.
   A line over 16 MiB or one that is not a frame closes the connection.
-- The first line it writes is a hello frame, a new frame shape defined in
-  `crates/transport` and `ui/src/lib/protocol/` together and valid only as
-  the first line: `{"hello": {"version": "<crate version>", "protocol":
-  <n>, "os": "linux", "sandbox": <status>}}`. The laptop refuses any
-  version other than its own (no releases yet, so both sides are the same
+- The first line it writes is a hello frame, defined in
+  `crates/transport/src/stdio.rs` and valid only as the first line (the
+  bridge reads it; the UI never sees it):
+  `{"hello": {"version": "<crate version>", "protocol": <n>, "os": "linux"}}`,
+  with `"no_sandbox": "<reason>"` when the machine has no working sandbox.
+  The laptop refuses any version other than its own (no releases yet, so both sides are the same
   build).
 - Wires the same services as headless mode, except: no `Opener` (opening
   files in the remote machine's apps makes no sense), no `RemoteAccess`
@@ -89,17 +90,20 @@ Each lands on its own, in this order.
   person's own shell, as `ssh` would give them anyway). Running any of
   these unsandboxed on a remote machine is a follow-up that needs the owner.
 - **Liveness.** A laptop that sleeps leaves stdin open until TCP gives up,
-  often hours later. So the laptop sends a ping frame every 15 s, and the
-  core stops every session as on quit after 60 s without any frame, or at
-  once when stdin closes. Sessions and transcripts stay in the remote
+  often hours later. So the laptop sends the line `{"ping":{}}` every 15 s,
+  and the core stops every session as on quit after 60 s without any line,
+  when a line takes it more than 60 s to write, or at once when stdin
+  closes. Sessions and transcripts stay in the remote
   machine's store and can be resumed after reconnecting, only by the
   person; a reconnect never resumes anything on its own. Step 6 changes
   this.
 - **One core per data directory.** `--stdio` takes an exclusive lock on
-  the data directory. A second `--stdio` (a reconnect while the old one has
-  not timed out) asks the first to stop its sessions and quit, waits up to
-  10 s for the lock, and otherwise answers `busy`. The laptop keeps at most
-  one link per machine.
+  `stdio.lock` in the data directory. A second `--stdio` (a reconnect while
+  the old one has not timed out) waits up to 10 s for the lock, then writes
+  the single line `{"busy":{}}` instead of the hello and exits; the laptop
+  shows `busy` ("the last connection is still closing; try again in a
+  minute"). Taking over from the old core is a follow-up. The laptop keeps
+  at most one link per machine.
 - Data stays in the remote machine's own data directory
   (`~/.local/share/ovra`), created or checked as 0700 and owned by the
   user, so its projects, sessions, policies and review state belong to that

@@ -92,6 +92,58 @@ pub fn helper_if_asked() {
     ovra_sandbox_windows::helper_if_asked();
 }
 
+/// A sandbox that never lets anything run without one: where `inner` is
+/// unavailable, it says it is there so that agents, language servers, dev
+/// servers and the browser try to wrap, and every wrap fails with
+/// `inner`'s reason. They never fall back to running unsandboxed. Used by
+/// `ovra-daemon --stdio` on a remote machine (ADR 0016), where nobody
+/// watches the machine's own screen.
+#[derive(Debug)]
+pub struct Required(Arc<dyn Sandbox>);
+
+impl Required {
+    pub fn new(inner: Arc<dyn Sandbox>) -> Self {
+        Self(inner)
+    }
+
+    fn refused(reason: &str) -> ovra_core::protocol::ProtocolError {
+        ovra_core::protocol::ProtocolError::new(
+            ovra_core::protocol::ErrorCode::Unavailable,
+            format!(
+                "this machine has no working sandbox ({reason}), so nothing runs for agents here"
+            ),
+        )
+    }
+}
+
+impl Sandbox for Required {
+    fn status(&self) -> SandboxStatus {
+        match self.0.status() {
+            // Still "available", so that callers wrap and fail, but the
+            // status says why nothing will run.
+            SandboxStatus::Unavailable { reason } => SandboxStatus::Available {
+                name: format!("none: {reason}"),
+                gaps: vec![format!("nothing runs for agents here: {reason}")],
+            },
+            available => available,
+        }
+    }
+
+    fn wrap(&self, profile: &SandboxProfile, line: CommandLine) -> Result<CommandLine> {
+        match self.0.status() {
+            SandboxStatus::Unavailable { reason } => Err(Self::refused(&reason)),
+            SandboxStatus::Available { .. } => self.0.wrap(profile, line),
+        }
+    }
+
+    fn wrap_server(&self, profile: &ServerProfile, line: CommandLine) -> Result<CommandLine> {
+        match self.0.status() {
+            SandboxStatus::Unavailable { reason } => Err(Self::refused(&reason)),
+            SandboxStatus::Available { .. } => self.0.wrap_server(profile, line),
+        }
+    }
+}
+
 /// No sandbox: [`SandboxStatus::Unavailable`], and the line runs as it is.
 #[derive(Debug)]
 pub struct Unsandboxed;
@@ -153,6 +205,56 @@ mod tests {
             network: ProfileNetwork::Blocked,
         };
         assert_eq!(sandbox.wrap_server(&server, line.clone()).ok(), Some(line));
+    }
+
+    #[test]
+    fn required_never_runs_a_line_without_a_sandbox() {
+        let required = Required::new(Arc::new(Unsandboxed));
+        let SandboxStatus::Available { name, gaps } = required.status() else {
+            panic!("callers must still try to wrap");
+        };
+        assert!(name.contains("no sandbox for this system"));
+        assert!(gaps[0].starts_with("nothing runs for agents here"));
+        let line = CommandLine {
+            program: "claude".into(),
+            args: Vec::new(),
+            env: Vec::new(),
+            cwd: "/w".into(),
+        };
+        let profile = SandboxProfile {
+            kind: ovra_core::services::ProfileKind::Agent,
+            agent_state: None,
+            project: None,
+            work_env: None,
+            work_dir: "/w".into(),
+            work_dir_read_only: false,
+            read: Vec::new(),
+            write: Vec::new(),
+            expose: Vec::new(),
+            forward: Vec::new(),
+            network: ProfileNetwork::Open,
+        };
+        let refused = required.wrap(&profile, line.clone()).err();
+        assert!(refused.is_some_and(|e| e.message.contains("no sandbox for this system")));
+        let server = ServerProfile {
+            project: "/w".into(),
+            cache_dir: "/c".into(),
+            read: Vec::new(),
+            network: ProfileNetwork::Blocked,
+        };
+        assert!(required.wrap_server(&server, line.clone()).is_err());
+
+        let fake = Arc::new(ovra_core::fakes::FakeSandbox::available());
+        let real = Required::new(fake.clone());
+        assert_eq!(real.status(), fake.status());
+        assert_eq!(
+            real.wrap(&profile, line.clone()).ok(),
+            fake.wrap(&profile, line.clone()).ok()
+        );
+        assert_eq!(
+            real.wrap_server(&server, line.clone()).ok(),
+            fake.wrap_server(&server, line).ok()
+        );
     }
 
     #[test]
