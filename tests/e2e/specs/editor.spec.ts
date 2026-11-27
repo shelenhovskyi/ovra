@@ -26,6 +26,27 @@ test("edit a file with highlighting and save it to disk", async ({ page }) => {
   await expect(page.getByTestId("editor-dirty")).toBeHidden();
   expect(readFileSync(join(dir, "main.rs"), "utf8")).toBe("fn main() {\n    run();\n}\n// saved");
 
+  // Brackets close as they are typed, and Enter between a pair indents.
+  await page.keyboard.press("Enter");
+  await page.keyboard.type("fn f() {");
+  await page.keyboard.press("Enter");
+  await page.keyboard.type("x;");
+  await expect(editor.locator(".cm-line").nth(5)).toHaveText("    x;");
+  await expect(editor.locator(".cm-line").nth(6)).toHaveText("}");
+  await page.keyboard.press("ControlOrMeta+S");
+  await expect(page.getByTestId("editor-dirty")).toBeHidden();
+
+  // Local history kept the opened and both saved versions; picking one puts it back, unsaved.
+  await page.keyboard.press("ControlOrMeta+Shift+P");
+  await page.getByRole("combobox").fill("local history");
+  await page.keyboard.press("Enter");
+  await expect(page.getByRole("option")).toHaveCount(3);
+  await page.getByRole("option").last().click();
+  await expect(editor.locator(".cm-line")).toHaveCount(4);
+  await expect(page.getByTestId("editor-dirty")).toBeVisible();
+  await page.keyboard.press("ControlOrMeta+Z");
+  await expect(page.getByTestId("editor-dirty")).toBeHidden();
+
   // The breadcrumbs name the function around the cursor; its body folds and unfolds.
   await page.keyboard.press("ControlOrMeta+Home");
   // The symbols are read again 0.3 s after the last change.
