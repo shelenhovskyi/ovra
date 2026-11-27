@@ -155,6 +155,28 @@ async function submit(event: SubmitEvent): Promise<void> {
   }
 }
 
+let quietError = $state<string | null>(null);
+
+async function toggleQuiet(event: Event): Promise<void> {
+  const box = event.currentTarget as HTMLInputElement;
+  const on = box.checked;
+  if (busy) {
+    box.checked = policy.quiet;
+    return;
+  }
+  busy = true;
+  try {
+    await policy.setQuiet(on);
+    quietError = null;
+  } catch (err) {
+    quietError = reason(err);
+  } finally {
+    busy = false;
+    // What the core keeps, also after a refusal.
+    box.checked = policy.quiet;
+  }
+}
+
 async function edit(index: number, rule: PolicyRule): Promise<void> {
   editing = { index, rule };
   tool = rule.tool;
@@ -223,6 +245,32 @@ function onPaneKeydown(event: KeyboardEvent): void {
           override them, and Auto never allows a call they refuse.
         </p>
       </details>
+      <section class="quiet" aria-labelledby="policy-quiet-title">
+        <label class="check">
+          <input
+            type="checkbox"
+            checked={policy.quiet}
+            disabled={policy.rules === null}
+            aria-describedby="policy-quiet-about"
+            onchange={(event) => void toggleQuiet(event)}
+            data-testid="policy-quiet"
+          />
+          <span id="policy-quiet-title">Don't ask about what the sandbox contains</span>
+        </label>
+        <p class="muted" id="policy-quiet-about">
+          Reads and edits in the project folder, commands in an agent's own copy and web requests your allowlist lets
+          through run without asking. Protected files, git changes, commands in your own folder, keys and pushes still
+          ask. Works only where Ovra's sandbox is verified (Linux for now); elsewhere agents ask as before.
+        </p>
+        {#if policy.quiet}
+          <p class="warning" data-testid="policy-quiet-risk">
+            A harmful instruction in a file could run without you seeing it. Its changes still wait for your review.
+          </p>
+        {/if}
+        {#if quietError}
+          <p class="error" role="alert" data-testid="policy-quiet-error">{quietError}</p>
+        {/if}
+      </section>
       {#if policy.error}
         <p class="error" role="alert">Could not read the project's policy: {policy.error}</p>
         <button type="button" data-testid="policy-retry" onclick={() => void policy.reload()}>
@@ -461,6 +509,16 @@ function onPaneKeydown(event: KeyboardEvent): void {
     flex-direction: row;
     align-items: center;
     align-self: center;
+  }
+  .quiet {
+    margin: 0 0 12px;
+  }
+  .quiet label.check {
+    color: var(--text);
+    align-self: start;
+  }
+  .quiet p {
+    margin: 4px 0 0;
   }
   @media (forced-colors: active) {
     button,

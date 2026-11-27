@@ -294,4 +294,30 @@ describe("PolicyPanel", () => {
     await settle();
     expect(rules()).toEqual([expect.stringMatching(/^Write\(docs\/\*\*\)\s+Auto/)]);
   });
+
+  it("turns quiet mode on, says what it risks, and keeps it through rule changes", async () => {
+    const core = await setup();
+    const box = $<HTMLInputElement>("[data-testid=policy-quiet]");
+    expect(box?.checked).toBe(false);
+    expect($("[data-testid=policy-quiet-risk]")).toBeNull();
+    box?.click();
+    await settle();
+    expect(core.quiet.has("p1")).toBe(true);
+    expect(core.rules.get("p1")).toHaveLength(2);
+    expect($("[data-testid=policy-quiet-risk]")?.textContent).toContain("could run without you seeing it");
+
+    type("[data-testid=policy-tool]", "Read");
+    await submit();
+    expect(core.rules.get("p1")).toHaveLength(3);
+    expect(core.quiet.has("p1")).toBe(true);
+
+    // Turned off elsewhere meanwhile: the box shows what the core keeps.
+    core.quiet.delete("p1");
+    box?.click();
+    // A refusal, then the fresh read.
+    await settle();
+    await settle();
+    expect($("[data-testid=policy-quiet-error]")?.textContent).toContain("changed elsewhere");
+    expect(box?.checked).toBe(false);
+  });
 });

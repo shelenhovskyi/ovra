@@ -1,13 +1,15 @@
 // The open project's policy, kept current from `policy.changed`. Only the
 // person changes it, through `save`; the core checks every rule.
 
-import type { CoreEvent, PolicyRule, ProjectId } from "../lib/protocol";
+import type { CoreEvent, Policy, PolicyRule, ProjectId } from "../lib/protocol";
 import { CoreError, type Transport } from "../lib/transport";
 
 export class ProjectPolicy {
   project = $state<ProjectId | null>(null);
   /** The rules as the core keeps them; null until read. */
   rules = $state<PolicyRule[] | null>(null);
+  /** Quiet mode (ADR 0015): what the sandbox contains runs without asking. */
+  quiet = $state(false);
   loading = $state(false);
   error = $state<string | null>(null);
   private latest = 0;
@@ -32,7 +34,10 @@ export class ProjectPolicy {
 
   /** Shows `project`'s policy; null clears it. */
   async show(project: ProjectId | null): Promise<void> {
-    if (project !== this.project) this.rules = null;
+    if (project !== this.project) {
+      this.rules = null;
+      this.quiet = false;
+    }
     this.project = project;
     await this.reload();
   }
@@ -48,8 +53,7 @@ export class ProjectPolicy {
     try {
       const reply = await this.transport.call({ method: "policy.get", params: { project } });
       if (mine !== this.latest) return;
-      this.rules = reply.data.rules;
-      this.error = null;
+      this.keep(reply.data);
     } catch (err) {
       if (mine !== this.latest) return;
       this.error = reason(err);
@@ -64,12 +68,23 @@ export class ProjectPolicy {
    * reading the fresh list when the policy changed since `expected`.
    */
   async save(rules: PolicyRule[], expected: PolicyRule[]): Promise<void> {
+    await this.replace(policy(rules, this.quiet), policy(expected, this.quiet));
+  }
+
+  /** Turns quiet mode on or off, keeping the rules; throws as `save`. */
+  async setQuiet(on: boolean): Promise<void> {
+    const rules = this.rules;
+    if (!rules) throw new Error("The policy is not read yet.");
+    await this.replace(policy(rules, on), policy(rules, this.quiet));
+  }
+
+  private async replace(next: Policy, expected: Policy): Promise<void> {
     const project = this.project;
     if (!project) throw new Error("No project is open.");
     // The reply is kept only if no read started after the request was sent:
     // that read may know of a later change.
     const mine = this.latest;
-    const reply = await this.set(project, rules, expected).catch(async (err: unknown) => {
+    const reply = await this.set(project, next, expected).catch(async (err: unknown) => {
       if (!(err instanceof CoreError && err.code === "conflict")) throw err;
       if (project === this.project) await this.reload();
       throw new ChangedElsewhere();
@@ -78,20 +93,27 @@ export class ProjectPolicy {
     // A read that started earlier must not overwrite what was just kept.
     this.latest++;
     this.loading = false;
-    this.rules = reply.data.rules;
+    this.keep(reply.data);
+  }
+
+  private keep(data: Policy): void {
+    this.rules = data.rules;
+    this.quiet = data.quiet === true;
     this.error = null;
   }
 
-  private set(project: ProjectId, rules: PolicyRule[], expected: PolicyRule[]) {
-    return this.transport.call({
-      method: "policy.set",
-      params: { project, policy: { rules }, expected: { rules: expected } },
-    });
+  private set(project: ProjectId, next: Policy, expected: Policy) {
+    return this.transport.call({ method: "policy.set", params: { project, policy: next, expected } });
   }
 
   private apply(event: CoreEvent): void {
     if (event.type === "policy.changed" && event.data.project === this.project) void this.reload();
   }
+}
+
+/** A policy as the core keeps it: `quiet` only when on. */
+function policy(rules: PolicyRule[], quiet: boolean): Policy {
+  return quiet ? { rules, quiet: true } : { rules };
 }
 
 /** A change built from an older policy; the fresh one is read already. */

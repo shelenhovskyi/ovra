@@ -9,6 +9,8 @@ import { type ConnectionStatus, CoreError, type Transport } from "../lib/transpo
 export class FakePolicyCore implements Transport {
   calls: Request[] = [];
   rules = new Map<string, PolicyRule[]>();
+  /** Projects with quiet mode on. */
+  quiet = new Set<string>();
   /** A `policy.set` with a rule whose tool is named here is refused with the message. */
   refuse = new Map<string, string>();
   /** A `policy.get` fails with this message. */
@@ -54,7 +56,8 @@ export class FakePolicyCore implements Transport {
     switch (request.method) {
       case "policy.get": {
         if (this.readFails) return fail({ code: "unavailable", message: this.readFails });
-        const rules = this.reply(this.rules.get(request.params.project) ?? []);
+        const { project } = request.params;
+        const rules = this.reply(this.rules.get(project) ?? [], this.quiet.has(project));
         return () => rules as ResponseFor<R>;
       }
       case "policy.set": {
@@ -64,20 +67,23 @@ export class FakePolicyCore implements Transport {
           if (message) return fail({ code: "bad_request", message });
         }
         const stored = this.rules.get(project) ?? [];
-        if (expected && JSON.stringify(expected.rules) !== JSON.stringify(stored)) {
+        const changed = JSON.stringify(expected?.rules) !== JSON.stringify(stored);
+        if (expected && (changed || (expected.quiet === true) !== this.quiet.has(project))) {
           return fail({ code: "conflict", message: "the policy changed since this change was built" });
         }
         this.rules.set(project, policy.rules);
+        if (policy.quiet) this.quiet.add(project);
+        else this.quiet.delete(project);
         this.emit({ type: "policy.changed", data: { project } });
-        return () => this.reply(policy.rules) as ResponseFor<R>;
+        return () => this.reply(policy.rules, policy.quiet === true) as ResponseFor<R>;
       }
       default:
         return fail({ code: "internal", message: `unexpected ${request.method}` });
     }
   }
 
-  private reply(rules: PolicyRule[]) {
-    return { type: "policy.policy", data: { rules: [...rules] } };
+  private reply(rules: PolicyRule[], quiet: boolean) {
+    return { type: "policy.policy", data: quiet ? { rules: [...rules], quiet: true } : { rules: [...rules] } };
   }
 }
 
