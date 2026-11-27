@@ -1,6 +1,6 @@
 # Agents on a remote machine over SSH
 
-Status: draft, waiting for the owner's approval. Architecture: ADR 0015.
+Status: draft, waiting for the owner's approval. Architecture: ADR 0016.
 Security code: every step that touches `crates/ssh`, the SSH command line,
 the host key pins, the frame bridge or the remote window's capabilities
 gets an independent security review before it lands. The first review
@@ -337,7 +337,7 @@ ssh -T -x -a
 | T13 | Agents keep running unattended after the laptop leaves | Ping every 15 s, sessions stop after 60 s without frames; one core per data directory. |
 | T14 | The headless token reaches the person's machines | `/ws/ssh/<id>` exists only in e2e builds. |
 
-Remaining risks, documented in ADR 0015: the person's own `ProxyCommand`
+Remaining risks, documented in ADR 0016: the person's own `ProxyCommand`
 or `ProxyJump` runs as they configured it, and jump hosts use the person's
 own `known_hosts`, not Ovra's pins (the target's key is still pinned end to
 end); a machine the person trusted at first use is trusted; revocations

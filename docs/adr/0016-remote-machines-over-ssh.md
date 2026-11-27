@@ -1,4 +1,4 @@
-# 0015. Remote machines over the person's own SSH
+# 0016. Remote machines over the person's own SSH
 
 - Status: proposed (owner approved the feature on 2026-11-27; the spec
   waits for approval)
