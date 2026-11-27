@@ -1,4 +1,4 @@
-import { mkdtempSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, loadProject, test } from "../test";
@@ -121,4 +121,55 @@ test("terminal tabs come back on their shells after a reload, and the panel resi
   await page.keyboard.type("echo again-$KEPT\n");
   await expect(rows).toContainText("again-still-7");
   expect(Math.abs(((await panel.boundingBox())?.height ?? 0) - resized)).toBeLessThan(2);
+});
+
+test("a path in the output opens on Ctrl+click, and Ctrl+Shift+F finds in the output", async ({ page }) => {
+  const dir = mkdtempSync(join(tmpdir(), "ovra-terminal-"));
+  mkdirSync(join(dir, "src"));
+  writeFileSync(join(dir, "src/main.rs"), "fn main() {\n    let x = 1;\n}\n");
+
+  await loadProject(page, dir);
+  await expect(page.getByRole("tree", { name: "Files" })).toBeVisible();
+  await page.keyboard.press("Control+Backquote");
+  const panel = page.getByRole("tabpanel", { name: "Terminal 1" });
+  const rows = panel.locator(".xterm-rows");
+  // printf builds the path, so only the output, not the typed line, names the file.
+  await page.keyboard.type("printf 'at src/%s.rs:2:5 found-%s\\n' main $((1+1))\n");
+  await expect(rows).toContainText("at src/main.rs:2:5 found-2");
+
+  const spot = await rows.evaluate((root, needle) => {
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+      const at = node.textContent?.indexOf(needle) ?? -1;
+      if (at < 0) continue;
+      const range = document.createRange();
+      range.setStart(node, at);
+      range.setEnd(node, at + needle.length);
+      const box = range.getBoundingClientRect();
+      return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+    }
+    return null;
+  }, "src/main.rs:2:5");
+  if (!spot) throw new Error("the path is not on screen");
+  await page.mouse.move(spot.x, spot.y);
+  await expect(panel.getByTestId("terminal-view")).toHaveAttribute("title", "Open file (Ctrl+click)");
+  await page.keyboard.down("Control");
+  await page.mouse.click(spot.x, spot.y);
+  await page.keyboard.up("Control");
+  await expect(page.getByRole("tab", { name: "main.rs" })).toHaveAttribute("aria-selected", "true");
+  // The cursor is at line 2, column 5: typing lands before `let`.
+  const text = page.getByTestId("main").locator(".cm-content");
+  await expect(text).toBeFocused();
+  await page.keyboard.type("Z");
+  await expect(text).toContainText("Zlet x = 1;");
+
+  await panel.getByRole("textbox", { name: "Terminal input" }).focus();
+  await page.keyboard.press("Control+Shift+F");
+  const find = panel.getByRole("textbox", { name: "Find in terminal" });
+  await expect(find).toBeFocused();
+  await page.keyboard.type("found-2");
+  await expect(panel.getByRole("search")).toContainText("1 of 1");
+  await page.keyboard.press("Escape");
+  await expect(find).toBeHidden();
+  await expect(panel.getByRole("textbox", { name: "Terminal input" })).toBeFocused();
 });

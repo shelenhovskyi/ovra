@@ -46,6 +46,26 @@ export function clipboardKey(
   return null;
 }
 
+/**
+ * The terminal's Find key: Cmd+F on Apple keyboards; elsewhere Ctrl+F is the
+ * shell's (forward a character), so it is Ctrl+Shift+F, as in GNOME
+ * Terminal, Konsole and Windows Terminal. In the terminal it wins over
+ * Search in files. Matched on `code`, so it works on any layout.
+ */
+export function isFindKey(
+  event: Pick<KeyboardEvent, "code" | "ctrlKey" | "shiftKey" | "altKey" | "metaKey">,
+  apple: boolean,
+): boolean {
+  const { code, ctrlKey: ctrl, shiftKey: shift, altKey: alt, metaKey: meta } = event;
+  if (code !== "KeyF" || alt) return false;
+  return apple ? meta && !ctrl && !shift : ctrl && shift && !meta;
+}
+
+/** How Settings and tooltips show the Find key. */
+export function findKeys(apple: boolean): string {
+  return apple ? "Mod+F" : "Ctrl+Shift+F";
+}
+
 /** How the menu shows the copy and paste keys. */
 export function clipboardKeys(apple: boolean): { copy: string; paste: string } {
   return apple ? { copy: "Mod+C", paste: "Mod+V" } : { copy: "Ctrl+Shift+C", paste: "Ctrl+Shift+V" };

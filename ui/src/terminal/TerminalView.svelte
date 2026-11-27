@@ -3,14 +3,16 @@
 // is hidden, so scrollback survives tab and project switches.
 import "@xterm/xterm/css/xterm.css";
 import { FitAddon } from "@xterm/addon-fit";
+import { type ISearchOptions, SearchAddon } from "@xterm/addon-search";
 import { Terminal } from "@xterm/xterm";
-import { untrack } from "svelte";
+import { tick, untrack } from "svelte";
 import { inBrowserTab, isApple } from "../keys/shortcut";
 import { projectFiles } from "../palette/files";
 import { useOvra } from "../shell/context";
 import { copySelection, pasteClipboard } from "./clipboard";
+import FindBar from "./FindBar.svelte";
 import { linkSpot } from "./file-links";
-import { clipboardKey, isCommandKey } from "./keys";
+import { clipboardKey, isCommandKey, isFindKey } from "./keys";
 import { fileLinkProvider, fileSet } from "./link-provider";
 import type { TerminalSession, TerminalSessions } from "./sessions.svelte";
 
@@ -58,9 +60,41 @@ function colours(): { background: string; foreground: string; cursor: string; se
   };
 }
 
+/** Search highlights, from the theme tokens; the addon takes `#RRGGBB` only. */
+function decorations(): ISearchOptions["decorations"] {
+  const css = getComputedStyle(document.documentElement);
+  const hex = (name: string, fallback: string) => {
+    const value = css.getPropertyValue(name).trim();
+    return /^#[0-9a-f]{6}$/i.test(value) ? value : fallback;
+  };
+  return {
+    matchBackground: hex("--s4", "#2b3039"),
+    matchOverviewRuler: hex("--text-3", "#6a727e"),
+    activeMatchBackground: hex("--s4", "#2b3039"),
+    activeMatchBorder: hex("--accent", "#5fbfdc"),
+    activeMatchColorOverviewRuler: hex("--accent", "#5fbfdc"),
+  };
+}
+
 let host: HTMLDivElement;
 let term: Terminal | undefined = $state();
 let fit: FitAddon | undefined;
+let search: SearchAddon | undefined = $state();
+let finding = $state(false);
+let bar: ReturnType<typeof FindBar> | undefined = $state();
+
+/** Shows the find bar, or focuses it when it is shown. */
+export async function openFind(): Promise<void> {
+  if (!search) return;
+  finding = true;
+  await tick();
+  bar?.focus();
+}
+
+function closeFind(): void {
+  finding = false;
+  term?.focus();
+}
 
 /** Fits the terminal to its box; null while the box is hidden or empty. */
 function measure(): { cols: number; rows: number } | null {
@@ -82,6 +116,8 @@ $effect(() =>
     const apple = isApple();
     const browser = inBrowserTab();
     const t = new Terminal({
+      // The search addon highlights and counts matches with decorations, still a proposed API in xterm 6.
+      allowProposedApi: true,
       cursorBlink: true,
       fontFamily:
         getComputedStyle(document.documentElement).getPropertyValue("--mono").trim() ||
@@ -94,12 +130,20 @@ $effect(() =>
     });
     fit = new FitAddon();
     t.loadAddon(fit);
+    const finder = new SearchAddon();
+    t.loadAddon(finder);
     t.open(host);
     t.attachCustomKeyEventHandler((event) => {
       if (event.type !== "keydown") return true;
       if (leaves(event)) {
         event.preventDefault();
         onleave();
+        return false;
+      }
+      // Prevented, so the window's Find in file or Search in files does not run as well.
+      if (isFindKey(event, apple)) {
+        event.preventDefault();
+        void openFind();
         return false;
       }
       const clip = clipboardKey(event, apple);
@@ -138,6 +182,7 @@ $effect(() =>
     const detach = session.attach({ write: (data) => t.write(data), reset: () => t.reset() });
     void sessions.start(session, size);
     term = t;
+    search = finder;
     onterminal(t);
 
     const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(() => refit());
@@ -170,6 +215,9 @@ $effect(() => {
 });
 </script>
 
+{#if finding && search}
+  <FindBar bind:this={bar} {search} decorations={decorations()} onclose={closeFind} />
+{/if}
 <div class="xterm-host" bind:this={host} data-testid="terminal-view"></div>
 
 <style>

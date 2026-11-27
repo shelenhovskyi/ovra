@@ -1,3 +1,12 @@
+<script lang="ts" module>
+import { registerContextKeys } from "../keys/context-keys";
+import { isApple as apple } from "../keys/shortcut";
+import { findKeys } from "./keys";
+
+// This panel's own keys, for Settings > Keyboard; the terminal handles them itself.
+registerContextKeys([{ keys: findKeys(apple()), title: "Find in terminal", where: "Terminal" }]);
+</script>
+
 <script lang="ts">
 // The terminal panel under the main area: one tab per shell of the open
 // project. Mounted once by the shell; it owns the terminal commands. Hiding
@@ -34,6 +43,7 @@ let readerNotice = $state("");
 let panel: HTMLElement | undefined = $state();
 const tabButtons: Record<number, HTMLButtonElement> = {};
 const xterms = new Map<number, Terminal>();
+const views: Record<number, ReturnType<typeof TerminalView>> = {};
 /** Where focus was before the panel took it; it goes back there when the panel hides. */
 let returnFocus: HTMLElement | null = null;
 
@@ -239,6 +249,17 @@ $effect(() => {
       run: () => (active && open ? close(active, "terminal") : undefined),
     }),
     registerCommand({
+      id: "terminal.find",
+      title: "Find in terminal",
+      // No `keys`: the terminal's own key (keys.ts) works only while it is focused.
+      run: async () => {
+        if (!project) return;
+        if (!open || tabs.length === 0) await show();
+        await tick();
+        if (active) await views[active.key]?.openFind();
+      },
+    }),
+    registerCommand({
       id: "terminal.screen_reader",
       title: "Toggle screen reader mode in terminals",
       run: () => setScreenReader(!screenReader),
@@ -343,6 +364,7 @@ $effect(() => {
           </div>
         {/if}
         <TerminalView
+          bind:this={views[session.key]}
           {session}
           {sessions}
           {screenReader}

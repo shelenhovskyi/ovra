@@ -97,6 +97,20 @@ vi.mock("@xterm/xterm", () => ({
     }
   },
 }));
+vi.mock("@xterm/addon-search", () => ({
+  SearchAddon: class {
+    findNext() {
+      return false;
+    }
+    findPrevious() {
+      return false;
+    }
+    clearDecorations() {}
+    onDidChangeResults() {
+      return { dispose() {} };
+    }
+  },
+}));
 vi.mock("@xterm/addon-fit", () => ({
   FitAddon: class {
     proposeDimensions() {
@@ -268,6 +282,33 @@ describe("Terminals", () => {
     expect(workspace.openPath).toBe("src/main.rs");
     expect(workspace.mode).toBe("edit");
     expect(workspace.reveal).toEqual({ path: "src/main.rs", line: 42, from: 6, to: 6 });
+  });
+
+  it("finds in the terminal on Ctrl+Shift+F and from the palette, and Escape returns to the shell", async () => {
+    const { panel } = setup();
+    await run("terminal.toggle");
+    const xterm = xterms[0];
+    if (!xterm) throw new Error("no xterm");
+    const find = () => panel.querySelector<HTMLInputElement>('input[aria-label="Find in terminal"]');
+    const key = new KeyboardEvent("keydown", {
+      key: "F",
+      code: "KeyF",
+      ctrlKey: true,
+      shiftKey: true,
+      cancelable: true,
+    });
+    expect(xterm.keyHandler(key)).toBe(false);
+    // Prevented, so Search in files does not open as well.
+    expect(key.defaultPrevented).toBe(true);
+    await settle();
+    expect(document.activeElement).toBe(find());
+    find()?.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+    await settle();
+    expect(find()).toBeNull();
+    expect(document.activeElement).toBe(xterm.textarea);
+
+    await run("terminal.find");
+    expect(document.activeElement).toBe(find());
   });
 
   it("leaves the terminal on Shift+Tab and says so", async () => {

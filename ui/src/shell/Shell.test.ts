@@ -186,6 +186,7 @@ describe("Shell", () => {
         "Tabs: Shift+F10 Open the tab's menu (also the Menu key)",
         "Tabs: Left/Right Previous or next tab",
         "Tabs: Delete Close the tab",
+        "Terminal: Ctrl+Shift+F Find in terminal",
         "Views: Escape Close Settings, Reviews, the Audit log or Skills and instructions",
       ]
     `);

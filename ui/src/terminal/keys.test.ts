@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { registerCommand } from "../keys/commands";
-import { clipboardKey, isCommandKey } from "./keys";
+import { clipboardKey, findKeys, isCommandKey, isFindKey } from "./keys";
 
 const press = (key: string, code: string, mods: Partial<Record<"ctrl" | "meta" | "alt" | "shift", boolean>> = {}) => ({
   key,
@@ -40,6 +40,20 @@ describe("keys in a focused terminal", () => {
     expect(isCommandKey(press("`", "Backquote", { ctrl: true }), false, false)).toBe(true);
     expect(isCommandKey(press("\u0451", "Backquote", { ctrl: true }), true, true)).toBe(true);
     expect(isCommandKey(press("'", "Backquote", { ctrl: true }), false, true)).toBe(true);
+  });
+});
+
+describe("isFindKey", () => {
+  it("is Cmd+F on Apple keyboards and Ctrl+Shift+F elsewhere, matched by position", () => {
+    expect(isFindKey(press("f", "KeyF", { meta: true }), true)).toBe(true);
+    expect(isFindKey(press("φ", "KeyF", { ctrl: true, shift: true }), false)).toBe(true);
+    // Ctrl+F stays the shell's.
+    expect(isFindKey(press("f", "KeyF", { ctrl: true }), false)).toBe(false);
+    expect(isFindKey(press("f", "KeyF", { ctrl: true }), true)).toBe(false);
+    expect(isFindKey(press("F", "KeyF", { meta: true, shift: true }), true)).toBe(false);
+    expect(isFindKey(press("g", "KeyG", { ctrl: true, shift: true }), false)).toBe(false);
+    expect(findKeys(true)).toBe("Mod+F");
+    expect(findKeys(false)).toBe("Ctrl+Shift+F");
   });
 });
 
