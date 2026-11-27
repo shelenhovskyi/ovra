@@ -37,6 +37,7 @@ import { isApple, matchesShortcut, parseShortcut } from "../keys/shortcut";
 import type { FileContent, ProjectId } from "../lib/protocol";
 import { CoreError, type Transport } from "../lib/transport";
 import type { AutoSaver } from "./autosave";
+import { autoClose, bracketMarks } from "./brackets";
 import type { Drafts } from "./drafts.svelte";
 import { folding, foldKeys, isMarkdown } from "./folding";
 import { gitExtension } from "./git/extension";
@@ -44,7 +45,7 @@ import { GitFile } from "./git/file";
 import type { HighlightClient, HighlightedDoc } from "./highlight/client";
 import { treeSitterHighlighting } from "./highlight/extension";
 import type { LanguageSource } from "./highlight/protocol";
-import { dedentLines, fileIndentation, indentLines, indentTab, newlineKeepIndent } from "./indent";
+import { dedentLines, fileIndentation, indentLines, indentTab, newlineKeepIndent, smartIndent } from "./indent";
 import { commentTokens, type Language, languageFor, languageSource } from "./languages";
 import { formatBeforeSave } from "./lsp/format";
 import { editorPrefs } from "./prefs.svelte";
@@ -265,7 +266,7 @@ export class Buffer {
 
   /** Follows the editor preferences (word wrap, tab size) as they are now. */
   applyPrefs(): void {
-    const effects = this.prefs.reconfigure(prefsExtension(this.fileIndent));
+    const effects = this.prefs.reconfigure(prefsExtension(this.fileIndent, this.language));
     this.mirror?.dispatch({ effects });
     if (this.view) this.view.dispatch({ effects });
     else if (this.state) this.state = this.state.update({ effects }).state;
@@ -524,6 +525,8 @@ export class Buffer {
         : history(),
       drawSelection(),
       highlightActiveLine(),
+      bracketMarks(),
+      smartIndent(this.language?.id ?? null),
       this.heavy ? [] : highlightSelectionMatches(),
       keymap.of(editorKeymap(() => void this.save())),
       EditorView.updateListener.of((update) => {
@@ -533,7 +536,7 @@ export class Buffer {
       }),
       // Named, so a screen reader says which file the text box edits.
       this.label.of(this.labelExtension()),
-      this.prefs.of(prefsExtension(this.fileIndent)),
+      this.prefs.of(prefsExtension(this.fileIndent, this.language)),
       commentData(this.language),
       theme,
       searchPhrases,
@@ -666,10 +669,11 @@ function commentData(language: Language | null): Extension {
   return tokens ? EditorState.languageData.of(() => [{ commentTokens: tokens }]) : [];
 }
 
-/** Word wrap, and the indentation of `fileIndent` (detected at load) or else the preferences. */
-function prefsExtension(fileIndent: string | null): Extension {
+/** Word wrap, closing brackets, and the indentation of `fileIndent` (detected at load) or else the preferences. */
+function prefsExtension(fileIndent: string | null, language: Language | null): Extension {
   return [
     editorPrefs.wordWrap ? EditorView.lineWrapping : [],
+    editorPrefs.autoCloseBrackets ? autoClose(language) : [],
     fileIndentation(fileIndent, editorPrefs.tabSize, editorPrefs.insertSpaces),
   ];
 }

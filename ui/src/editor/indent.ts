@@ -2,9 +2,11 @@
 // and Enter. CodeMirror's own commands take the indent unit and the
 // indentation of a new line from a language's syntax tree, which Ovra does
 // not have (highlighting is tree-sitter; `@codemirror/language` is there for
-// folding only), so these read `EditorState.tabSize` and `insertSpaces` here
-// and keep a line's indentation as it is written.
+// folding and bracket scanning only), so these read `EditorState.tabSize` and
+// `insertSpaces` here, keep a line's indentation as it is written, and go one
+// level deeper after an opening bracket (or Python's colon).
 
+import { matchBrackets } from "@codemirror/language";
 import { countColumn, EditorSelection, EditorState, type Extension, Facet, type StateCommand } from "@codemirror/state";
 
 /** Whether indenting inserts spaces (true) or tab characters. */
@@ -88,18 +90,48 @@ export const indentTab: StateCommand = (target) => {
   return true;
 };
 
-/** Enter: a new line with the indentation of the line it breaks, as it is written (tabs stay tabs). */
+/** Text at the end of a line that makes the next line one level deeper, by language id. */
+const OPENS_BLOCK: Record<string, RegExp> = { python: /[:([{]$/ };
+const OPENS_BRACKET = /[([{]$/;
+
+/** Which line endings open a block: brackets everywhere, and a colon in Python. */
+const blockOpener = Facet.define<RegExp, RegExp>({ combine: (values) => values.at(-1) ?? OPENS_BRACKET });
+
+/** Indenting as `languageId` writes blocks (Enter after `{`, Python's `:`), and closing brackets that find their place. */
+export function smartIndent(languageId: string | null): Extension {
+  return [blockOpener.of((languageId && OPENS_BLOCK[languageId]) || OPENS_BRACKET), closerFindsIndent];
+}
+
+const CLOSER: Record<string, string> = { "(": ")", "[": "]", "{": "}" };
+
+/**
+ * Enter: a new line with the indentation of the line it breaks, as it is
+ * written (tabs stay tabs), one level deeper after an opening bracket. Between
+ * a bracket pair (`{|}`) the closing one moves to a line of its own.
+ */
 export const newlineKeepIndent: StateCommand = ({ state, dispatch }) => {
   if (state.readOnly) return false;
+  const opener = state.facet(blockOpener);
   dispatch(
     state.update(
       state.changeByRange((range) => {
         const line = state.doc.lineAt(range.from);
-        const indent = /^[ \t]*/.exec(line.text.slice(0, range.from - line.from))?.[0] ?? "";
-        const insert = `\n${indent}`;
+        const before = line.text.slice(0, range.from - line.from);
+        const indent = /^[ \t]*/.exec(before)?.[0] ?? "";
+        const head = before.trimEnd();
+        const deeper = opener.test(head);
+        // Spaces right after the cursor would only lead the new line.
+        const after = /^[ \t]*/.exec(line.text.slice(range.to - line.from))?.[0].length ?? 0;
+        const to = range.to + after;
+        const next = line.text.charAt(to - line.from);
+        const first = `\n${deeper ? indent + unit(state) : indent}`;
+        const split = deeper && next !== "" && next === CLOSER[head.at(-1) ?? ""];
+        const insert = split ? `${first}\n${indent}` : first;
+        // Spaces before the cursor would be left at the end of the line.
+        const from = head ? line.from + head.length : range.from;
         return {
-          changes: { from: range.from, to: range.to, insert },
-          range: EditorSelection.cursor(range.from + insert.length),
+          changes: { from, to, insert },
+          range: EditorSelection.cursor(from + first.length),
         };
       }),
       { scrollIntoView: true, userEvent: "input" },
@@ -107,3 +139,24 @@ export const newlineKeepIndent: StateCommand = ({ state, dispatch }) => {
   );
   return true;
 };
+
+/**
+ * A closing bracket typed first on its line takes the indentation of the
+ * line that opens its pair, as `}` does after a block.
+ */
+const closerFindsIndent = EditorState.transactionFilter.of((tr) => {
+  if (!tr.docChanged || !tr.isUserEvent("input.type") || tr.newSelection.ranges.length > 1) return tr;
+  const head = tr.newSelection.main.head;
+  const typed = tr.newDoc.sliceString(head - 1, head);
+  if (!")]}".includes(typed) || typed === "") return tr;
+  const line = tr.newDoc.lineAt(head);
+  const lead = line.text.slice(0, head - 1 - line.from);
+  if (!/^[ \t]*$/.test(lead)) return tr;
+  const state = tr.state;
+  const match = matchBrackets(state, head, -1);
+  if (!match?.matched || !match.end) return tr;
+  const openLine = state.doc.lineAt(match.end.from);
+  const indent = /^[ \t]*/.exec(openLine.text)?.[0] ?? "";
+  if (openLine.number === line.number || indent === lead) return tr;
+  return [tr, { changes: { from: line.from, to: line.from + lead.length, insert: indent }, sequential: true }];
+});

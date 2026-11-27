@@ -40,6 +40,8 @@ export const theme = EditorView.theme(
     "&.cm-focused .cm-selectionBackground, .cm-selectionBackground": { backgroundColor: tint(26) },
     ".cm-selectionMatch": { backgroundColor: tint(14) },
     "&.cm-focused .cm-matchingBracket": { backgroundColor: tint(22), outline: "none" },
+    // A bracket whose pair is of another kind, such as `(]`.
+    "&.cm-focused .cm-nonmatchingBracket": { backgroundColor: "var(--danger-soft)", outline: "none" },
     ".cm-searchMatch": { backgroundColor: "var(--warn-soft)", outline: "none" },
     ".cm-searchMatch.cm-searchMatch-selected": { backgroundColor: tint(30) },
     ".cm-tooltip": {

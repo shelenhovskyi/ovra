@@ -10,9 +10,10 @@ test("preferences start at the defaults and survive a reload", () => {
   prefs.wordWrap = true;
   prefs.tabSize = 2;
   prefs.autoSave = "after_delay";
-  expect([prefs.insertSpaces, prefs.formatOnSave]).toEqual([true, false]);
+  expect([prefs.insertSpaces, prefs.formatOnSave, prefs.autoCloseBrackets]).toEqual([true, false, true]);
   prefs.insertSpaces = false;
   prefs.formatOnSave = true;
+  prefs.autoCloseBrackets = false;
   const again = new EditorPrefs(storage);
   expect([again.fontSize, again.wordWrap, again.tabSize, again.insertSpaces, again.autoSave]).toEqual([
     14.5,
@@ -21,7 +22,7 @@ test("preferences start at the defaults and survive a reload", () => {
     false,
     "after_delay",
   ]);
-  expect(again.formatOnSave).toBe(true);
+  expect([again.formatOnSave, again.autoCloseBrackets]).toEqual([true, false]);
   again.zoom(0);
   expect(new EditorPrefs(storage).fontSize).toBe(13.5);
 });

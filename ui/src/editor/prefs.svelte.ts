@@ -7,7 +7,8 @@
 // Who reads what: `fontSize` sizes the editor's and the read-only viewer's
 // file text; `wordWrap`, `tabSize` and `insertSpaces` shape editing
 // (buffers.svelte.ts, indent.ts); `autoSave` drives autosave.svelte.ts;
-// `formatOnSave` has a buffer's language server format it before a save.
+// `formatOnSave` has a buffer's language server format it before a save;
+// `autoCloseBrackets` adds closing brackets and quotes (brackets.ts).
 // Settings > Editor changes them.
 
 const KEY = "ovra.editor.prefs";
@@ -32,6 +33,7 @@ type Stored = {
   insertSpaces: boolean;
   autoSave: AutoSave;
   formatOnSave: boolean;
+  autoCloseBrackets: boolean;
 };
 
 const clamp = (value: number, limits: { min: number; max: number }) =>
@@ -44,6 +46,7 @@ export class EditorPrefs {
   #insertSpaces = $state(true);
   #autoSave = $state<AutoSave>("off");
   #formatOnSave = $state(false);
+  #autoCloseBrackets = $state(true);
 
   constructor(private readonly storage: Store | null) {
     try {
@@ -55,6 +58,7 @@ export class EditorPrefs {
       if (typeof stored.insertSpaces === "boolean") this.#insertSpaces = stored.insertSpaces;
       if (AUTO_SAVE.includes(stored.autoSave as AutoSave)) this.#autoSave = stored.autoSave as AutoSave;
       if (typeof stored.formatOnSave === "boolean") this.#formatOnSave = stored.formatOnSave;
+      if (typeof stored.autoCloseBrackets === "boolean") this.#autoCloseBrackets = stored.autoCloseBrackets;
     } catch {
       // Unreadable or unavailable: the defaults.
     }
@@ -117,6 +121,15 @@ export class EditorPrefs {
     this.save();
   }
 
+  /** Whether typing an opening bracket or quote adds its closing one; on by default. */
+  get autoCloseBrackets(): boolean {
+    return this.#autoCloseBrackets;
+  }
+  set autoCloseBrackets(value: boolean) {
+    this.#autoCloseBrackets = value;
+    this.save();
+  }
+
   /** One pixel larger (`1`), smaller (`-1`), or back to the default (`0`). */
   zoom(step: -1 | 0 | 1): void {
     this.fontSize = step === 0 ? FONT_SIZE.default : this.#fontSize + step;
@@ -130,6 +143,7 @@ export class EditorPrefs {
       insertSpaces: this.#insertSpaces,
       autoSave: this.#autoSave,
       formatOnSave: this.#formatOnSave,
+      autoCloseBrackets: this.#autoCloseBrackets,
     };
     try {
       this.storage?.setItem(KEY, JSON.stringify(stored));

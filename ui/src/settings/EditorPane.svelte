@@ -1,5 +1,5 @@
 <script lang="ts">
-// Settings > Editor: text size, tabs, word wrap, auto save and format on save. Every field
+// Settings > Editor: text size, tabs, word wrap, closing brackets, auto save and format on save. Every field
 // reads and writes `editorPrefs`, which checks the value on write; a number
 // field shows the kept value again after a write that was clamped.
 import { type AutoSave, editorPrefs } from "../editor/prefs.svelte";
@@ -49,6 +49,15 @@ function setNumber(input: HTMLInputElement, field: "fontSize" | "tabSize"): void
   <label class="check">
     <input type="checkbox" role="switch" bind:checked={editorPrefs.wordWrap} data-testid="editor-wrap" />
     Word wrap
+  </label>
+  <label class="check">
+    <input
+      type="checkbox"
+      role="switch"
+      bind:checked={editorPrefs.autoCloseBrackets}
+      data-testid="editor-auto-close"
+    />
+    Close brackets and quotes
   </label>
   <label class="field">
     <span>Auto save</span>
