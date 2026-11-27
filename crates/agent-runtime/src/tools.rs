@@ -39,7 +39,14 @@ pub(crate) fn tool(name: &str, input: Value) -> ToolRequest {
             written = content(writes);
         }
         // `WebSearch` looks, as `Grep` does: it reads no page itself.
-        "Glob" | "Grep" | "LS" => (call.kind, call.paths) = (ToolKind::Search, path("path")),
+        "Glob" | "Grep" | "LS" => {
+            call.kind = ToolKind::Search;
+            call.paths = path("path");
+            // A pattern can name a folder of its own (`/srv/**/.env`).
+            let pattern = text(if name == "Glob" { "pattern" } else { "glob" });
+            call.paths
+                .extend(pattern.filter(|p| p.starts_with(['/', '\\', '~']) || p.contains("..")));
+        }
         "WebSearch" => call.kind = ToolKind::Search,
         "WebFetch" => (call.kind, call.url) = (ToolKind::Fetch, text("url")),
         "Task" | "Agent" => call.kind = ToolKind::Subagent,

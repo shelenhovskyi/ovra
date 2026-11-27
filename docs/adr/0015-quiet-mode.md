@@ -23,10 +23,12 @@ a mistake. The owner approved a mode that stops asking about such calls
   question when the sandbox would contain it: the session runs in a
   sandbox Ovra trusts for this (today only the Linux one), with the
   network limited, and the call is one of the kinds the spec lists
-  (reads and searches inside the folder, edits inside it outside
-  protected paths, commands in a worktree that change no git state, web
-  requests to named hosts). Everything else still asks.
-- Deny and ask rules still win, keys still ask on first use, Ovra's own
+  (reads and searches inside the folder; in a worktree, edits outside
+  protected paths and commands that change no git state; web requests to
+  named hosts). Everything else still asks.
+- Deny and ask rules still win, and a file rule holds for every tool
+  that names its path (a `Read(.env)` deny keeps `cat .env` asking). Keys
+  still ask on first use, Ovra's own
   pushes keep their rules, and the decision is written to the audit log
   like any policy decision.
 - Where the sandbox is not verified (macOS until it is checked on a Mac,
@@ -36,10 +38,11 @@ a mistake. The owner approved a mode that stops asking about such calls
 ## Consequences
 
 - A prompt injection that stays inside the sandbox now runs without a
-  person seeing it first; its changes still wait in Reviews (worktree) or
-  are undone by Discard (direct edits). Network exfiltration is limited by
-  the allowlist, as for any sandboxed command, including its broad entries.
-- Commands in a direct session still ask: a mistake there lands in the
-  person's own checkout, where Discard does not undo it.
+  person seeing it first; its changes still wait in Reviews. Data can
+  leave to any host the allowlist lets through, broad entries included,
+  as for any sandboxed command the person allowed.
+- Edits and commands in a direct session still ask: they land in the
+  person's own checkout, where their own tools may run an edit before any
+  review and Discard does not undo a command.
 - A platform sandbox joins the trusted list in its own change, after it is
   verified.

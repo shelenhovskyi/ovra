@@ -5,6 +5,7 @@
 use std::path::Path;
 
 use crate::protocol::agents::{SandboxNetwork, SandboxReport, SessionMode, ToolCall, ToolKind};
+use crate::protocol::policy::{Policy, PolicyAction};
 
 /// What the audit log names as the rule that decided a quiet call.
 pub(crate) const QUIET_RULE: &str = "quiet mode";
@@ -46,9 +47,22 @@ const GIT_READS: [&str; 25] = [
 /// Shell syntax that hides what runs: the check below cannot see inside.
 const HIDDEN: [&str; 4] = ["`", "$(", "<(", ">("];
 
+/// File tools whose deny and ask rules quiet mode honours for every call
+/// that reads or names a path, whatever its tool: a `Read(.env)` deny must
+/// also keep a quiet `Grep` or `cat` off `.env`.
+const PATH_TOOLS: [&str; 6] = [
+    "Read",
+    "NotebookRead",
+    "Edit",
+    "MultiEdit",
+    "Write",
+    "NotebookEdit",
+];
+
 /// Whether quiet mode allows `call` of `tool` in a session of `mode` in
-/// `work_dir`, run as `sandbox` says.
+/// `work_dir`, run as `sandbox` says, under `policy`.
 pub(crate) fn allows(
+    policy: &Policy,
     tool: &str,
     call: &ToolCall,
     work_dir: &Path,
@@ -59,25 +73,69 @@ pub(crate) fn allows(
         s.network != SandboxNetwork::Open
             && QUIET_SANDBOXES.iter().any(|name| s.name.starts_with(name))
     });
-    if !trusted || tool.starts_with("mcp__") {
+    if !policy.quiet || !trusted || tool.starts_with("mcp__") {
         return false;
     }
-    let direct = mode == SessionMode::Direct;
+    // Changes and commands only in a worktree: in the person's checkout
+    // (direct) their own tools may run an edit before any review, and a
+    // research session changes nothing.
+    let own_copy = mode == SessionMode::Isolated;
+    let held = |paths: &[String]| held_by_rule(policy, work_dir, paths);
     match call.kind {
-        ToolKind::Read | ToolKind::Search => call.paths.iter().all(|p| kept_in(work_dir, p)),
-        ToolKind::Edit => edits(work_dir, call),
-        ToolKind::Delete | ToolKind::Move => !direct && edits(work_dir, call),
+        ToolKind::Read => {
+            !call.paths.is_empty()
+                && call.paths.iter().all(|p| kept_in(work_dir, p))
+                && !held(&call.paths)
+        }
+        ToolKind::Search => call.paths.iter().all(|p| kept_in(work_dir, p)) && !held(&call.paths),
+        ToolKind::Edit | ToolKind::Delete | ToolKind::Move => {
+            own_copy && edits(work_dir, call) && !held(&call.paths)
+        }
         ToolKind::Execute => {
-            !direct
-                && call
-                    .command
-                    .as_deref()
-                    .is_some_and(|c| command(work_dir, c))
+            own_copy
+                && call.command.as_deref().is_some_and(|c| {
+                    command(work_dir, c)
+                        && !held(&words(c).iter().map(|w| bare(w)).collect::<Vec<_>>())
+                })
         }
         ToolKind::Fetch => call.url.as_deref().is_some_and(fetch),
         ToolKind::Think | ToolKind::Subagent => true,
         ToolKind::Other => false,
     }
+}
+
+/// Whether a deny or ask rule of a file tool covers one of `paths` (or
+/// every call, without a match).
+fn held_by_rule(policy: &Policy, work_dir: &Path, paths: &[String]) -> bool {
+    policy
+        .rules
+        .iter()
+        .filter(|r| r.action != PolicyAction::Auto && PATH_TOOLS.contains(&r.tool.as_str()))
+        .any(|rule| match &rule.pattern {
+            None => true,
+            Some(pattern) => paths.iter().any(|path| {
+                path.split('=').any(|part| {
+                    relative(work_dir, part)
+                        .is_some_and(|p| !p.is_empty() && super::glob(pattern, &p))
+                })
+            }),
+        })
+}
+
+/// A command's words, with the shell's joins and redirections as
+/// separators too, so `a;git push` and `x>CLAUDE.md` show their parts.
+fn words(command: &str) -> Vec<&str> {
+    command
+        .split(|c: char| c.is_whitespace() || matches!(c, ';' | '&' | '|' | '<' | '>' | '(' | ')'))
+        .filter(|w| !w.is_empty())
+        .collect()
+}
+
+/// A word without quotes and backslashes.
+fn bare(word: &str) -> String {
+    word.chars()
+        .filter(|c| !matches!(c, '"' | '\'' | '\\'))
+        .collect()
 }
 
 /// Whether `path` is inside `work_dir`, or the folder itself, not
@@ -90,6 +148,11 @@ fn kept_in(work_dir: &Path, path: &str) -> bool {
 /// `path` relative to `work_dir` (empty for the folder itself), if it
 /// stays inside.
 fn relative(work_dir: &Path, path: &str) -> Option<String> {
+    // The runtime or the shell may expand these to the home folder, where
+    // the agent's own login lives.
+    if path.starts_with('~') || path.contains(['$', '%']) {
+        return None;
+    }
     let below = super::inside(work_dir, &Path::new(path).join("x"))?;
     let path = below.strip_suffix('x')?;
     Some(path.trim_end_matches('/').to_owned())
@@ -114,29 +177,30 @@ fn in_git(path: &str) -> bool {
 }
 
 /// Whether a command only does what the sandbox contains: nothing hidden,
-/// git only reading, no protected path named.
+/// git only reading, no protected path, home folder or agent login named.
 fn command(work_dir: &Path, command: &str) -> bool {
     if HIDDEN.iter().any(|h| command.contains(h)) {
         return false;
     }
-    // Words, with the shell's joins and redirections as separators too,
-    // so `a;git push` and `x>CLAUDE.md` show their parts.
-    let words: Vec<&str> = command
-        .split(|c: char| c.is_whitespace() || matches!(c, ';' | '&' | '|' | '<' | '>' | '(' | ')'))
-        .filter(|w| !w.is_empty())
-        .collect();
-    let names_protected = words.iter().any(|w| {
+    let words = words(command);
+    let names_kept_out = words.iter().any(|w| {
         w.split('=').any(|part| {
-            let bare: String = part
-                .chars()
-                .filter(|c| !matches!(c, '"' | '\'' | '\\'))
-                .collect();
+            let bare = bare(part);
             let bare = bare.strip_prefix("./").unwrap_or(&bare);
             let named = |path: &str| crate::protected::changes(path, None) || in_git(path);
-            named(bare) || relative(work_dir, bare).is_some_and(|p| named(&p))
+            // `~`, variables and globs from `/` reach the home folder and
+            // the agent's login under names this check never sees.
+            let home = bare.starts_with('~')
+                || bare.contains(['$', '%'])
+                || (bare.starts_with('/') && bare.contains(['*', '?', '[', '{']));
+            let login = bare.split('/').any(|seg| {
+                let seg = seg.to_ascii_lowercase();
+                crate::protected::AGENT_STATE_IN_HOME.contains(&seg.as_str())
+            });
+            home || login || named(bare) || relative(work_dir, bare).is_some_and(|p| named(&p))
         })
     });
-    !names_protected && git_reads_only(&words)
+    !names_kept_out && git_reads_only(&words)
 }
 
 /// Whether every `git` among `words` runs a reading subcommand, with only

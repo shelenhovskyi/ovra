@@ -258,13 +258,15 @@ function onPaneKeydown(event: KeyboardEvent): void {
           <span id="policy-quiet-title">Don't ask about what the sandbox contains</span>
         </label>
         <p class="muted" id="policy-quiet-about">
-          Reads and edits in the project folder, commands in an agent's own copy and web requests your allowlist lets
-          through run without asking. Protected files, git changes, commands in your own folder, keys and pushes still
-          ask. Works only where Ovra's sandbox is verified (Linux for now); elsewhere agents ask as before.
+          Reads in the project folder and web requests to named sites run without asking, and so do edits and commands
+          of agents working in their own copy. Protected files, git changes, files your rules hold, work in your own
+          folder, keys and pushes still ask. Works only where Ovra's sandbox is verified (Linux for now); elsewhere
+          agents ask as before.
         </p>
         {#if policy.quiet}
           <p class="warning" data-testid="policy-quiet-risk">
-            A harmful instruction in a file could run without you seeing it. Its changes still wait for your review.
+            A harmful instruction in a file could run without you seeing it, and could send data to any site your
+            network allowlist lets through. Its changes still wait for your review.
           </p>
         {/if}
         {#if quietError}
