@@ -3,7 +3,7 @@
   "workspaces": {
     "ui": {
       "project": ["src/**/*.{ts,svelte}"],
-      "entry": ["src/lib/protocol/*.ts"]
+      "entry": ["src/lib/protocol/*.ts", "src/test-runner.ts"]
     },
     "tests/e2e": {
       "entry": ["specs/**/*.ts", "ux/run.ts", "ux/alignment.ts"]
