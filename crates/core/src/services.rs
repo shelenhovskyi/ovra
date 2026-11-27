@@ -20,8 +20,8 @@ pub use crate::agents::{AgentHost, BeforeTool, ToolRequest};
 pub use crate::lsp::ServerHost;
 use crate::path::RelPath;
 use crate::protocol::agents::{
-    AgentKind, AgentMessage, AgentSettings, AgentSetup, ProjectAgentConfig, ProviderInfo,
-    SessionId, SessionInfo, SessionMode, SetupState, ToolCall,
+    AgentKind, AgentMessage, AgentModel, AgentSettings, AgentSetup, ProjectAgentConfig,
+    ProviderInfo, SessionId, SessionInfo, SessionMode, SetupState, ToolCall,
 };
 use crate::protocol::audit::{AuditEntry, AuditEvent, AuditRange};
 use crate::protocol::browser::{
@@ -268,6 +268,9 @@ pub struct AgentSpec {
     pub sandbox: SandboxProfile,
     /// A research session without `WebSearch` ([`SessionInfo::no_web`]).
     pub no_web: bool,
+    /// The model to ask for ([`SessionInfo::model`]); `None` for the
+    /// account's default.
+    pub model: Option<AgentModel>,
     /// Images that go with `prompt`, for a provider that sees images.
     pub images: Vec<AgentImage>,
 }

@@ -103,6 +103,7 @@ pub(crate) fn spawnable(line: &CommandLine) -> Command {
     command
 }
 
+use ovra_core::protocol::agents::AgentModel;
 use ovra_core::services::{AgentSpec, AgentState, CommandLine, SandboxProfile, ToolRole};
 
 use crate::claude_lists::CLAUDE_LISTS;
@@ -158,13 +159,15 @@ const RESEARCH_TOOLS_OFFLINE: &str = "Read,Grep,Glob";
 /// messages come back as `mcp_message` control requests. A coordinator only
 /// reads the project and directs workers: it gets no built-in tool that
 /// writes or runs anything (owner decision, 2026-11-24). A `research`
-/// session gets [`RESEARCH_TOOLS`] and no IDE tools.
+/// session gets [`RESEARCH_TOOLS`] and no IDE tools. `model` asks for
+/// that model; `None` leaves the account's default.
 pub(crate) fn args(
     conversation: &Conversation,
     trusted: bool,
     ide: Option<ToolRole>,
     research: bool,
     web: bool,
+    model: Option<AgentModel>,
 ) -> Vec<OsString> {
     let ide = ide.filter(|_| !research);
     let mut args: Vec<&str> = vec![
@@ -221,6 +224,9 @@ pub(crate) fn args(
             RESEARCH_PROMPT,
         ]),
         None => args.extend(["--append-system-prompt", TASK_PROMPT]),
+    }
+    if let Some(model) = model {
+        args.extend(["--model", model.alias()]);
     }
     match conversation {
         Conversation::New(id) => args.extend(["--session-id", id]),
@@ -349,7 +355,7 @@ mod tests {
     }
 
     fn line_text(conversation: &Conversation, trusted: bool) -> String {
-        args(conversation, trusted, None, false, true)
+        args(conversation, trusted, None, false, true, None)
             .iter()
             .map(|a| a.to_string_lossy().into_owned())
             .map(|a| if a == TASK_PROMPT { "<task>".into() } else { a })
@@ -382,6 +388,7 @@ mod tests {
                 Some(role),
                 false,
                 true,
+                None,
             );
             let args: Vec<_> = args
                 .iter()
@@ -422,6 +429,7 @@ mod tests {
             Some(ToolRole::Worker),
             true,
             true,
+            None,
         )
         .iter()
         .map(|a| a.to_string_lossy().into_owned())
@@ -434,27 +442,63 @@ mod tests {
         assert_eq!(after("--append-system-prompt"), Some(RESEARCH_PROMPT));
         assert_eq!(after("--mcp-config"), Some(r#"{"mcpServers":{}}"#));
         assert_eq!(after("--permission-mode"), Some("default"));
-        let offline: Vec<String> =
-            super::args(&Conversation::New("id".into()), false, None, true, false)
-                .iter()
-                .map(|a| a.to_string_lossy().into_owned())
-                .collect();
+        let offline: Vec<String> = super::args(
+            &Conversation::New("id".into()),
+            false,
+            None,
+            true,
+            false,
+            None,
+        )
+        .iter()
+        .map(|a| a.to_string_lossy().into_owned())
+        .collect();
         let at = offline.iter().position(|a| a == "--tools").unwrap_or(0);
         assert_eq!(
             offline.get(at + 1).map(String::as_str),
             Some("Read,Grep,Glob")
         );
         // A project's hooks could change files unseen: research has no review.
-        let trusted: Vec<String> =
-            super::args(&Conversation::New("id".into()), true, None, true, true)
-                .iter()
-                .map(|a| a.to_string_lossy().into_owned())
-                .collect();
+        let trusted: Vec<String> = super::args(
+            &Conversation::New("id".into()),
+            true,
+            None,
+            true,
+            true,
+            None,
+        )
+        .iter()
+        .map(|a| a.to_string_lossy().into_owned())
+        .collect();
         let at = trusted
             .iter()
             .position(|a| a == "--setting-sources")
             .unwrap_or(0);
         assert_eq!(trusted.get(at + 1).map(String::as_str), Some("user"));
+    }
+
+    #[test]
+    fn a_chosen_model_is_asked_for_by_its_alias() {
+        let with = |model| {
+            args(
+                &Conversation::New("id".into()),
+                false,
+                None,
+                false,
+                true,
+                model,
+            )
+            .iter()
+            .map(|a| a.to_string_lossy().into_owned())
+            .collect::<Vec<_>>()
+        };
+        let sonnet = with(Some(AgentModel::Sonnet));
+        let at = sonnet.iter().position(|a| a == "--model");
+        assert_eq!(
+            at.and_then(|at| sonnet.get(at + 1)).map(String::as_str),
+            Some("sonnet")
+        );
+        assert!(!with(None).iter().any(|a| a == "--model"));
     }
 
     #[test]
@@ -478,6 +522,7 @@ mod tests {
             trusted: false,
             resume: None,
             no_web: false,
+            model: None,
             images: Vec::new(),
             sandbox: ovra_core::services::SandboxProfile {
                 kind: ovra_core::services::ProfileKind::Agent,

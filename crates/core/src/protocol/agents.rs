@@ -88,6 +88,28 @@ pub enum SessionMode {
     Research,
 }
 
+/// The Claude model a session asks for, as `claude --model` takes it
+/// (`docs/specs/task-commands.md`). Closed set: nothing else reaches the
+/// command line.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AgentModel {
+    Opus,
+    Sonnet,
+    Haiku,
+}
+
+impl AgentModel {
+    /// The alias `claude --model` takes.
+    pub fn alias(self) -> &'static str {
+        match self {
+            Self::Opus => "opus",
+            Self::Sonnet => "sonnet",
+            Self::Haiku => "haiku",
+        }
+    }
+}
+
 /// The state of a session. Closed set: the UI shows exactly these.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "state", rename_all = "snake_case")]
@@ -166,6 +188,9 @@ pub struct SessionInfo {
     /// `no_web`): it only reads the project.
     #[serde(default)]
     pub no_web: bool,
+    /// The model it asked for; `None` runs the account's default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<AgentModel>,
     /// When it was started, in ms since the Unix epoch; `None` for sessions
     /// saved before Ovra kept it.
     #[serde(default)]
@@ -719,6 +744,10 @@ pub enum AgentsRequest {
         /// other people's text (ADR 0013).
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         no_web: bool,
+        /// Claude only: the model to ask for; `None` runs the account's
+        /// default.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        model: Option<AgentModel>,
     },
     /// Sends the next message. Answers `ok`.
     #[serde(rename = "agents.send")]

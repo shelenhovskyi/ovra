@@ -6,8 +6,8 @@ use tokio::sync::broadcast;
 use crate::Core;
 use crate::fakes::{EchoTerminals, MemoryFs, MemoryProjects, MemorySessions, ScriptedAgent, Step};
 use crate::protocol::agents::{
-    AgentMessage, AgentStatus, AgentsEvent, AgentsResponse, SessionInfo, SessionMode, ToolCall,
-    ToolKind, TurnUsage,
+    AgentMessage, AgentModel, AgentStatus, AgentsEvent, AgentsResponse, SessionInfo, SessionMode,
+    ToolCall, ToolKind, TurnUsage,
 };
 use crate::protocol::agents::{ProjectAgentConfig, ProjectConfigReview, SetupState};
 use crate::protocol::permissions::{
@@ -1847,6 +1847,47 @@ async fn a_research_session_without_the_web_cannot_search() {
     )
     .await;
     assert!(lock_started(&agent, 1).no_web);
+}
+
+#[tokio::test]
+async fn a_chosen_model_is_kept_for_the_session_and_its_resume() {
+    let agent = Arc::new(ScriptedAgent::new(vec![vec![Step::Say("hi")]]));
+    let core = Core::builder("test")
+        .projects(Arc::new(MemoryProjects::default()))
+        .agents(agent.clone())
+        .build();
+    project(&core).await;
+    let with = |agent: &str, model: &str| {
+        json!({"method": "agents.start", "params": {
+            "project": "p1", "agent": agent, "mode": "direct", "prompt": "Fix it",
+            "model": model}})
+    };
+    // Nothing but the three aliases parses, so nothing else reaches `claude`.
+    assert!(serde_json::from_value::<Request>(with("claude", "--dangerously")).is_err());
+    assert_eq!(
+        code(&core, with("gemini", "opus")).await,
+        ErrorCode::BadRequest
+    );
+    match ok(&core, with("claude", "sonnet")).await {
+        Response::Agents(AgentsResponse::Session(info)) => {
+            assert_eq!(info.model, Some(AgentModel::Sonnet));
+        }
+        other => panic!("unexpected {other:?}"),
+    }
+    assert_eq!(lock_started(&agent, 0).model, Some(AgentModel::Sonnet));
+    let mut rx = core.subscribe();
+    ok(
+        &core,
+        json!({"method": "agents.stop", "params": {"session": "s1"}}),
+    )
+    .await;
+    until(&mut rx, AgentStatus::Stopped).await;
+    ok(
+        &core,
+        json!({"method": "agents.resume", "params": {"session": "s1", "prompt": "more"}}),
+    )
+    .await;
+    assert_eq!(lock_started(&agent, 1).model, Some(AgentModel::Sonnet));
 }
 
 #[tokio::test]

@@ -3,7 +3,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use super::agents::{AgentKind, SessionId};
+use super::agents::{AgentKind, AgentModel, SessionId};
 use super::context::ContextItem;
 use super::projects::ProjectId;
 use super::review::{ChangeKind, ReviewId};
@@ -201,6 +201,10 @@ pub enum OrchestrationRequest {
         /// tasks try one prompt.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         attempt_of: Option<TaskId>,
+        /// Claude only: the model its sessions ask for; a coordinator's
+        /// workers use their coordinator's.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        model: Option<AgentModel>,
     },
     /// Tasks of a project, oldest first.
     #[serde(rename = "orchestration.list")]

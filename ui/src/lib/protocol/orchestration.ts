@@ -1,4 +1,4 @@
-import type { AgentKind, SessionId } from "./agents";
+import type { AgentKind, AgentModel, SessionId } from "./agents";
 import type { ContextItem } from "./context";
 import type { ProjectId } from "./projects";
 import type { ChangeKind, ReviewId } from "./review";
@@ -133,6 +133,8 @@ export type OrchestrationRequest =
         solo?: boolean;
         /** With `solo`: one more attempt at that first solo task, at most three per prompt. */
         attempt_of?: TaskId;
+        /** Claude only: the model its sessions ask for; a coordinator's workers use their coordinator's. */
+        model?: AgentModel;
       };
     }
   | { method: "orchestration.list"; params: { project: ProjectId } }

@@ -932,6 +932,7 @@ async fn a_cmd_script_gets_the_whole_command_line() {
         None,
         false,
         true,
+        None,
     );
     let status = tokio::process::Command::new(&script)
         .args(&args)

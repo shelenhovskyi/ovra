@@ -7,8 +7,8 @@ use tokio::sync::broadcast;
 use crate::Core;
 use crate::fakes::{MemoryAudit, MemoryFs, MemoryProjects, MemoryWorktrees, ScriptedAgent, Step};
 use crate::protocol::agents::{
-    AgentCapacity, AgentMessage, AgentStatus, AgentsEvent, AgentsResponse, MessageFrom, SessionId,
-    SessionMode, TurnUsage,
+    AgentCapacity, AgentMessage, AgentModel, AgentStatus, AgentsEvent, AgentsResponse, MessageFrom,
+    SessionId, SessionMode, TurnUsage,
 };
 use crate::protocol::audit::{AuditEvent, DecidedBy, ReviewAction};
 use crate::protocol::fs::FsEvent;
@@ -161,6 +161,32 @@ async fn only_claude_plans_and_splits_a_task() {
         "project": "p1", "prompt": "split the work", "agent": "gemini"}});
     assert_eq!(code(call(&f.core, start).await), ErrorCode::Unavailable);
     assert!(f.core.sessions().list(&ProjectId("p1".into())).is_empty());
+}
+
+#[tokio::test]
+async fn a_tasks_workers_ask_for_its_coordinators_model() {
+    let f = fx(say()).await;
+    ok(
+        &f.core,
+        json!({"method": "orchestration.start", "params": {
+            "project": "p1", "prompt": "split the work", "model": "haiku"}}),
+    )
+    .await;
+    let boss = caller("s1", ToolRole::Coordinator);
+    f.core
+        .spawn_agent(&boss, "fix-login", "fix the login", false)
+        .await
+        .unwrap_or_else(|e| panic!("{e}"));
+    let models: Vec<_> = f
+        .agent
+        .started
+        .lock()
+        .map(|s| s.iter().map(|spec| spec.model).collect())
+        .unwrap_or_default();
+    assert_eq!(models, [Some(AgentModel::Haiku), Some(AgentModel::Haiku)]);
+    let other = json!({"method": "orchestration.start", "params": {
+        "project": "p1", "prompt": "x", "agent": "gemini", "solo": true, "model": "opus"}});
+    assert_eq!(code(call(&f.core, other).await), ErrorCode::BadRequest);
 }
 
 #[tokio::test]

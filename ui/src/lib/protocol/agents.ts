@@ -47,6 +47,9 @@ export type Capabilities = {
 /** `research` reads the main checkout and searches the web, changes nothing; own cap (ADR 0013). */
 export type SessionMode = "direct" | "isolated" | "research";
 
+/** The Claude model a session asks for (`claude --model`); closed set. */
+export type AgentModel = "opus" | "sonnet" | "haiku";
+
 /** Closed set: the UI shows exactly these states. */
 export type AgentStatus =
   /** The project has as many agents working as it may; it starts when one finishes. */
@@ -100,6 +103,8 @@ export type SessionInfo = {
   can_undo_go_back?: boolean;
   /** A research session started without WebSearch. */
   no_web?: boolean;
+  /** The model it asked for; absent for the account's default. */
+  model?: AgentModel;
   /** When it started, ms since the Unix epoch; null for sessions saved before it was kept (absent from older cores). */
   started_ms?: number | null;
   /** Its latest message or change of status, ms since the Unix epoch; null for sessions saved before it was kept. */
@@ -299,6 +304,8 @@ export type AgentsRequest =
         context?: ContextItem[];
         /** Research only: no WebSearch either, for prompts that carry other people's text (ADR 0013). */
         no_web?: boolean;
+        /** Claude only: the model to ask for; left out runs the account's default. */
+        model?: AgentModel;
       };
     }
   | { method: "agents.send"; params: { session: SessionId; text: string; context?: ContextItem[] } }

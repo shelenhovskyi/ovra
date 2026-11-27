@@ -5,7 +5,9 @@ use std::path::PathBuf;
 use super::{Result, Workspace, conflict, forbidden, not_found, prepare, review, slots};
 use crate::Core;
 use crate::agents::{self, NewSession};
-use crate::protocol::agents::{AgentKind, AgentStatus, MessageFrom, SessionId, SessionMode};
+use crate::protocol::agents::{
+    AgentKind, AgentModel, AgentStatus, MessageFrom, SessionId, SessionMode,
+};
 use crate::protocol::orchestration::{
     FailedWorker, OrchestrationEvent, OrchestrationRequest, OrchestrationResponse, Task, TaskId,
     TaskLimits, Worker,
@@ -114,6 +116,7 @@ pub(super) async fn handle(core: &Core, request: OrchestrationRequest) -> Result
             agent,
             solo,
             attempt_of,
+            model,
         } => {
             if attempt_of.is_some() && !solo {
                 return Err(ProtocolError::new(
@@ -121,12 +124,13 @@ pub(super) async fn handle(core: &Core, request: OrchestrationRequest) -> Result
                     "only one agent in its own copy can be another attempt",
                 ));
             }
+            agents::check_model(agent, model)?;
             let sees = agents::sees_images(&core.agents_ctx(), agent);
             let context = crate::context::message(core, &project, None, &context, sees).await?;
             let task = if solo {
-                start_solo(core, project, prompt, context, agent, attempt_of).await?
+                start_solo(core, project, prompt, context, agent, attempt_of, model).await?
             } else {
-                start(core, project, prompt, context, limits, agent).await?
+                start(core, project, prompt, context, limits, agent, model).await?
             };
             Ok(Response::Orchestration(OrchestrationResponse::Task(task)))
         }
@@ -202,6 +206,7 @@ async fn start(
     context: Option<crate::context::Context>,
     limits: TaskLimits,
     agent: AgentKind,
+    model: Option<AgentModel>,
 ) -> Result<Task> {
     if limits.max_workers == 0 || limits.max_workers > MAX_WORKERS_CAP {
         return Err(ProtocolError::new(
@@ -214,6 +219,7 @@ async fn start(
     needs_git(core, &project, "Plan and split").await?;
     let new = NewSession {
         no_web: false,
+        model,
         project: project.clone(),
         agent,
         mode: SessionMode::Direct,
@@ -287,6 +293,7 @@ async fn start_solo(
     context: Option<crate::context::Context>,
     agent: AgentKind,
     attempt_of: Option<TaskId>,
+    model: Option<AgentModel>,
 ) -> Result<Task> {
     agents::check_text(&prompt)?;
     needs_git(core, &project, "One agent, own copy").await?;
@@ -342,6 +349,7 @@ async fn start_solo(
         prompt,
         context,
         agent,
+        model,
         from: MessageFrom::Person,
         queued,
         low,
@@ -698,11 +706,19 @@ pub(super) async fn spawn(
         });
         (entry.clone(), queued, port)
     };
+    // Workers ask for the model their coordinator asked for.
+    let model = core
+        .agents_ctx()
+        .sessions
+        .find(coordinator, |s| s.info().model)
+        .ok()
+        .flatten();
     let new = NewWorker {
         name: &name,
         prompt,
         context: None,
         agent: AgentKind::Claude,
+        model,
         from: MessageFrom::Coordinator,
         queued,
         low,
@@ -797,6 +813,7 @@ struct NewWorker<'a> {
     /// images.
     context: Option<crate::context::Context>,
     agent: AgentKind,
+    model: Option<AgentModel>,
     /// Who wrote `prompt`.
     from: MessageFrom,
     queued: bool,
@@ -819,6 +836,7 @@ async fn create_worker(
         prompt,
         context,
         agent,
+        model,
         from,
         queued,
         low,
@@ -870,6 +888,7 @@ async fn create_worker(
     });
     let new = NewSession {
         no_web: false,
+        model,
         project: task.project.clone(),
         agent,
         mode: SessionMode::Isolated,

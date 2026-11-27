@@ -172,6 +172,7 @@ mod tests {
                 undone_from: None,
                 can_undo_go_back: false,
                 no_web: false,
+                model: None,
                 started_ms: Some(1),
                 active_ms: Some(2),
             },

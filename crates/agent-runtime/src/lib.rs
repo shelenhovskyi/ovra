@@ -187,6 +187,7 @@ async fn session(
             spec.tools,
             spec.mode == ovra_core::protocol::agents::SessionMode::Research,
             !spec.no_web,
+            spec.model,
         ),
         &spec.cwd,
         spec.config_dir.as_deref(),

@@ -7,7 +7,7 @@ use super::accounts;
 use super::transcript::MAX_TEXT_BYTES;
 use super::{AgentHost, Launch, Sessions};
 use crate::protocol::agents::{
-    AgentKind, AgentMessage, AgentStatus, AgentsEvent, AgentsRequest, AgentsResponse,
+    AgentKind, AgentMessage, AgentModel, AgentStatus, AgentsEvent, AgentsRequest, AgentsResponse,
     DEFAULT_ACCOUNT, MessageFrom, ProjectConfigReview, SessionId, SessionInfo, SessionMode,
     SessionTranscript, SetupState, TurnUsage,
 };
@@ -138,6 +138,7 @@ pub(crate) async fn agents(
             account,
             context,
             no_web,
+            model,
         } => {
             if no_web && mode != SessionMode::Research {
                 return Err(ProtocolError::new(
@@ -172,6 +173,7 @@ pub(crate) async fn agents(
                 queued: false,
                 preparing: false,
                 no_web,
+                model,
             };
             let info = start(ctx, new).await?;
             Ok(Response::Agents(AgentsResponse::Session(info)))
@@ -398,11 +400,24 @@ pub(crate) struct NewSession {
     pub(crate) account: Option<String>,
     /// A research session without `WebSearch`.
     pub(crate) no_web: bool,
+    /// The model to ask for; Claude only.
+    pub(crate) model: Option<AgentModel>,
     /// Waits `queued` for [`start_queued`] instead of starting now.
     pub(crate) queued: bool,
     /// Waits `preparing` while its worktree is set up, then
     /// [`start_queued`] starts it; overrides `queued`.
     pub(crate) preparing: bool,
+}
+
+/// Only Claude takes a model for now (`docs/specs/task-commands.md`).
+pub(crate) fn check_model(agent: AgentKind, model: Option<AgentModel>) -> Result<()> {
+    if model.is_some() && agent != AgentKind::Claude {
+        return Err(ProtocolError::new(
+            ErrorCode::BadRequest,
+            "only a Claude session can choose its model",
+        ));
+    }
+    Ok(())
 }
 
 /// What a session asks of its provider.
@@ -479,6 +494,7 @@ fn program(agent: AgentKind) -> &'static str {
 /// Starts a session and returns it as it is now.
 pub(crate) async fn start(ctx: &Ctx<'_>, new: NewSession) -> Result<SessionInfo> {
     check_text(&new.prompt)?;
+    check_model(new.agent, new.model)?;
     // Coordinators take no place, workers wait for one when asked to; a
     // person's start past the cap waits too (`docs/specs/review-check.md`),
     // a research session's is refused.
@@ -540,6 +556,7 @@ pub(crate) async fn start(ctx: &Ctx<'_>, new: NewSession) -> Result<SessionInfo>
         undone_from: None,
         can_undo_go_back: false,
         no_web: new.no_web,
+        model: new.model,
         started_ms: Some(super::now_ms()),
         active_ms: Some(super::now_ms()),
     };
@@ -916,9 +933,9 @@ async fn run(
         host.message(AgentMessage::UserText { text, from });
     }
     turn_started(ctx, id, &parts);
-    let (agent, mode, no_web) = sessions.find(id, |s| {
+    let (agent, mode, no_web, model) = sessions.find(id, |s| {
         let info = s.info();
-        (info.agent, info.mode, info.no_web)
+        (info.agent, info.mode, info.no_web, info.model)
     })?;
     let network = sessions
         .net_start(
@@ -981,6 +998,7 @@ async fn run(
         resume,
         sandbox,
         no_web,
+        model,
         images,
     };
     match ctx.runtime.start(spec, host.clone()) {
