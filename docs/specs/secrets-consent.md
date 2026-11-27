@@ -1,6 +1,7 @@
 # Keys agents use with consent
 
-Status: proposal, waiting for the owner's choice. Builds on
+Status: option A approved by the owner on 2026-11-27, with Always allow
+on the consent card. Builds on
 `docs/specs/secrets.md` (4.D, built) and `docs/specs/security.md`.
 
 **Goal.** The person can let an agent use a key (a GitHub token, an API
@@ -35,48 +36,64 @@ lacks for this goal:
 Keep 4.D's delivery and add what is missing:
 
 - **Settings > Keys.** Its own pane, out of Network. "Add key" offers
-  presets: GitHub, GitLab, OpenAI, Stripe, npm, Hugging Face, and
-  "Other API". A preset fills host, header, format and the variable name,
+  presets and "Other API". A preset fills host, header, format and the variable name,
   links to the page that makes a narrow token, and adds the host to the
-  project's allowlist in the same step. The person only pastes the value.
+  project's allowlist in the same step. Presets: GitHub (`GH_TOKEN`),
+  GitLab (`GITLAB_TOKEN`), Stripe (`STRIPE_API_KEY`), npm (`NPM_TOKEN`),
+  Hugging Face (`HF_TOKEN`). OpenAI is left out: its hosts are Codex's
+  own, which no key is sent to. The person only pastes the value.
   "Other API" shows the current fields under "Advanced".
 - **Consent on first use.** When a session first sends a request that
   would carry a key, the proxy holds that request and the agent's
   approval card shows: "Agent wants to use your GitHub key (api.github.com)
-  for this task." Buttons: **Allow for this task**, **Deny**. Under a
-  disclosure: "Always allow in this project". The answer lasts for the
+  for this task." Buttons: **Allow for this task**, **Deny**, and a
+  quieter **Always allow** (owner, 2026-11-27) with one honest line:
+  "Every agent in this project will use this key without asking. You can
+  turn this off in Settings > Keys." The answer lasts for the
   session (resumes included); a worker asks on its own. Deny sends the
   request without the key, so the tool gets a plain 401 and the agent can
   say what it needs. A held request waits up to 5 minutes, then counts as
   Deny. The phone companion can Allow and Deny, never Always (as today).
 - **Per-key setting**, chosen in Settings > Keys: Ask each task
-  (default), Always in this project, Off.
+  (default), Always allow, Off. These are project policy rules for the
+  tool `UseKey` with the key's name as the match, as `Push` rules decide
+  Ovra's pushes: `auto` is Always allow, `deny` is Off, no rule (or `ask`)
+  asks. "Always allow" on the card adds the `auto` rule, the way it does
+  for tool calls, and like every `auto` rule it counts only in a
+  sandboxed session with a limited network (the only sessions keys reach
+  anyway). An agent tool that happens to be called `UseKey` never matches
+  these rules.
+- **Fresh rules each time.** The proxy asks the core on every request it
+  would add a key to; the core reads the policy then, so turning Always
+  allow off in Settings applies at once. A session's own answer (Allow
+  for this task, Deny) is kept with the session in memory.
 - **Placeholder variables.** For a key with a variable name, the sandbox
   sets it to a placeholder, `ovra-key-<name>`, which is not secret. Tools
-  start, send the placeholder, and the proxy replaces the whole header
-  with the real one (it already drops the agent's own copy of the header).
-  The placeholder is never sent upstream: a request to an unbound host
-  that contains it is refused and logged, so a misrouted call fails
-  loudly.
-- **Basic format.** A format field: `bearer` (prefix + value, today),
-  `basic` with a fixed user (`x-access-token` for GitHub). The proxy
-  encodes after reading the value.
-- **Shown where it happens.** The transcript gets a muted line "Used
-  GitHub key on api.github.com" (once per session and host), the audit
-  log keeps `SecretUsed`, and Settings > Keys shows "last used".
-- **Answer redaction.** The proxy searches answers from bound hosts for
-  the value (and its base64 form) and replaces it with `[key hidden]`, so
-  an echoing endpoint cannot hand it back. Cheap, and a second wall.
-- **One key, several projects.** Keys stay per project (the 4.D rule
-  against an untrusted repository using a token). "Use in another
-  project" copies the binding without the person pasting again, from
-  Settings only.
+  start and send the placeholder; the proxy drops the agent's copy of the
+  key's header and adds the real one. The variable name must end in
+  `_TOKEN`, `_KEY`, `_SECRET` or `_PAT`, and may not start with a prefix
+  an agent's own login reads (`ANTHROPIC_`, `CLAUDE_`, `OPENAI_`,
+  `GEMINI_`, `GOOGLE_`, `AWS_`, `AZURE_`, `CODEX_`, `OVRA_`), so a
+  placeholder never replaces an agent's own credentials.
+- **Answer redaction.** The proxy asks bound hosts for an uncompressed
+  answer (`Accept-Encoding: identity`) and masks every copy of the value
+  in it with `*`, keeping its length, so an echoing endpoint cannot hand
+  it back.
+- **Keys stay per project** (the 4.D rule against an untrusted repository
+  using a token).
 
-Cost: about three days. Core: a held-request path from the netproxy to
-`permissions.*` (a new request kind, `key`), the per-key setting, the
-format field. Sandbox crates: set the placeholder variables. UI: the new
-pane, presets, the card. Protocol change (`secrets.rs`,
-`permissions.rs`) lands first in its own commit.
+Left for later, each its own small task: a "Used GitHub key" line in the
+transcript and "last used" in Settings (the audit log has `SecretUsed`
+now), "Use in another project", a `basic` format (no preset needs it:
+GitHub, GitLab, Stripe, npm and Hugging Face all take a bearer token,
+and pushes go through the person's own `gh`), masking base64 copies.
+
+Cost: about three days. Protocol: `SecretInfo.variable`, the variables
+in `ProfileNetwork::Proxy`, `KeyConsent` on `NetReporter`; lands first in
+its own commit. Core: `UseKey` rules and asking through the existing
+`permissions.*` requests (tool `UseKey`, input `{ key, host }`). netproxy:
+consent before adding, identity encoding, masking. Sandbox crates: set the
+variables. UI: the new pane, presets, the card.
 
 ### B. A broker runs commands for the agent
 
@@ -119,15 +136,15 @@ it sees the key. That is exactly what the owner wants to avoid. Rejected.
 
 - Core: consent held, allowed, denied, timed out, "always"; a worker asks
   on its own; resume keeps the answer. Fake netproxy, fake agents.
-- netproxy: placeholder replaced, placeholder to an unbound host refused,
-  basic format, answer redaction (plain and base64), held request
-  released on answer.
+- netproxy: no key without consent, the agent's placeholder header
+  replaced, answer masking across reads, identity encoding.
 - UI: presets fill fields and the allowlist, the card's buttons.
 - e2e: add a GitHub preset key, an agent's request shows the card, Allow.
-- 4.F: an attack that tries to read the key back through an echoing host
-  and through the placeholder.
+- 4.F: an attack that tries to read the key back through an echoing
+  host.
 
-## Decision for the owner
+## Decision
 
-1. A (recommended), B, or C.
-2. Default per key: Ask each task (recommended) or Always in this project.
+The owner chose A on 2026-11-27 and asked for Always allow on the card:
+quieter than Allow for this task, with the line about every agent in the
+project, revocable in Settings > Keys, never from the phone.
