@@ -24,6 +24,8 @@ export class FakeAccessCore implements Transport {
   store: SecretStoreStatus = { state: "available", name: "Secret Service" };
   sessions: SessionInfo[] = [];
   rules: PolicyRule[] = [];
+  /** While set, secrets.list waits for it: the keychain is still being checked. */
+  listing: Promise<void> | null = null;
   /** Errors to answer with, by method. */
   refuse = new Map<string, string>();
   private listeners = new Set<(event: CoreEvent) => void>();
@@ -41,6 +43,7 @@ export class FakeAccessCore implements Transport {
         this.hosts = request.params.allowlist.hosts;
         return this.allowlist() as ResponseFor<R>;
       case "secrets.list":
+        await this.listing;
         return { type: "secrets.list", data: { store: this.store, secrets: [...this.secrets] } } as ResponseFor<R>;
       case "secrets.set": {
         const { secret, value } = request.params;

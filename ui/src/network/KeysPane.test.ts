@@ -88,6 +88,34 @@ describe("KeysPane", () => {
     expect($("[data-testid=key]")?.textContent).not.toContain("cannot reach");
   });
 
+  it("keeps focus in the form while the keychain is checked, then moves it to the field", async () => {
+    const core = new FakeAccessCore();
+    let release = () => {};
+    core.listing = new Promise((resolve) => {
+      release = resolve;
+    });
+    await open(core);
+    await preset("github");
+    expect(document.activeElement).toBe($("[data-testid=add-title]"));
+    release();
+    await settle();
+    expect(document.activeElement).toBe($("[data-testid=key-value]"));
+  });
+
+  it("moves focus to Check again when the keychain turns out unreachable", async () => {
+    const core = new FakeAccessCore();
+    core.store = { state: "unavailable", reason: "no Secret Service" };
+    let release = () => {};
+    core.listing = new Promise((resolve) => {
+      release = resolve;
+    });
+    await open(core);
+    await preset("github");
+    release();
+    await settle();
+    expect(document.activeElement).toBe($("[data-testid=store-retry]"));
+  });
+
   it("asks for every field for another API, and the value first", async () => {
     const core = await open();
     await preset("other");

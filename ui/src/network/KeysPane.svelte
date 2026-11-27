@@ -78,8 +78,26 @@ async function start(preset: KeyPreset | null): Promise<void> {
   value = "";
   error = null;
   await tick();
-  root?.querySelector<HTMLElement>("[data-testid=key-value], [data-testid=store-retry]")?.focus();
+  focusForm();
 }
+
+/** The field, or the form's heading while the keychain is still checked: focus never falls to the page. */
+function focusForm(): void {
+  const field = root?.querySelector<HTMLInputElement>("[data-testid=key-value]:enabled, [data-testid=store-retry]");
+  (field ?? root?.querySelector<HTMLElement>("[data-testid=add-title]"))?.focus();
+}
+
+// The keychain answered while the form's heading held focus, which the answer
+// may have replaced: hand focus to the field or to Check again.
+$effect(() => {
+  if (access.store?.state && adding)
+    untrack(() =>
+      tick().then(() => {
+        const at = document.activeElement;
+        if (at === document.body || at === root?.querySelector("[data-testid=add-title]")) focusForm();
+      }),
+    );
+});
 
 function cancel(): void {
   adding = null;
@@ -200,7 +218,7 @@ async function remove(name: string): Promise<void> {
       </div>
     {:else}
       <form class="add" onsubmit={save} aria-label="Add a key">
-        <h4>{adding.preset ? `${adding.preset.label} key` : "Key for another API"}</h4>
+        <h4 tabindex="-1" data-testid="add-title">{adding.preset ? `${adding.preset.label} key` : "Key for another API"}</h4>
         {#if adding.preset}
           <p class="muted">
             {adding.preset.hint}
