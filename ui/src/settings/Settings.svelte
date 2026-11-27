@@ -14,6 +14,9 @@ import NetworkPanel from "../network/NetworkPanel.svelte";
 import PolicyPanel from "../policy/PolicyPanel.svelte";
 import KeepAwakeField from "../power/KeepAwakeField.svelte";
 import PhonePane from "../remote/PhonePane.svelte";
+import SchedulesPane from "../schedules/SchedulesPane.svelte";
+import SchedulesSwitch from "../schedules/SchedulesSwitch.svelte";
+import { schedules } from "../schedules/schedules.svelte";
 import ServersPanel from "../servers/ServersPanel.svelte";
 import { useOvra } from "../shell/context";
 import ViewFrame from "../shell/ViewFrame.svelte";
@@ -42,7 +45,8 @@ const GROUPS = $derived([
   { id: "ovra", name: "Ovra" },
 ] as const);
 
-const panes = $derived(panesFor(!!workspace.project));
+const scheduled = schedules(transport);
+const panes = $derived(panesFor(!!workspace.project, scheduled.on === true));
 /** The remembered pane, or the first there is (a project's pane with no project open). */
 const pane = $derived(panes.find((p) => p.id === settings.pane) ?? panes[0]);
 
@@ -186,6 +190,7 @@ function onListKeydown(event: KeyboardEvent): void {
           <ModelField />
           <TemplatesField />
           <PlanFirstField />
+          <SchedulesSwitch />
           <KeepAwakeField />
         {:else if pane.id === "setup"}
           <SetupPane />
@@ -197,6 +202,8 @@ function onListKeydown(event: KeyboardEvent): void {
           <KeysPane />
         {:else if pane.id === "servers"}
           <ServersPanel />
+        {:else if pane.id === "schedules"}
+          <SchedulesPane />
         {:else if pane.id === "notifications"}
           <p class="field">
             <span>System notifications</span>

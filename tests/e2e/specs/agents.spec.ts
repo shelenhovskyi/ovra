@@ -645,6 +645,42 @@ test("a research agent changes nothing and its report is saved as a doc", async 
   expect(readFileSync(join(dir, "README.md"), "utf8")).toBe("teh readme\n");
 });
 
+test("a schedule, once switched on in Settings, runs a research agent on Run now", async ({ page }) => {
+  await openGitProject(page, "ovra-agents-schedule-");
+  await page.keyboard.press("ControlOrMeta+Comma");
+  const settings = page.getByRole("region", { name: "Settings" });
+  const panes = settings.getByRole("navigation", { name: "Settings panes" });
+  await panes.getByRole("button", { name: "Agents" }).click();
+  // Off by default, and no Schedules pane until it is on.
+  const toggle = settings.getByTestId("schedules-switch");
+  await expect(toggle).not.toBeChecked();
+  await expect(panes.getByRole("button", { name: "Schedules" })).toHaveCount(0);
+  await toggle.check();
+  try {
+    await settings.getByRole("button", { name: "Set up schedules" }).click();
+    const pane = settings.getByTestId("schedules-pane");
+    await pane.getByRole("button", { name: "Add schedule" }).click();
+    await pane.getByLabel("Name").fill("Nightly check");
+    await pane.getByLabel("What to do").fill("How does the readme read?");
+    // Twelve hours away, so the clock leaves it alone during the test.
+    const hour = String((new Date().getHours() + 12) % 24).padStart(2, "0");
+    await pane.getByLabel("Time").fill(`${hour}:00`);
+    await pane.getByRole("button", { name: "Add schedule" }).click();
+    const row = pane.getByTestId("schedule-row");
+    await expect(row).toContainText("Every day at");
+    await expect(row.getByTestId("schedule-next")).toContainText("Next run");
+    await row.getByRole("button", { name: "Run now" }).click();
+    await expect(row.getByTestId("schedule-last")).toContainText("Last run started");
+    await page.keyboard.press("ControlOrMeta+Comma");
+    await expect(page.getByTestId("agents").getByText("Scheduled · Nightly check")).toBeVisible();
+  } finally {
+    // The daemon is shared: other tests see Settings as they expect.
+    await page.keyboard.press("ControlOrMeta+Comma");
+    await panes.getByRole("button", { name: "Agents" }).click();
+    await settings.getByTestId("schedules-switch").uncheck();
+  }
+});
+
 test("add a file with @ and send it with the task", async ({ page }) => {
   await openProject(page, "ovra-agents-context-");
   const field = page.getByRole("textbox", { name: "Describe a task" });

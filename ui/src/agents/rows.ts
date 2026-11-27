@@ -39,6 +39,8 @@ export class TaskRows {
    * asked to do (its first line), a task or a session by its title.
    */
   title(s: SessionInfo): string {
+    // A schedule's run by the schedule's name: its prompt is the same every run.
+    if (s.schedule) return `Scheduled · ${s.schedule}`;
     const role = this.sessions.roles.get(s.id);
     if (role?.kind === "worker") return s.title ? `${role.name} · ${s.title}` : role.name;
     return s.title || this.sessions.name(s.id);
@@ -46,6 +48,7 @@ export class TaskRows {
 
   /** The row's tooltip: the whole title, and a worker's branch and kept folder. */
   tip(s: SessionInfo): string {
+    if (s.schedule) return `Started by the schedule "${s.schedule}": ${s.title}`;
     const role = this.sessions.roles.get(s.id);
     if (role?.kind !== "worker") return this.sessions.name(s.id);
     const kept = role.kept ? `\nIts folder was kept: ${role.kept}` : "";

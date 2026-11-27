@@ -8,6 +8,7 @@ export type PaneId =
   | "network"
   | "keys"
   | "servers"
+  | "schedules"
   | "editor"
   | "claude"
   | "setup"
@@ -26,6 +27,8 @@ export type Pane = {
   group: "project" | "ovra";
   /** Other words the palette matches. */
   keywords: string[];
+  /** Shown only while scheduled tasks are on (Settings > Agents). */
+  optional?: boolean;
 };
 
 export const PANES: Pane[] = [
@@ -63,6 +66,14 @@ export const PANES: Pane[] = [
     line: "Commands that start your app, so you and agents can open it.",
     group: "project",
     keywords: ["dev servers", "ports"],
+  },
+  {
+    id: "schedules",
+    title: "Schedules",
+    line: "Agents that start by themselves at the days and times you set, while Ovra is open.",
+    group: "project",
+    keywords: ["scheduled tasks", "cron", "nightly", "timer", "recurring"],
+    optional: true,
   },
   {
     id: "editor",
@@ -119,7 +130,7 @@ export const PANES: Pane[] = [
 /** The pane Settings shows; kept while the view is closed. */
 export const settings = $state<{ pane: PaneId }>({ pane: "trust" });
 
-/** The panes there are: the project's only with a project open. */
-export function panesFor(project: boolean): Pane[] {
-  return PANES.filter((pane) => project || pane.group === "ovra");
+/** The panes there are: the project's only with a project open, Schedules only while they are on. */
+export function panesFor(project: boolean, schedules = false): Pane[] {
+  return PANES.filter((pane) => (project || pane.group === "ovra") && (!pane.optional || schedules));
 }

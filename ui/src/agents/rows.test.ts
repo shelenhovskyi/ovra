@@ -164,3 +164,14 @@ it("asks for an answer on a task whose board has an open question for the person
     "docs · docs notes | Working | working",
   ]);
 });
+
+it("names a schedule's run by the schedule, with its prompt in the tooltip", async () => {
+  const core = new FakeAgentCore();
+  const info = core.addSession("p1", "Look for bugs in the parser", { state: "idle" });
+  info.schedule = "Nightly bugs";
+  const { rows, list } = await rowsOf(core);
+  const [row] = list;
+  if (!row) throw new Error("no row");
+  expect(rows.title(row)).toBe("Scheduled · Nightly bugs");
+  expect(rows.tip(row)).toBe('Started by the schedule "Nightly bugs": Look for bugs in the parser');
+});

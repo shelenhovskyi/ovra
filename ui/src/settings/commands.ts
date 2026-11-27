@@ -23,7 +23,8 @@ export function registerSettingsCommands(): () => void {
       // The key that opened Settings closes it, as the gear and Reviews' key do.
       run: () => (mainView.current === "settings" ? mainView.close() : openSettings()),
     }),
-    ...PANES.map((pane) =>
+    // An optional pane is reached from its switch, not from the palette.
+    ...PANES.filter((pane) => !pane.optional).map((pane) =>
       registerCommand({
         id: `settings.${pane.id}`,
         title: pane.title,
