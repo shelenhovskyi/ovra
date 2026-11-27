@@ -45,6 +45,10 @@ pub struct PolicyRule {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Policy {
     pub rules: Vec<PolicyRule>,
+    /// Quiet mode (ADR 0015): calls no rule decides are allowed without
+    /// asking when the sandbox contains them. Off by default.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub quiet: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

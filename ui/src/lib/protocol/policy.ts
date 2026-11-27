@@ -25,7 +25,11 @@ export type PolicyRule = {
 };
 
 /** A project's rules; the empty policy asks about everything. */
-export type Policy = { rules: PolicyRule[] };
+export type Policy = {
+  rules: PolicyRule[];
+  /** Quiet mode (ADR 0015): calls no rule decides run without asking when the sandbox contains them. */
+  quiet?: true;
+};
 
 export type PolicyRequest =
   | { method: "policy.get"; params: { project: ProjectId } }
