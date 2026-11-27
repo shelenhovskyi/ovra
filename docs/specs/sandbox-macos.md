@@ -83,7 +83,7 @@ must do) and ADR 0011 (`ProviderLists`).
   would allow every item it may read, the person's `gh` login among them.
   `claude` in the sandbox keeps its login in `~/.claude/.credentials.json`
   instead (writable, made when it signs in); the person signs in once for
-  sandboxed agents (owner's choice pending, 2026-11-27). A broker outside
+  sandboxed agents (owner's choice, 2026-11-27). A broker outside
   the sandbox that hands `claude` only its own item would pass its token
   through Ovra, which ADR 0006 forbids.
   `git-credential-osxkeychain` (by name, anywhere, any case) may neither
