@@ -491,11 +491,6 @@ fn check_can(ctx: &Ctx<'_>, asked: Asked<'_>) -> Result<()> {
 /// Plan first holds only where Ovra refuses the agent's file changes
 /// itself: a person's task for a provider with an enforced policy.
 fn check_plan_first(ctx: &Ctx<'_>, new: &NewSession) -> Result<()> {
-    let enforced = ctx
-        .runtime
-        .providers()
-        .iter()
-        .any(|p| p.id == new.agent && p.capabilities.enforced_policy);
     let person_task = new.from == MessageFrom::Person
         && match new.tools {
             None => new.mode == SessionMode::Direct,
@@ -507,6 +502,16 @@ fn check_plan_first(ctx: &Ctx<'_>, new: &NewSession) -> Result<()> {
             "plan first is for one agent in the project or in its own copy",
         ));
     }
+    can_plan_first(ctx, new.agent)
+}
+
+/// Refuses plan first for a provider whose file changes Ovra cannot hold.
+pub(crate) fn can_plan_first(ctx: &Ctx<'_>, agent: AgentKind) -> Result<()> {
+    let enforced = ctx
+        .runtime
+        .providers()
+        .iter()
+        .any(|p| p.id == agent && p.capabilities.enforced_policy);
     if !enforced {
         return Err(ProtocolError::new(
             ErrorCode::Unavailable,

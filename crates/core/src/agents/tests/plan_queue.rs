@@ -248,3 +248,59 @@ async fn only_a_solo_task_plans_first() {
         "project": "p1", "prompt": "split it", "plan_first": true}});
     assert_eq!(code(&core, task).await, ErrorCode::BadRequest);
 }
+
+#[tokio::test]
+async fn plan_first_holds_unknown_tools_and_server_starts_and_survives_a_restart() {
+    let projects = Arc::new(MemoryProjects::default());
+    let kept = Arc::new(MemorySessions::default());
+    let first = restartable(
+        ScriptedAgent::new(vec![vec![Step::Say("1. Change a.rs")]]),
+        &projects,
+        &kept,
+    );
+    project(&first).await;
+    let mut rx = first.subscribe();
+    ok(&first, plan_first("direct")).await;
+    until(&mut rx, AgentStatus::Idle).await;
+    let host = host(&first);
+    // A tool Ovra does not know goes to the person; Ovra's own tools that
+    // run the project's commands are refused.
+    let unknown = json!({"tool_use_id": "t1", "tool_name": "NewWriter", "tool_input": {}});
+    assert!(matches!(
+        crate::fakes::before_hook(&host, &unknown).await,
+        BeforeTool::Ask(_)
+    ));
+    let server = crate::fakes::tool("mcp__ovra__server_start", json!({"name": "web"}));
+    assert!(matches!(
+        host.before_tool(None, &server).await,
+        BeforeTool::Deny(why) if why.starts_with("Plan first:")
+    ));
+    let read =
+        json!({"tool_use_id": "t2", "tool_name": "Read", "tool_input": {"file_path": "a.rs"}});
+    assert_eq!(
+        crate::fakes::before_hook(&host, &read).await,
+        BeforeTool::Proceed
+    );
+    drop(host);
+    drop(first);
+
+    // Kept: after a restart and a resume it still plans.
+    let second = restartable(
+        ScriptedAgent::new(vec![vec![Step::Say("again")]]),
+        &projects,
+        &kept,
+    );
+    assert!(sessions(&second).await[0].planning);
+    let mut rx = second.subscribe();
+    ok(
+        &second,
+        json!({"method": "agents.resume", "params": {"session": "s1", "prompt": "go on"}}),
+    )
+    .await;
+    until(&mut rx, AgentStatus::Idle).await;
+    let edit = json!({"tool_use_id": "t3", "tool_name": "Write", "tool_input": {"file_path": "a.rs", "content": "x"}});
+    assert!(matches!(
+        crate::fakes::before_hook(&super::host(&second), &edit).await,
+        BeforeTool::Deny(_)
+    ));
+}

@@ -146,15 +146,17 @@ const offered = $derived(modesFor(agent, names.info(agent)?.capabilities));
 const how = $derived(offered.includes(mode) ? mode : (offered[0] ?? "own"));
 /** How many agents try the next task, each in its own copy (Settings > Agents offers it). */
 let tries = $state(1);
+/** Who makes each attempt; one agent unless the person turned attempts on and chose more. */
+const attempting = $derived(
+  how === "own" && agentPrefs.attempts ? attemptAgents(agent, names.startable, tries) : [agent],
+);
 /** The next task plans first, where Settings > Agents offers it. */
 let planFirst = $state(true);
 /** Plan first is offered: the person turned it on, and Ovra can hold the agent's file changes. */
 const offersPlan = $derived(
-  agentPrefs.planFirst && (how === "here" || how === "own") && names.info(agent)?.capabilities.enforced_policy === true,
-);
-/** Who makes each attempt; one agent unless the person turned attempts on and chose more. */
-const attempting = $derived(
-  how === "own" && agentPrefs.attempts ? attemptAgents(agent, names.startable, tries) : [agent],
+  agentPrefs.planFirst &&
+    (how === "here" || how === "own") &&
+    attempting.every((a) => names.info(a)?.capabilities.enforced_policy === true),
 );
 let promptField = $state<HTMLTextAreaElement>();
 /** The agent's setup card is open although the agent is ready (from the start form's footer button). */
@@ -1506,7 +1508,7 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
       {/if}
       {#if !isEnded(current.status) && !signedOut}
         {#if current.planning}
-          <PlanBar working={busyAgent} disabled={busy || !canReply} onapprove={() => void approvePlan(current.id)} />
+          <PlanBar working={!canReply} disabled={busy || !canReply} onapprove={() => void approvePlan(current.id)} />
         {/if}
         <QueuedMessages
           queue={current.queue ?? []}

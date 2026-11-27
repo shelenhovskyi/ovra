@@ -145,8 +145,17 @@ impl AgentHost {
             return;
         };
         changed(&ctx, &self.session);
-        // Checked when queued; only a session that ended meanwhile refuses.
-        let _ = super::requests::send_parts(&ctx, self.session.clone(), parts, images);
+        // Checked when queued; a session that ended meanwhile refuses, and
+        // the transcript says what did not go.
+        if let Err(err) =
+            super::requests::send_parts(&ctx, self.session.clone(), parts.clone(), images)
+        {
+            let text = parts.first().map(|(t, _)| t.as_str()).unwrap_or_default();
+            let line: String = text.lines().next().unwrap_or("").chars().take(80).collect();
+            self.message(crate::protocol::agents::AgentMessage::Error {
+                message: format!("A queued message was not sent ({}): {line}", err.message),
+            });
+        }
     }
 
     /// The session ended: what waited for it is dropped.

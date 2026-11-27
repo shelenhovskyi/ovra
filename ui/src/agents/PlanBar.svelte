@@ -14,7 +14,7 @@ let {
 } = $props();
 </script>
 
-<div class="plan" role="status" data-testid="plan-bar">
+<div class="plan" aria-live="polite" data-testid="plan-bar">
   {#if working}
     <p>Planning. The agent changes no files until you approve its plan.</p>
   {:else}

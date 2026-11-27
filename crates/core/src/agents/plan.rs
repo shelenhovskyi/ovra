@@ -26,6 +26,10 @@ const REFUSED: &str = "Plan first: the person has not approved your plan yet, so
 pub(super) const ASKS: &str =
     "Plan first: the agent wants to run this before you approved its plan.";
 
+/// Ovra's IDE tools that run the project's commands, in a pod that can
+/// write its folder: refused while a session plans.
+const RUNS_COMMANDS: [&str; 2] = ["server_start", "server_restart"];
+
 /// What plan first does to one tool call.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum Hold {
@@ -47,10 +51,27 @@ impl AgentHost {
         if !planning {
             return Hold::None;
         }
+        // Ovra's own tools follow their role rules, except those that run
+        // the project's commands.
+        if let Some(name) = tool
+            .name
+            .strip_prefix(crate::orchestration::IDE_TOOL_PREFIX)
+        {
+            return if RUNS_COMMANDS.contains(&name) {
+                Hold::Refuse
+            } else {
+                Hold::None
+            };
+        }
+        // Fails closed: a tool Ovra does not know goes to the person.
         match tool.call.kind {
+            ToolKind::Read
+            | ToolKind::Search
+            | ToolKind::Think
+            | ToolKind::Fetch
+            | ToolKind::Subagent => Hold::None,
             ToolKind::Edit | ToolKind::Delete | ToolKind::Move => Hold::Refuse,
-            ToolKind::Execute => Hold::Ask,
-            _ => Hold::None,
+            ToolKind::Execute | ToolKind::Other => Hold::Ask,
         }
     }
 

@@ -37,7 +37,7 @@ use crate::services::{
 
 pub(crate) use permissions::Permissions;
 pub(crate) use requests::{
-    Ctx, NewSession, Parts, agents as handle_agents, check_model, check_text,
+    Ctx, NewSession, Parts, agents as handle_agents, can_plan_first, check_model, check_text,
     permissions as handle_permissions, profile, resume, sees_images, send, start, start_queued,
     stop, stop_project, trust,
 };
@@ -464,7 +464,11 @@ impl Session {
 
     fn stored(&self) -> StoredSession {
         StoredSession {
-            info: self.info(),
+            // The queue is not kept across restarts.
+            info: SessionInfo {
+                queue: Vec::new(),
+                ..self.info()
+            },
             agent_session: self.agent_session.clone(),
         }
     }

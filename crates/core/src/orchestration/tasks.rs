@@ -322,6 +322,9 @@ async fn start_solo(
         plan_first,
     } = solo;
     agents::check_text(&prompt)?;
+    if plan_first {
+        agents::can_plan_first(&core.agents_ctx(), agent)?;
+    }
     needs_git(core, &project, "One agent, own copy").await?;
     let state = core.orchestration_state();
     let Some(worktrees_dir) = state.worktrees_dir.clone() else {

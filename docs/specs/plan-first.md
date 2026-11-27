@@ -31,9 +31,14 @@ optional: it is off until the person turns it on in Settings > Agents.
    `PreToolUse` hook and `can_use_tool`, and puts every `execute` call to the
    person: the hook answers `ask`, an `auto` rule does not apply, and the
    card offers no "Always allow". Its reason says the agent wants it before
-   the plan was approved. Reads, searches, web fetches (still under the
-   project's policy and netproxy) and Ovra's own IDE tools go on as usual.
-   Subagents' calls come through the same session, so they are held too.
+   the plan was approved. Only reads, searches, thinking, web fetches (still
+   under the project's policy and netproxy) and subagents go on as usual; a
+   tool of a kind Ovra does not know goes to the person like a command. Of
+   Ovra's own IDE tools, `server_start` and `server_restart` are refused (they
+   run the project's commands in a pod that can write its folder); the others
+   follow their role rules. Subagents' calls come through the same session,
+   so they are held too. With attempts on, Plan first is offered only when
+   every attempting agent can be held.
 4. **The plan.** The agent's turn ends with its plan as an ordinary message.
    The transcript shows a line above the reply box: "Planning. The agent
    changes no files until you approve its plan." while it works, and "Plan
@@ -69,9 +74,11 @@ enforced policy and is enforced by Ovra, not by the agent.
 3. **Change your mind.** The queue shows above the reply box with **Edit**
    (back into the box, out of the queue) and **Remove** (`agents.unqueue`;
    `not_found` once it was sent), and **Send now**, which stops the current
-   step (`agents.interrupt`) so the first queued message goes at once.
+   step (`agents.interrupt`) so the first queued message goes at once. A
+   queued message that cannot be sent (its session ended meanwhile) leaves
+   an error line in the transcript.
 4. **Ends with the session.** A session that stops or fails drops its
-   queue. The queue is not saved across restarts.
+   queue. The queue is not saved across restarts (`stored()` leaves it out).
 
 ## Tests
 
