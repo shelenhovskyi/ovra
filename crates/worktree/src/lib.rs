@@ -30,8 +30,8 @@ use ovra_core::protocol::git::Hunk;
 use ovra_core::protocol::orchestration::DiskUsage;
 use ovra_core::protocol::{ErrorCode, ProtocolError};
 use ovra_core::services::{
-    BoxFuture, CommitAuthor, Delta, GitFiles, Included, IncludedFile, Picked, Result, Taken,
-    WorktreeInfo, Worktrees,
+    BoxFuture, CommitAuthor, Delta, GitFiles, Included, IncludedFile, Merged, Picked, Result,
+    Taken, WorktreeInfo, Worktrees,
 };
 
 use crate::git::Git;
@@ -422,6 +422,22 @@ impl Worktrees for GitWorktrees {
         included: Vec<IncludedFile>,
     ) -> BoxFuture<'_, Result<()>> {
         blocking(move || remove(&root, &dir, &included))
+    }
+
+    fn merge(
+        &self,
+        root: PathBuf,
+        base: String,
+        mine: String,
+        main: String,
+    ) -> BoxFuture<'_, Result<Merged>> {
+        let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let guard = pick::StopOnDrop(stop.clone());
+        let work = blocking(move || pick::merge(&root, &base, &mine, &main, &stop));
+        Box::pin(async move {
+            let _stops_when_dropped = guard;
+            work.await
+        })
     }
 
     fn pick(

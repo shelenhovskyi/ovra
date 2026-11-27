@@ -1398,6 +1398,27 @@ pub trait Worktrees: Send + Sync + Debug {
         branch: String,
         base: String,
     ) -> BoxFuture<'_, Result<()>>;
+    /// Merges the changes from `base` to `main` into those from `base` to
+    /// `mine` (commits of the repository at `root`, `mine` a snapshot of a
+    /// worker's worktree): `git merge-tree` with `base` as the merge base,
+    /// no hooks (`docs/specs/main-moved.md`). The result is a commit on
+    /// `main`; a file both sides changed in the same place holds conflict
+    /// markers there and is listed.
+    fn merge(
+        &self,
+        root: PathBuf,
+        base: String,
+        mine: String,
+        main: String,
+    ) -> BoxFuture<'_, Result<Merged>> {
+        let _ = (root, base, mine, main);
+        Box::pin(async {
+            Err(ProtocolError::new(
+                ErrorCode::Unavailable,
+                "updating a worktree from the project is not available here",
+            ))
+        })
+    }
 }
 
 /// What [`Worktrees::git_files`] found.
@@ -1456,6 +1477,19 @@ pub enum Picked {
     /// Nothing was committed: these files (relative to the repository's
     /// top) changed on both sides.
     Conflicts(Vec<String>),
+}
+
+/// What [`Worktrees::merge`] made.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Merged {
+    /// The merged commit, its parent `main`.
+    pub commit: String,
+    /// Files (relative to the repository's top) both sides changed in the
+    /// same place.
+    pub conflicts: Vec<String>,
+    /// Those of `conflicts` that hold no markers: a binary file, or one
+    /// side deleted it. The merge kept one side whole.
+    pub whole: Vec<String>,
 }
 
 /// What [`Worktrees::take`] did.

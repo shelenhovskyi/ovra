@@ -13,8 +13,8 @@ use crate::protocol::orchestration::DiskUsage;
 use crate::protocol::review::ChangeKind;
 use crate::protocol::{ErrorCode, ProtocolError};
 use crate::services::{
-    BoxFuture, CommitAuthor, Delta, GitFiles, Included, IncludedFile, Picked, Result, Taken,
-    WorktreeInfo, Worktrees,
+    BoxFuture, CommitAuthor, Delta, GitFiles, Included, IncludedFile, Merged, Picked, Result,
+    Taken, WorktreeInfo, Worktrees,
 };
 
 type Files = BTreeMap<String, String>;
@@ -515,6 +515,60 @@ impl Worktrees for MemoryWorktrees {
             } else {
                 Ok(Picked::Conflicts(conflicts))
             }
+        })
+    }
+
+    /// Whole files: one changed on both sides, differently, holds both
+    /// versions between markers.
+    fn merge(
+        &self,
+        _root: PathBuf,
+        base: String,
+        mine: String,
+        main: String,
+    ) -> BoxFuture<'_, Result<Merged>> {
+        Box::pin(async move {
+            let (was, ours, theirs) = (
+                self.commit_files(&base)?,
+                self.commit_files(&mine)?,
+                self.commit_files(&main)?,
+            );
+            let mut tree = ours.clone();
+            let mut conflicts = Vec::new();
+            let paths: std::collections::BTreeSet<&String> =
+                was.keys().chain(theirs.keys()).collect();
+            for path in paths {
+                let (before, here, there) = (was.get(path), ours.get(path), theirs.get(path));
+                if before == there || here == there {
+                    continue;
+                }
+                if here != before {
+                    let side = |t: Option<&String>| t.cloned().unwrap_or_default();
+                    let text = format!(
+                        "<<<<<<< mine\n{}=======\n{}>>>>>>> main\n",
+                        side(here),
+                        side(there)
+                    );
+                    tree.insert(path.clone(), text);
+                    conflicts.push(path.clone());
+                    continue;
+                }
+                match there {
+                    Some(text) => tree.insert(path.clone(), text.clone()),
+                    None => tree.remove(path),
+                };
+            }
+            // A file one side deleted cannot hold markers.
+            let whole = conflicts
+                .iter()
+                .filter(|p| !ours.contains_key(*p) || !theirs.contains_key(*p))
+                .cloned()
+                .collect();
+            Ok(Merged {
+                commit: self.record(tree),
+                conflicts,
+                whole,
+            })
         })
     }
 

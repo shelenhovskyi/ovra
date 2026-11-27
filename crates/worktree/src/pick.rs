@@ -7,7 +7,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
-use ovra_core::services::{CommitAuthor, Picked, Result};
+use ovra_core::services::{CommitAuthor, Merged, Picked, Result};
 
 use crate::git::{self, Ended, Git, internal};
 
@@ -35,7 +35,7 @@ fn merge_failed(code: Option<i32>, stderr: &[u8]) -> ovra_core::protocol::Protoc
     if code == Some(129) || stderr.contains("unknown option") {
         return ovra_core::protocol::ProtocolError::new(
             ovra_core::protocol::ErrorCode::Unavailable,
-            "Pull requests need git 2.40 or later",
+            "Pull requests and updates from the project need git 2.40 or later",
         );
     }
     internal(format!("git merge-tree: {}", stderr.trim()))
@@ -43,6 +43,81 @@ fn merge_failed(code: Option<i32>, stderr: &[u8]) -> ovra_core::protocol::Protoc
 
 fn stopped(what: &str) -> ovra_core::protocol::ProtocolError {
     internal(format!("git {what} was stopped"))
+}
+
+/// `git merge-tree --write-tree` of `ours` and `theirs` with `start` as
+/// the merge base, no hooks: the tree, conflict markers in the files listed.
+fn merge_tree(
+    root: &Path,
+    start: &str,
+    ours: &str,
+    theirs: &str,
+    stop: &AtomicBool,
+) -> Result<(String, Vec<String>)> {
+    let out = Git::without_hooks(root, "merge-tree")
+        .args(["--write-tree", "-z", "--name-only", "--no-messages"])
+        .arg(format!("--merge-base={start}"))
+        .args([ours, theirs])
+        .output_until(stop, MERGE_LIMIT)?;
+    let out = match out {
+        Ended::Exited(out) => out,
+        Ended::Stopped(_) => return Err(stopped("merge-tree")),
+        Ended::TimedOut(_) => {
+            return Err(internal(
+                "git merge-tree was still running after 5 minutes and was stopped",
+            ));
+        }
+    };
+    // `<tree>NUL<conflicted path>NUL...`; exit 1 means conflicts.
+    let mut fields = git::fields(&out.stdout);
+    let tree = match out.status.code() {
+        Some(0 | 1) => fields.next(),
+        _ => None,
+    };
+    let Some(tree) = tree else {
+        return Err(merge_failed(out.status.code(), &out.stderr));
+    };
+    let files: BTreeSet<String> = fields.filter(|f| !f.is_empty()).collect();
+    Ok((tree, files.into_iter().collect()))
+}
+
+/// The changes from `base` to `main` merged into those from `base` to
+/// `mine`, as a commit on `main` by Ovra (like a snapshot), unsigned.
+pub(crate) fn merge(
+    root: &Path,
+    base: &str,
+    mine: &str,
+    main: &str,
+    stop: &AtomicBool,
+) -> Result<Merged> {
+    let base = git::commit_id(root, base)?;
+    let mine = git::commit_id(root, mine)?;
+    let main = git::commit_id(root, main)?;
+    let (tree, conflicts) = merge_tree(root, &base, &mine, &main, stop)?;
+    let commit = Git::without_hooks(root, "commit-tree")
+        .args(["--no-gpg-sign", &tree, "-p", &main, "-m", "Ovra update"])
+        .env("GIT_AUTHOR_NAME", "Ovra")
+        .env("GIT_AUTHOR_EMAIL", "ovra@localhost")
+        .env("GIT_COMMITTER_NAME", "Ovra")
+        .env("GIT_COMMITTER_EMAIL", "ovra@localhost")
+        .text()?;
+    git::known_commit(root, &commit);
+    let mut whole = Vec::new();
+    for path in &conflicts {
+        let blob = Git::new(root, "cat-file")
+            .args(["blob", &format!("{commit}:{path}")])
+            .try_text()?;
+        let marked =
+            blob.is_some_and(|text| text.starts_with("<<<<<<< ") || text.contains("\n<<<<<<< "));
+        if !marked {
+            whole.push(path.clone());
+        }
+    }
+    Ok(Merged {
+        commit,
+        conflicts,
+        whole,
+    })
 }
 
 /// `git merge-tree --write-tree` with `start` as the merge base, `base` as
@@ -60,33 +135,10 @@ pub(crate) fn pick(
     let base = git::commit_id(root, base)?;
     let start = git::commit_id(root, start)?;
     let reviewed = git::commit_id(root, reviewed)?;
-    let out = Git::without_hooks(root, "merge-tree")
-        .args(["--write-tree", "-z", "--name-only", "--no-messages"])
-        .arg(format!("--merge-base={start}"))
-        .args([&base, &reviewed])
-        .output_until(stop, MERGE_LIMIT)?;
-    let out = match out {
-        Ended::Exited(out) => out,
-        Ended::Stopped(_) => return Err(stopped("merge-tree")),
-        Ended::TimedOut(_) => {
-            return Err(internal(
-                "git merge-tree was still running after 5 minutes and was stopped",
-            ));
-        }
-    };
-    // `<tree>NUL<conflicted path>NUL...`; exit 1 means conflicts.
-    let mut fields = git::fields(&out.stdout);
-    let tree = match out.status.code() {
-        Some(0) => fields.next(),
-        Some(1) => {
-            let files: BTreeSet<String> = fields.skip(1).collect();
-            return Ok(Picked::Conflicts(files.into_iter().collect()));
-        }
-        _ => None,
-    };
-    let Some(tree) = tree else {
-        return Err(merge_failed(out.status.code(), &out.stderr));
-    };
+    let (tree, conflicts) = merge_tree(root, &start, &base, &reviewed, stop)?;
+    if !conflicts.is_empty() {
+        return Ok(Picked::Conflicts(conflicts));
+    }
     let mut commit = Git::without_hooks(root, "commit-tree")
         .args([&tree, "-p", &base, "-F", "-"])
         .input(message);
@@ -129,7 +181,9 @@ mod tests {
     use ovra_core::services::{CommitAuthor, Picked, Worktrees};
 
     use crate::GitWorktrees;
-    use crate::tests::{Repo, git, put};
+    use ovra_core::path::RelPath;
+
+    use crate::tests::{Repo, git, put, read};
 
     #[tokio::test]
     async fn a_pick_keeps_the_workers_changes_and_drops_the_persons() {
@@ -198,6 +252,88 @@ mod tests {
         };
         let who = git(root, &["log", "-1", "--format=%an <%ae>|%cn <%ce>", &id]);
         assert_eq!(who, "Ann <ann@example.com>|Ann <ann@example.com>");
+    }
+
+    #[tokio::test]
+    async fn a_merge_brings_the_project_in_and_marks_what_both_changed() {
+        let lines = "1\n2\n3\n4\n5\n6\n7\n";
+        let repo = Repo::new(&[("a.txt", lines), ("b.txt", "b\n")]);
+        let root = &repo.root;
+        let w = GitWorktrees::new();
+        let (base, wt) = repo.worker(&w).await;
+        put(&wt, "a.txt", "worker\n2\n3\n4\n5\n6\n7\n");
+        put(&wt, "b.txt", "worker\n");
+        let mine = w
+            .snapshot(wt.clone())
+            .await
+            .unwrap_or_else(|e| panic!("{e:?}"));
+        // The person changes other lines, b.txt too, and adds a file.
+        put(root, "a.txt", "1\n2\n3\n4\n5\n6\nmine\n");
+        put(root, "b.txt", "mine\n");
+        put(root, "c.txt", "c\n");
+        let main = w
+            .snapshot(root.clone())
+            .await
+            .unwrap_or_else(|e| panic!("{e:?}"));
+
+        let mine_again = mine.clone();
+        let merged = w.merge(root.clone(), base, mine, main.clone()).await;
+        let merged = merged.unwrap_or_else(|e| panic!("{e:?}"));
+        assert_eq!(merged.conflicts, ["b.txt"]);
+        assert!(merged.whole.is_empty());
+        let id = &merged.commit;
+        let show = |what: &str| git(root, &["show", &format!("{id}:{what}")]);
+        assert_eq!(show("a.txt"), "worker\n2\n3\n4\n5\n6\nmine");
+        assert_eq!(show("c.txt"), "c");
+        let b = show("b.txt");
+        assert!(
+            b.starts_with("<<<<<<<") && b.contains("worker") && b.contains("mine"),
+            "{b}"
+        );
+        assert_eq!(
+            git(root, &["log", "-1", "--format=%P|%an", id]),
+            format!("{main}|Ovra")
+        );
+
+        // The core writes it into the worktree with `apply`.
+        let paths = ["a.txt", "b.txt", "c.txt"]
+            .map(|p| RelPath::parse(p).unwrap_or_else(|e| panic!("{e:?}")));
+        let skipped = w
+            .apply(id.clone(), mine_again, wt.clone(), paths.to_vec())
+            .await;
+        assert_eq!(
+            skipped.unwrap_or_else(|e| panic!("{e:?}")),
+            Vec::<String>::new()
+        );
+        assert_eq!(read(&wt, "c.txt").as_deref(), Some("c\n"));
+        assert_eq!(
+            read(&wt, "a.txt").as_deref(),
+            Some("worker\n2\n3\n4\n5\n6\nmine\n")
+        );
+    }
+
+    #[tokio::test]
+    async fn a_merge_names_files_it_could_not_mark() {
+        let repo = Repo::new(&[("a.txt", "a\n")]);
+        let root = &repo.root;
+        let w = GitWorktrees::new();
+        let (base, wt) = repo.worker(&w).await;
+        put(&wt, "a.txt", "worker\n");
+        let mine = w
+            .snapshot(wt.clone())
+            .await
+            .unwrap_or_else(|e| panic!("{e:?}"));
+        std::fs::remove_file(root.join("a.txt")).unwrap_or_else(|e| panic!("{e}"));
+        let main = w
+            .snapshot(root.clone())
+            .await
+            .unwrap_or_else(|e| panic!("{e:?}"));
+        let merged = w.merge(root.clone(), base, mine, main).await;
+        let merged = merged.unwrap_or_else(|e| panic!("{e:?}"));
+        assert_eq!(
+            (merged.conflicts, merged.whole),
+            (vec!["a.txt".to_owned()], vec!["a.txt".to_owned()])
+        );
     }
 
     /// Signed through git, with the person's `gpg.program` (a fake here).
@@ -339,7 +475,10 @@ mod tests {
         let old = b"error: unknown option `merge-base=abc'\nusage: git merge-tree";
         for (code, stderr) in [(Some(129), &b""[..]), (Some(128), &old[..])] {
             let e = super::merge_failed(code, stderr);
-            assert_eq!(e.message, "Pull requests need git 2.40 or later");
+            assert_eq!(
+                e.message,
+                "Pull requests and updates from the project need git 2.40 or later"
+            );
         }
         let other = super::merge_failed(Some(128), b"fatal: bad object x\n");
         assert_eq!(other.message, "git merge-tree: fatal: bad object x");
