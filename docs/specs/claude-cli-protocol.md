@@ -17,6 +17,7 @@ claude -p
   --permission-mode default
   --setting-sources user            # user,project,local once the project is trusted in Ovra
   --strict-mcp-config --mcp-config <json from Ovra>
+  [--disallowedTools mcp__<server>__<tool>,...]  # project servers the person turned on (project-mcp.md)
   [--tools Read,Grep,Glob]           # a coordinator: no built-in tool that writes or runs
   --session-id <uuid>               # new session; or --resume <id> [--fork-session]
   [--model <alias>] [--max-budget-usd <n>]

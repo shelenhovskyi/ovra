@@ -8,6 +8,7 @@ use crate::Core;
 use crate::protocol::netproxy::{
     AllowedHost, Allowlist, NetproxyEvent, NetproxyRequest, NetproxyResponse, ProjectAllowlist,
 };
+use crate::protocol::projects::ProjectId;
 use crate::protocol::{ErrorCode, ProtocolError, Response};
 
 /// More entries than anyone keeps by hand.
@@ -59,16 +60,28 @@ pub(crate) fn handle(core: &Core, request: NetproxyRequest) -> Result<Response, 
             return Ok(answer(core, allowlist));
         }
         NetproxyRequest::SetAllowlist { project, allowlist } => {
-            let allowlist = normalize(allowlist)?;
-            core.sessions().set_allowlist(store, &project, &allowlist)?;
-            crate::servers::allowlist_changed(core, &project, &allowlist);
-            core.emit(NetproxyEvent::Changed {
-                project: project.clone(),
-            });
+            replace(core, &project, allowlist)?;
             project
         }
     };
     Ok(answer(core, store.allowlist(&project)?))
+}
+
+/// Checks and stores the project's allowlist, and passes it to its running
+/// sessions and servers.
+pub(crate) fn replace(
+    core: &Core,
+    project: &ProjectId,
+    allowlist: Allowlist,
+) -> Result<(), ProtocolError> {
+    let allowlist = normalize(allowlist)?;
+    core.sessions()
+        .set_allowlist(core.project_store(), project, &allowlist)?;
+    crate::servers::allowlist_changed(core, project, &allowlist);
+    core.emit(NetproxyEvent::Changed {
+        project: project.clone(),
+    });
+    Ok(())
 }
 
 fn answer(core: &Core, project: Allowlist) -> Response {

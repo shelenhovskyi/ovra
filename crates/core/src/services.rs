@@ -29,6 +29,7 @@ use crate::protocol::audit::{AuditEntry, AuditEvent, AuditRange};
 use crate::protocol::browser::{
     BrowserRefusal, FrameMetadata, InputEvent, MouseButton, PageId, PageInfo, Pick,
 };
+use crate::protocol::catalog::ServerPins;
 use crate::protocol::fs::{DirListing, FileContent, FileList};
 use crate::protocol::git::{
     Blame, BranchInfo, CommitInfo, Committed, FileDiff, GitFileText, GitRev, Hunk, Pulled,
@@ -102,6 +103,10 @@ pub trait ProjectStore: Send + Sync + Debug {
     /// base list; empty if none were set. Hosts are already normalized.
     fn allowlist(&self, id: &ProjectId) -> Result<Allowlist>;
     fn set_allowlist(&self, id: &ProjectId, allowlist: &Allowlist) -> Result<()>;
+    /// The servers of the project's `.mcp.json` the person turned on
+    /// (`docs/specs/project-mcp.md`); none if they turned none on.
+    fn servers(&self, id: &ProjectId) -> Result<ServerPins>;
+    fn set_servers(&self, id: &ProjectId, servers: &ServerPins) -> Result<()>;
 }
 
 /// File access, `.gitignore` handling, git status and watching
@@ -297,6 +302,21 @@ pub struct AgentSpec {
     pub model: Option<AgentModel>,
     /// Images that go with `prompt`, for a provider that sees images.
     pub images: Vec<AgentImage>,
+    /// The project's own MCP servers the person turned on, as they were
+    /// then (`docs/specs/project-mcp.md`); none for coordinators and
+    /// research sessions.
+    pub servers: Vec<ProjectServer>,
+}
+
+/// One server of the project's `.mcp.json` a session gets.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProjectServer {
+    pub name: String,
+    /// Its definition as `.mcp.json` writes it (`command` and `args`, or
+    /// `type` and `url`).
+    pub definition: serde_json::Value,
+    /// Its tools the person turned off, without `mcp__<server>__`.
+    pub tools_off: Vec<String>,
 }
 
 /// An image the person sent with a message, such as a pasted screenshot.
@@ -1822,6 +1842,12 @@ impl ProjectStore for Unavailable {
         self.err()
     }
     fn set_allowlist(&self, _: &ProjectId, _: &Allowlist) -> Result<()> {
+        self.err()
+    }
+    fn servers(&self, _: &ProjectId) -> Result<ServerPins> {
+        self.err()
+    }
+    fn set_servers(&self, _: &ProjectId, _: &ServerPins) -> Result<()> {
         self.err()
     }
 }

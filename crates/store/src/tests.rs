@@ -509,3 +509,26 @@ fn a_projects_allowlist_is_kept_across_opens() {
         Err(ErrorCode::NotFound)
     );
 }
+
+#[test]
+fn a_projects_servers_are_kept_across_opens() {
+    use ovra_core::protocol::catalog::{ServerPin, ServerPins};
+
+    let (data, folders) = (TempDir::new().expect("temp dir"), Folders::new());
+    let store = Store::open(data.path()).expect("open");
+    let a = store.add(&folders.path("a")).expect("add a");
+    assert_eq!(store.servers(&a.id), Ok(ServerPins::default()));
+    let mut servers = ServerPins::default();
+    servers.servers.insert(
+        "docs".into(),
+        ServerPin {
+            definition: r#"{"command":"docs"}"#.into(),
+            tools_off: vec!["search".into()],
+            ..ServerPin::default()
+        },
+    );
+    store.set_servers(&a.id, &servers).expect("set");
+    drop(store);
+    let store = Store::open(data.path()).expect("reopen");
+    assert_eq!(store.servers(&a.id), Ok(servers));
+}

@@ -5,6 +5,7 @@
 //! their names.
 
 mod frontmatter;
+pub(crate) mod servers;
 #[cfg(test)]
 mod tests;
 
@@ -19,7 +20,7 @@ use crate::protocol::catalog::{
     Catalog, CatalogField, CatalogItem, CatalogKind, CatalogRequest, CatalogResponse, Loads,
 };
 use crate::protocol::fs::{EntryKind, FileBody};
-use crate::protocol::{ProtocolError, Response};
+use crate::protocol::{OkResponse, ProtocolError, Response};
 use crate::services::FsService;
 
 /// Files bigger than this are listed but not read.
@@ -33,12 +34,38 @@ pub(crate) async fn handle(
     core: &Core,
     request: CatalogRequest,
 ) -> Result<Response, ProtocolError> {
-    let CatalogRequest::List { project } = request;
+    let project = match request {
+        CatalogRequest::List { project } => project,
+        CatalogRequest::SetServer { project, name, on } => {
+            servers::set_server(core, &project, &name, on).await?;
+            return Ok(Response::Ok(OkResponse::Ok));
+        }
+        CatalogRequest::SetTool {
+            project,
+            server,
+            tool,
+            on,
+        } => {
+            servers::set_tool(core, &project, &server, &tool, on)?;
+            return Ok(Response::Ok(OkResponse::Ok));
+        }
+    };
+    let root = core.root(&project)?;
     let reader = Reader {
         fs: core.fs_service(),
-        root: core.root(&project)?,
+        root: root.clone(),
     };
-    let items = list(&reader).await;
+    let mut items = list(&reader).await;
+    let definitions = servers::definitions(core, root).await;
+    let pins = core.project_store().servers(&project).unwrap_or_default();
+    for item in &mut items {
+        if item.kind == CatalogKind::McpServer
+            && item.path == servers::FILE
+            && let Some(definition) = definitions.get(&item.name)
+        {
+            item.server = Some(servers::server_use(&item.name, definition, &pins));
+        }
+    }
     Ok(Response::Catalog(CatalogResponse::Items(Catalog { items })))
 }
 
@@ -206,6 +233,7 @@ fn item(
         fields: Vec::new(),
         files: Vec::new(),
         problem: None,
+        server: None,
     }
 }
 

@@ -14,6 +14,7 @@ use std::sync::{Mutex, MutexGuard, PoisonError};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use ovra_core::protocol::agents::{AgentSettings, ProjectAgentConfig};
+use ovra_core::protocol::catalog::ServerPins;
 use ovra_core::protocol::netproxy::Allowlist;
 use ovra_core::protocol::policy::Policy;
 use ovra_core::protocol::projects::{Project, ProjectId, ProjectState, ProjectStatePatch};
@@ -84,6 +85,9 @@ const MIGRATIONS: &[&str] = &[
     // The hosts the project's agents may reach (`netproxy.*`) as JSON; none
     // means the empty list.
     "ALTER TABLE projects ADD COLUMN allowlist TEXT;",
+    // The servers of the project's `.mcp.json` the person turned on, as
+    // JSON; none means none.
+    "ALTER TABLE projects ADD COLUMN servers TEXT;",
 ];
 
 /// The `settings` key of [`AgentSettings`].
@@ -172,6 +176,7 @@ impl Store {
 enum Json {
     Policy,
     Allowlist,
+    Servers,
 }
 
 impl Json {
@@ -179,6 +184,7 @@ impl Json {
         match self {
             Self::Policy => "policy",
             Self::Allowlist => "allowlist",
+            Self::Servers => "servers",
         }
     }
 }
@@ -382,6 +388,14 @@ impl ProjectStore for Store {
 
     fn set_allowlist(&self, id: &ProjectId, allowlist: &Allowlist) -> Result<()> {
         self.set_json_column(id, Json::Allowlist, allowlist)
+    }
+
+    fn servers(&self, id: &ProjectId) -> Result<ServerPins> {
+        self.json_column(id, Json::Servers)
+    }
+
+    fn set_servers(&self, id: &ProjectId, servers: &ServerPins) -> Result<()> {
+        self.set_json_column(id, Json::Servers, servers)
     }
 
     fn agent_settings(&self) -> Result<AgentSettings> {

@@ -1,0 +1,48 @@
+---
+source: crates/core/src/protocol/catalog.rs
+expression: "serde_json::json!({\n    \"set_server\":\n    Request::Catalog(CatalogRequest::SetServer\n    { project: ProjectId(\"p1\".into()), name: \"docs\".into(), on: true, }),\n    \"set_tool\":\n    Request::Catalog(CatalogRequest::SetTool\n    {\n        project: ProjectId(\"p1\".into()), server: \"docs\".into(), tool:\n        \"search\".into(), on: false,\n    }), \"item\": server,\n})"
+---
+{
+  "item": {
+    "agents": [
+      "claude"
+    ],
+    "description": "npx -y docs-server",
+    "fields": [],
+    "files": [],
+    "kind": "mcp_server",
+    "loads": "not_in_ovra",
+    "name": "docs",
+    "path": ".mcp.json",
+    "problem": null,
+    "server": {
+      "blocked": null,
+      "changed": false,
+      "host": null,
+      "on": true,
+      "tools": [
+        {
+          "name": "search",
+          "on": false
+        }
+      ]
+    }
+  },
+  "set_server": {
+    "method": "catalog.set_server",
+    "params": {
+      "name": "docs",
+      "on": true,
+      "project": "p1"
+    }
+  },
+  "set_tool": {
+    "method": "catalog.set_tool",
+    "params": {
+      "on": false,
+      "project": "p1",
+      "server": "docs",
+      "tool": "search"
+    }
+  }
+}

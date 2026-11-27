@@ -1089,6 +1089,17 @@ async fn run(
         .as_ref()
         .and_then(|core| crate::orchestration::work_env(core, &launch.cwd));
     sessions.find(id, |s| s.set_network(sandbox.network.clone()))?;
+    // The project's own MCP servers the person turned on: not for a
+    // coordinator, which only directs workers, nor a research session, which
+    // only reads (`docs/specs/project-mcp.md`).
+    let servers = match &core {
+        Some(core)
+            if mode != SessionMode::Research && launch.tools != Some(ToolRole::Coordinator) =>
+        {
+            crate::catalog::servers::for_session(core, &project).await
+        }
+        _ => Vec::new(),
+    };
     let spec = AgentSpec {
         session: id.clone(),
         agent,
@@ -1113,6 +1124,7 @@ async fn run(
         no_web,
         model,
         images,
+        servers,
     };
     match ctx.runtime.start(spec, host.clone()) {
         Ok(process) => {

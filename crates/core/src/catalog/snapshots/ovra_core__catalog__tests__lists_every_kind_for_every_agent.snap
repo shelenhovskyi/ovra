@@ -197,7 +197,14 @@ expression: items
       }
     ],
     "files": [],
-    "problem": null
+    "problem": null,
+    "server": {
+      "on": false,
+      "changed": false,
+      "blocked": null,
+      "host": null,
+      "tools": []
+    }
   },
   {
     "kind": "mcp_server",
@@ -219,7 +226,14 @@ expression: items
       }
     ],
     "files": [],
-    "problem": null
+    "problem": null,
+    "server": {
+      "on": false,
+      "changed": false,
+      "blocked": null,
+      "host": "docs.example",
+      "tools": []
+    }
   },
   {
     "kind": "mcp_server",

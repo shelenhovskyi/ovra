@@ -113,9 +113,12 @@ impl Driver {
     /// Handles one stdout line; `Err` ends the session.
     async fn line(&mut self, line: &str) -> Result<(), String> {
         match wire::parse(line) {
-            Incoming::Started { billing } => {
+            Incoming::Started { billing, tools } => {
                 if let Some(billing) = billing {
                     self.host.billing(with_provider(billing));
+                }
+                if !tools.is_empty() {
+                    self.host.server_tools(&tools);
                 }
                 self.host.status(AgentStatus::Working);
             }

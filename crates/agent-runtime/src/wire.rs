@@ -19,7 +19,12 @@ pub(crate) const IDE_SERVER: &str = "ovra";
 pub(crate) enum Incoming {
     /// `system/init`: the session is up and works on the turn, billed as
     /// `billing` says (a cloud provider's name is left empty here).
-    Started { billing: Option<Billing> },
+    /// `system/init`: who pays, and the tools of the project's own MCP
+    /// servers (`mcp__<server>__<tool>`, not Ovra's own).
+    Started {
+        billing: Option<Billing>,
+        tools: Vec<String>,
+    },
     /// Transcript entries from an `assistant` or `user` message.
     Messages(Vec<AgentMessage>),
     /// The next piece of the text the agent is writing
@@ -88,6 +93,17 @@ fn billing(init: &Value) -> Option<Billing> {
     }
 }
 
+fn server_tools(init: &Value) -> Vec<String> {
+    init.get("tools")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .filter(|t| t.starts_with("mcp__") && !t.starts_with(&format!("mcp__{IDE_SERVER}__")))
+        .map(str::to_owned)
+        .collect()
+}
+
 pub(crate) fn parse(line: &str) -> Incoming {
     let Ok(v) = serde_json::from_str::<Value>(line) else {
         return Incoming::Ignored;
@@ -96,6 +112,7 @@ pub(crate) fn parse(line: &str) -> Incoming {
     match kind {
         "system" if v.get("subtype").and_then(Value::as_str) == Some("init") => Incoming::Started {
             billing: billing(&v),
+            tools: server_tools(&v),
         },
         "assistant" | "user" => Incoming::Messages(messages(&v)),
         "stream_event" => text_delta(&v),
@@ -413,6 +430,15 @@ mod tests {
     }
 
     #[test]
+    fn init_lists_the_project_servers_tools() {
+        let line = r#"{"type":"system","subtype":"init","tools":["Bash","mcp__ovra__request_review","mcp__docs__search",7]}"#;
+        let Incoming::Started { tools, .. } = parse(line) else {
+            panic!("not started");
+        };
+        assert_eq!(tools, ["mcp__docs__search"]);
+    }
+
+    #[test]
     fn init_says_who_pays() {
         let init = |extra: &str| {
             parse(&format!(
@@ -420,7 +446,7 @@ mod tests {
             ))
         };
         let billed = |line: Incoming| match line {
-            Incoming::Started { billing } => billing,
+            Incoming::Started { billing, .. } => billing,
             other => panic!("unexpected {other:?}"),
         };
         let plan = r#","apiKeySource":"none","served_by_anthropic":true"#;

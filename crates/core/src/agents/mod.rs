@@ -767,6 +767,14 @@ impl AgentHost {
         }
     }
 
+    /// The session listed the tools of the project's own MCP servers
+    /// (`mcp__<server>__<tool>`), so the person can turn one off.
+    pub fn server_tools(&self, tools: &[String]) {
+        if let Some(core) = self.sessions.core() {
+            crate::catalog::servers::tools_listed(&core, &self.project, tools);
+        }
+    }
+
     /// The agent said who pays for the session's usage.
     pub fn billing(&self, billing: Billing) {
         let changed = self

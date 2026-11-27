@@ -692,6 +692,7 @@ fn spec() -> AgentSpec {
         no_web: false,
         model: None,
         images: Vec::new(),
+        servers: Vec::new(),
     }
 }
 

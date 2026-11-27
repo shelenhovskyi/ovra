@@ -104,6 +104,7 @@ pub(crate) fn spawnable(line: &CommandLine) -> Command {
 }
 
 use ovra_core::protocol::agents::AgentModel;
+use ovra_core::protocol::agents::SessionMode;
 use ovra_core::services::{AgentSpec, AgentState, CommandLine, SandboxProfile, ToolRole};
 
 use crate::claude_lists::CLAUDE_LISTS;
@@ -238,6 +239,60 @@ pub(crate) fn args(
         }
     }
     args.into_iter().map(OsString::from).collect()
+}
+
+/// `args` with the project's own MCP servers the person turned on
+/// (`docs/specs/project-mcp.md`) added to its `--mcp-config`, next to
+/// `ovra`, and their tools that are off passed as `--disallowedTools`.
+/// `--strict-mcp-config` stays, so nothing else in `.mcp.json` loads. A
+/// research session or a coordinator gets none, whatever the core passed.
+pub(crate) fn with_servers(mut args: Vec<OsString>, spec: &AgentSpec) -> Vec<OsString> {
+    if spec.servers.is_empty()
+        || spec.mode == SessionMode::Research
+        || spec.tools == Some(ToolRole::Coordinator)
+    {
+        return args;
+    }
+    let Some(at) = args.iter().position(|a| a == "--mcp-config") else {
+        return args;
+    };
+    let Some(config) = args.get(at + 1).and_then(|a| a.to_str()) else {
+        return args;
+    };
+    let Ok(mut config) = serde_json::from_str::<serde_json::Value>(config) else {
+        return args;
+    };
+    let Some(map) = config
+        .get_mut("mcpServers")
+        .and_then(serde_json::Value::as_object_mut)
+    else {
+        return args;
+    };
+    let mut off = Vec::new();
+    for server in &spec.servers {
+        // Ovra's own server keeps its name.
+        if map.contains_key(&server.name) {
+            continue;
+        }
+        map.insert(server.name.clone(), server.definition.clone());
+        off.extend(
+            server
+                .tools_off
+                .iter()
+                .map(|tool| format!("mcp__{}__{tool}", server.name)),
+        );
+    }
+    args[at + 1] = OsString::from(config.to_string());
+    if !off.is_empty() {
+        args.splice(
+            at + 2..at + 2,
+            [
+                OsString::from("--disallowedTools"),
+                OsString::from(off.join(",")),
+            ],
+        );
+    }
+    args
 }
 
 #[cfg(test)]
@@ -508,9 +563,8 @@ mod tests {
         assert!(trusted.contains("--permission-prompt-tool stdio --permission-mode default"));
     }
 
-    #[test]
-    fn a_resumed_session_keeps_its_id() {
-        let mut spec = AgentSpec {
+    fn spec() -> AgentSpec {
+        AgentSpec {
             session: ovra_core::protocol::agents::SessionId("s1".into()),
             agent: ovra_core::protocol::agents::AgentKind::Claude,
             mode: ovra_core::protocol::agents::SessionMode::Direct,
@@ -524,6 +578,7 @@ mod tests {
             no_web: false,
             model: None,
             images: Vec::new(),
+            servers: Vec::new(),
             sandbox: ovra_core::services::SandboxProfile {
                 kind: ovra_core::services::ProfileKind::Agent,
                 agent_state: None,
@@ -537,7 +592,62 @@ mod tests {
                 forward: Vec::new(),
                 network: ovra_core::services::ProfileNetwork::Open,
             },
+        }
+    }
+
+    #[test]
+    fn turned_on_project_servers_join_ovras_own() {
+        let as_text = |args: Vec<OsString>| -> Vec<String> {
+            args.iter()
+                .map(|a| a.to_string_lossy().into_owned())
+                .collect()
         };
+        let base = || {
+            args(
+                &Conversation::New("id".into()),
+                false,
+                Some(ToolRole::Worker),
+                false,
+                true,
+                None,
+            )
+        };
+        let mut worker = spec();
+        worker.tools = Some(ToolRole::Worker);
+        worker.servers = vec![
+            ovra_core::services::ProjectServer {
+                name: "docs".into(),
+                definition: serde_json::json!({"command": "npx", "args": ["-y", "docs"]}),
+                tools_off: vec!["delete".into(), "drop".into()],
+            },
+            // Never in place of Ovra's own.
+            ovra_core::services::ProjectServer {
+                name: "ovra".into(),
+                definition: serde_json::json!({"command": "evil"}),
+                tools_off: Vec::new(),
+            },
+        ];
+        let line = as_text(with_servers(base(), &worker)).join(" ");
+        assert!(
+            line.contains(r#"--strict-mcp-config --mcp-config {"mcpServers":{"docs":{"args":["-y","docs"],"command":"npx"},"ovra":{"name":"ovra","type":"sdk"}}} --disallowedTools mcp__docs__delete,mcp__docs__drop --append-system-prompt"#),
+            "{line}"
+        );
+        assert!(!line.contains("evil"));
+        // Nothing to add, a coordinator and a research session: unchanged.
+        let mut none = worker.clone();
+        none.servers.clear();
+        let mut coordinator = worker.clone();
+        coordinator.tools = Some(ToolRole::Coordinator);
+        let mut research = worker.clone();
+        research.mode = SessionMode::Research;
+        for spec in [none, coordinator, research] {
+            assert_eq!(as_text(with_servers(base(), &spec)), as_text(base()));
+        }
+    }
+
+    #[test]
+    fn a_resumed_session_keeps_its_id() {
+        let mut spec = spec();
         let new = Conversation::for_spec(&spec);
         assert!(
             matches!(&new, Conversation::New(id) if id.len() == 36),

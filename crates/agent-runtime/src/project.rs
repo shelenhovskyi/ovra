@@ -2,7 +2,9 @@
 //! the project: `--setting-sources project,local` reads `.claude/settings.json`
 //! and `.claude/settings.local.json`, and project agents, commands and skills
 //! come with them. `CLAUDE.md` loads either way, and `.mcp.json` never does
-//! (Ovra passes `--strict-mcp-config`).
+//! (Ovra passes `--strict-mcp-config`): only the servers the person turned
+//! on one by one in Skills and instructions, as they were then
+//! (`docs/specs/project-mcp.md`, [`crate::launch::with_servers`]).
 
 use std::path::Path;
 

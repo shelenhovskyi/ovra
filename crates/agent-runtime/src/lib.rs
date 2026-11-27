@@ -181,13 +181,16 @@ async fn session(
     }
     let line = launch::line(
         &executable,
-        launch::args(
-            &conversation,
-            spec.trusted,
-            spec.tools,
-            spec.mode == ovra_core::protocol::agents::SessionMode::Research,
-            !spec.no_web,
-            spec.model,
+        launch::with_servers(
+            launch::args(
+                &conversation,
+                spec.trusted,
+                spec.tools,
+                spec.mode == ovra_core::protocol::agents::SessionMode::Research,
+                !spec.no_web,
+                spec.model,
+            ),
+            &spec,
         ),
         &spec.cwd,
         spec.config_dir.as_deref(),

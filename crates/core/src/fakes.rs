@@ -50,6 +50,7 @@ use crate::protocol::agents::{
     TurnUsage,
 };
 use crate::protocol::audit::{AuditEntry, AuditEvent, AuditOrder, AuditRange};
+use crate::protocol::catalog::ServerPins;
 use crate::protocol::fs::{DirEntry, DirListing, EntryKind, FileBody, FileContent, FileList};
 use crate::protocol::netproxy::{AllowedHost, Allowlist};
 use crate::protocol::permissions::Decision;
@@ -83,6 +84,7 @@ pub struct MemoryProjects {
     trusted: Mutex<BTreeMap<ProjectId, ProjectAgentConfig>>,
     policies: Mutex<BTreeMap<ProjectId, Policy>>,
     allowlists: Mutex<BTreeMap<ProjectId, Allowlist>>,
+    servers: Mutex<BTreeMap<ProjectId, ServerPins>>,
     /// Projects ever added, so ids are never reused.
     added: Mutex<u64>,
 }
@@ -212,6 +214,17 @@ impl ProjectStore for MemoryProjects {
     fn set_allowlist(&self, id: &ProjectId, allowlist: &Allowlist) -> Result<()> {
         self.get(id)?;
         lock(&self.allowlists).insert(id.clone(), allowlist.clone());
+        Ok(())
+    }
+
+    fn servers(&self, id: &ProjectId) -> Result<ServerPins> {
+        self.get(id)?;
+        Ok(lock(&self.servers).get(id).cloned().unwrap_or_default())
+    }
+
+    fn set_servers(&self, id: &ProjectId, servers: &ServerPins) -> Result<()> {
+        self.get(id)?;
+        lock(&self.servers).insert(id.clone(), servers.clone());
         Ok(())
     }
 }
