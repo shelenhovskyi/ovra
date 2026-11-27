@@ -1,4 +1,4 @@
-# 0017. A task may change several repositories
+# 0018. A task may change several repositories
 
 - Status: accepted (owner, 2026-11-27; details in `docs/specs/multi-repo.md`)
 - Date: 2026-11-27
