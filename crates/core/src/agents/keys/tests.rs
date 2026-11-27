@@ -106,7 +106,13 @@ impl World {
             from_approval: false,
         };
         self.projects
-            .set_policy(&p1(), &Policy { rules: vec![rule] })
+            .set_policy(
+                &p1(),
+                &Policy {
+                    rules: vec![rule],
+                    quiet: false,
+                },
+            )
             .unwrap_or_else(|e| panic!("{e}"));
     }
 

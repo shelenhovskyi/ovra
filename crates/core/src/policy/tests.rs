@@ -42,6 +42,7 @@ fn rule(tool: &str, pattern: Option<&str>, action: PolicyAction) -> PolicyRule {
 
 fn policy() -> Policy {
     Policy {
+        quiet: false,
         rules: vec![
             rule("Bash", Some("npm test"), PolicyAction::Auto),
             rule("Bash", Some("git push"), PolicyAction::Deny),
@@ -115,6 +116,7 @@ fn auto_allows_only_the_kind_its_tool_is_for() {
     use crate::protocol::agents::{ToolCall, ToolKind};
     let proxy = sandboxed(SandboxNetwork::Proxy);
     let policy = Policy {
+        quiet: false,
         rules: vec![
             rule("Read", Some("src/**"), PolicyAction::Auto),
             rule("Read", None, PolicyAction::Auto),
@@ -208,6 +210,7 @@ fn an_exact_bash_rule_matches_only_the_whole_command() {
         decide(policy, "Bash", &input, Path::new(WORK), Some(&proxy)).map(|(a, _)| a)
     };
     let auto = Policy {
+        quiet: false,
         rules: vec![exact(PolicyAction::Auto)],
     };
     assert_eq!(decided(&auto, "npm test"), Some(PolicyAction::Auto));
@@ -226,6 +229,7 @@ fn an_exact_bash_rule_matches_only_the_whole_command() {
             "{refused:?}"
         );
         let stored = Policy {
+            quiet: false,
             rules: vec![exact(action)],
         };
         assert_eq!(decided(&stored, "npm test -- -u"), Some(action));
@@ -304,6 +308,7 @@ fn set_refuses_rules_that_cannot_mean_what_they_say() {
 #[test]
 fn webfetch_matches_the_urls_host_exactly() {
     let policy = Policy {
+        quiet: false,
         rules: vec![rule("WebFetch", Some("docs.rs"), PolicyAction::Auto)],
     };
     let proxy = sandboxed(SandboxNetwork::Proxy);
@@ -337,6 +342,7 @@ fn a_webfetch_deny_covers_subdomains_and_holds_for_unreadable_urls() {
     let proxy = sandboxed(SandboxNetwork::Proxy);
     for action in [PolicyAction::Deny, PolicyAction::Ask] {
         let policy = Policy {
+            quiet: false,
             rules: vec![rule("WebFetch", Some("evil.com"), action)],
         };
         let decided = |input: serde_json::Value| {
@@ -375,6 +381,7 @@ fn a_webfetch_deny_covers_subdomains_and_holds_for_unreadable_urls() {
     }
     // Auto allows only the host it names, and only a URL Ovra can read.
     let auto = Policy {
+        quiet: false,
         rules: vec![rule("WebFetch", Some("docs.rs"), PolicyAction::Auto)],
     };
     for url in [
@@ -391,6 +398,7 @@ fn a_webfetch_deny_covers_subdomains_and_holds_for_unreadable_urls() {
 #[test]
 fn an_ask_rule_wins_over_an_auto_rule() {
     let policy = Policy {
+        quiet: false,
         rules: vec![
             rule("Bash", Some("npm test"), PolicyAction::Auto),
             rule("Bash", Some("npm test -- --update"), PolicyAction::Ask),
@@ -419,6 +427,7 @@ fn an_ask_rule_wins_over_an_auto_rule() {
 #[test]
 fn a_deny_holds_when_the_folders_case_differs() {
     let policy = Policy {
+        quiet: false,
         rules: vec![rule("Read", Some(".env"), PolicyAction::Deny)],
     };
     let upper = Path::new(WORK).join(".ENV");
@@ -1009,6 +1018,7 @@ fn push_rules_decide_pushes_and_never_a_tool_of_that_name() {
     let contained = sandboxed(SandboxNetwork::Blocked);
     let open = sandboxed(SandboxNetwork::Open);
     let policy = Policy {
+        quiet: false,
         rules: vec![
             push_rule(Some("origin ovra/*"), PolicyAction::Auto),
             push_rule(Some("origin ovra/secret/*"), PolicyAction::Deny),
@@ -1053,6 +1063,7 @@ fn push_rules_decide_pushes_and_never_a_tool_of_that_name() {
 
     // A rule that names the shared branch exactly does push to it.
     let named = Policy {
+        quiet: false,
         rules: vec![push_rule(Some("origin main"), PolicyAction::Auto)],
     };
     let main = PushTarget {
@@ -1109,6 +1120,7 @@ fn use_key_rules_name_one_key_and_never_match_an_agents_tool() {
         assert!(check(&bad).is_err(), "{bad:?}");
     }
     let policy = Policy {
+        quiet: false,
         rules: vec![
             rule("UseKey", Some("github"), PolicyAction::Auto),
             rule("UseKey", Some("stripe"), PolicyAction::Deny),

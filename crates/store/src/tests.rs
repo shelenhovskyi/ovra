@@ -460,6 +460,7 @@ fn a_projects_policy_is_kept_across_opens() {
     let a = store.add(&folders.path("a")).expect("add a");
     assert_eq!(store.policy(&a.id), Ok(Policy::default()));
     let policy = Policy {
+        quiet: false,
         rules: vec![PolicyRule {
             tool: "Bash".into(),
             pattern: Some("npm test".into()),
