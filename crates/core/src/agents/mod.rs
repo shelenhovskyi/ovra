@@ -720,25 +720,34 @@ impl AgentHost {
     }
 
     /// What the project's policy says about a call of this session, in its
-    /// folder and sandbox as the runtime reported them. `Err` when the
+    /// folder and sandbox as the runtime reported them, quiet mode included. `Err` when the
     /// policy or the session cannot be read: callers then never skip a
     /// question, and the hook refuses.
     fn policy(&self, tool: &ToolRequest) -> Result<Option<(PolicyAction, String)>, ()> {
         let core = self.sessions.core().ok_or(())?;
-        let (cwd, sandbox) = self
+        let (cwd, sandbox, mode) = self
             .sessions
             .find(&self.session, |s| {
-                (s.launch().map(|l| l.cwd), s.info().sandbox)
+                let info = s.info();
+                (s.launch().map(|l| l.cwd), info.sandbox, info.mode)
             })
             .map_err(|_| ())?;
         let policy = core.project_store().policy(&self.project).map_err(|_| ())?;
-        Ok(crate::policy::decide(
-            &policy,
-            &tool.name,
-            &tool.call,
-            &cwd.ok_or(())?,
-            sandbox.as_ref(),
-        ))
+        let cwd = cwd.ok_or(())?;
+        let decided =
+            crate::policy::decide(&policy, &tool.name, &tool.call, &cwd, sandbox.as_ref());
+        // Quiet mode decides only what no rule does, as an auto rule would
+        // (ADR 0015).
+        let quiet = decided.is_none()
+            && policy.quiet
+            && crate::policy::quiet::allows(&tool.name, &tool.call, &cwd, sandbox.as_ref(), mode);
+        if quiet {
+            return Ok(Some((
+                PolicyAction::Auto,
+                crate::policy::quiet::QUIET_RULE.to_owned(),
+            )));
+        }
+        Ok(decided)
     }
 
     /// The runtime ran the session as `report` says (`None`: without a

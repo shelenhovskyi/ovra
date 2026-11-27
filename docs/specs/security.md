@@ -697,6 +697,60 @@ rules for each project:
   Remove takes it out. A person can add an exact Bash `auto` rule there
   too ("Exact command", shown only when the action is Auto).
 
+**Quiet mode (owner's approval, 2026-11-27; ADR 0015).** A project's policy
+has a `quiet` switch, off by default. With it on, a call that no rule
+decides (no deny, ask or auto rule matches) is allowed without asking when
+the sandbox contains it. It is decided in `can_use_tool` only, like an
+`auto` rule, so it never skips more than the user's Claude settings allow.
+
+- The session: the runtime reported a sandbox whose network is not `Open`,
+  and whose name Ovra trusts for this (`QUIET_SANDBOXES`, today the Linux
+  one: `bubblewrap...`). macOS (Seatbelt, off until verified on a Mac) and
+  Windows (network gaps) still ask; a platform joins in its own change
+  once verified.
+- The call, by the kind the runtime filled (ADR 0011):
+  - `read` and `search`: every path inside `work_dir`, not protected or
+    review-marked, and with no `.git` part (no path: the folder itself);
+  - `edit`: at least one path, every one inside `work_dir`, not protected
+    or review-marked, with no `.git` part and no part that may be a
+    Windows 8.3 short name. In a direct session too: Discard restores the
+    agent's own edits from the baseline (ADR 0005);
+  - `delete` and `move`: as `edit`, but not in a direct session;
+  - `execute`: not in a direct session (a mistake there lands in the
+    person's checkout, and Discard does not undo a command's changes).
+    The command has no backtick, `$(`, `<(` or `>(` (what runs would be
+    hidden). Every word that names `git` (as [`program`] reads it, quotes
+    and folders stripped) is followed by one of git's reading subcommands
+    (`status`, `diff`, `log`, `show`, `blame`, `grep`, `ls-files`,
+    `ls-tree`, `rev-parse`, `rev-list`, `describe`, `shortlog`,
+    `cat-file`, `show-ref`, `merge-base`, `name-rev`, `for-each-ref`,
+    `diff-tree`, `diff-files`, `diff-index`, `check-ignore`,
+    `check-attr`, `count-objects`, `help`, `version`), with only
+    `--no-pager` or `-P` before it: anything else may change git state.
+    No word names a protected or review-marked path. Paths outside the
+    folder are left to the sandbox, which hides or locks them;
+  - `fetch`: a plain URL whose host is a name with a dot, not an address
+    and not on the netproxy's broad list. The netproxy still decides
+    whether it is reachable;
+  - `think` and `subagent`: allowed (a helper agent's own calls are
+    decided one by one). Claude's `Glob`, `Grep` and `LS` are `search`
+    calls with their `path`; `WebSearch` is one with no path, which runs
+    on Anthropic's side;
+  - anything else (`other`, any `mcp__` tool) asks.
+- Keys still ask on first use (`UseKey`), Ovra's pushes keep their own
+  rules (`Push`), and Ovra's IDE tools their role rules: quiet mode does
+  not decide them.
+- The audit log records `ToolDecided` with `DecidedBy::Policy { rule:
+  "quiet mode" }`.
+- The git check, like every Bash rule, is advisory: a script the agent
+  wrote can run git. In a worktree `.git` is read-only in the sandbox, and
+  pushes need the netproxy and a key, which asks.
+- "Always allow" is still offered on what quiet mode asks about.
+- Settings > Rules shows the switch with one line on the risk: "Agents
+  stop asking about actions the sandbox contains. A harmful instruction in
+  a file could run without you seeing it; its changes still wait for your
+  review." and one line on where it applies.
+
 ## Audit log
 
 The log gets one entry for each event that matters for security. The schema

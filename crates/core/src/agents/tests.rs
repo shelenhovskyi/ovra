@@ -1475,6 +1475,76 @@ async fn the_projects_policy_decides_before_the_person_is_asked() {
     );
 }
 
+#[tokio::test]
+async fn quiet_mode_allows_what_the_sandbox_contains_and_asks_about_the_rest() {
+    use crate::protocol::agents::{SandboxNetwork, SandboxReport};
+    use crate::protocol::audit::{AuditEvent, DecidedBy};
+    use crate::protocol::permissions::Decision;
+    use crate::services::AuditLog;
+
+    let audit = Arc::new(crate::fakes::MemoryAudit::default());
+    let core = Core::builder("test")
+        .projects(Arc::new(MemoryProjects::default()))
+        .agents(Arc::new(ScriptedAgent::new(vec![vec![Step::Say("hi")]])))
+        .audit(audit.clone())
+        .build();
+    project(&core).await;
+    ok(&core, start("x")).await;
+    let quiet = |quiet: bool| {
+        json!({"method": "policy.set", "params": {"project": "p1", "policy": {
+            "quiet": quiet, "rules": [{"tool": "Read", "match": "keys/**", "action": "ask"}]}}})
+    };
+    ok(&core, quiet(true)).await;
+    let host = host(&core);
+    host.sandboxed(Some(SandboxReport {
+        name: "bubblewrap, seccomp".into(),
+        network: SandboxNetwork::Proxy,
+        gaps: Vec::new(),
+    }));
+    let read = |path: &str| crate::fakes::tool("Read", json!({"file_path": path}));
+    assert_eq!(
+        host.ask(read("src/a.rs"), None, None).await.decision,
+        Decision::Allow
+    );
+
+    // A rule still wins, and a command in the person's checkout asks.
+    let mut rx = core.subscribe();
+    let bash = crate::fakes::tool("Bash", json!({"command": "ls"}));
+    for tool in [read("keys/a"), bash] {
+        let asking = tokio::spawn({
+            let host = host.clone();
+            async move { host.ask(tool, None, None).await }
+        });
+        until(&mut rx, AgentStatus::WaitingForApproval).await;
+        asking.abort();
+    }
+    ok(&core, quiet(false)).await;
+    let asking = tokio::spawn({
+        let host = host.clone();
+        async move { host.ask(read("src/a.rs"), None, None).await }
+    });
+    until(&mut rx, AgentStatus::WaitingForApproval).await;
+    asking.abort();
+
+    let entries = audit.list(
+        &crate::protocol::projects::ProjectId("p1".into()),
+        Default::default(),
+        100,
+    );
+    let decided: Vec<_> = entries
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|e| match e.event {
+            AuditEvent::ToolDecided { tool, by, .. } => Some((tool, by)),
+            _ => None,
+        })
+        .collect();
+    let by = DecidedBy::Policy {
+        rule: "quiet mode".into(),
+    };
+    assert_eq!(decided, [("Read".to_owned(), by)]);
+}
+
 async fn accounts(core: &Core, project: Option<&str>) -> crate::protocol::agents::AccountsOverview {
     match ok(
         core,

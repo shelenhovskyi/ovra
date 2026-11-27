@@ -816,6 +816,7 @@ fn segment(pattern: &str, name: &str) -> bool {
 }
 
 pub(crate) mod keys;
+pub(crate) mod quiet;
 #[cfg(test)]
 mod tests;
 
