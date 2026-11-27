@@ -423,7 +423,7 @@ pub(crate) struct NewSession {
     /// Proposes a plan first and changes no file until the person approves
     /// it (`docs/specs/plan-first.md`).
     pub(crate) plan_first: bool,
-    /// The name of the schedule that starts it (ADR 0015).
+    /// The name of the schedule that starts it (ADR 0017).
     pub(crate) schedule: Option<String>,
 }
 

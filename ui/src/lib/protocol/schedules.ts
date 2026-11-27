@@ -1,4 +1,4 @@
-// Mirrors crates/core/src/protocol/schedules.rs (ADR 0015).
+// Mirrors crates/core/src/protocol/schedules.rs (ADR 0017).
 
 import type { AgentKind, SessionId } from "./agents";
 import type { ProjectId } from "./projects";

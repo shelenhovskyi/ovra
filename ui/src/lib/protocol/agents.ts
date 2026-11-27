@@ -117,7 +117,7 @@ export type SessionInfo = {
   interrupted?: boolean;
   /** Why it may be stuck while it works; absent when it looks fine (`agents.stuck` sends changes). */
   stuck?: Stuck | null;
-  /** The name of the schedule that started it (ADR 0015); absent for a person's start. */
+  /** The name of the schedule that started it (ADR 0017); absent for a person's start. */
   schedule?: string;
 };
 

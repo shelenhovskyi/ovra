@@ -1,5 +1,5 @@
 //! `schedules.*`: prompts that start an agent at days and times the person
-//! set, while Ovra runs (ADR 0015, `docs/specs/schedules.md`). Off until the
+//! set, while Ovra runs (ADR 0017, `docs/specs/schedules.md`). Off until the
 //! person turns them on.
 
 use serde::{Deserialize, Serialize};

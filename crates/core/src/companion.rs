@@ -112,7 +112,7 @@ pub(crate) fn allows(request: &Request) -> bool {
         | Request::Setup(_)
         | Request::Catalog(_)
         | Request::Ssh(_)
-        // Only the person at the computer makes or runs schedules (ADR 0015).
+        // Only the person at the computer makes or runs schedules (ADR 0017).
         | Request::Schedules(_) => false,
     }
 }

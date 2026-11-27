@@ -1,5 +1,5 @@
 <script lang="ts">
-// The project's Schedules pane (ADR 0015): its schedules, each with when it
+// The project's Schedules pane (ADR 0017): its schedules, each with when it
 // runs next and how the last run went, and a form that adds or changes one.
 // Shown only while scheduled tasks are on (Settings > Agents).
 import { tick, untrack } from "svelte";

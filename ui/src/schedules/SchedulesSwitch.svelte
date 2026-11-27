@@ -1,6 +1,6 @@
 <script lang="ts">
 // Settings > Agents: whether schedules start agents by themselves (ADR
-// 0015). Off by default; on, each project's Settings get a Schedules pane.
+// 0017). Off by default; on, each project's Settings get a Schedules pane.
 import { CoreError } from "../lib/transport";
 import { openSettings } from "../settings/commands";
 import { useOvra } from "../shell/context";

@@ -1,4 +1,4 @@
-//! Schedules (ADR 0015, `docs/specs/schedules.md`): prompts the person
+//! Schedules (ADR 0017, `docs/specs/schedules.md`): prompts the person
 //! saved that start a research session or one agent in its own copy at set
 //! days and times, while Ovra runs and only once the person turned them on.
 //! They are kept in [`AgentSettings`]; a clock task fires the due ones.

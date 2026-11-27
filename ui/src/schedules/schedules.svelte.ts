@@ -1,4 +1,4 @@
-// Scheduled tasks (ADR 0015): whether they are on, and each project's
+// Scheduled tasks (ADR 0017): whether they are on, and each project's
 // schedules, read once per transport and again on `schedules.changed`.
 // The core keeps them and fires them; this only shows and edits them.
 

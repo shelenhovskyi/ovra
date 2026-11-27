@@ -218,7 +218,7 @@ pub struct SessionInfo {
     /// replies.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stuck: Option<Box<Stuck>>,
-    /// The name of the schedule that started it (ADR 0015); `None` for a
+    /// The name of the schedule that started it (ADR 0017); `None` for a
     /// person's start.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub schedule: Option<String>,
@@ -527,7 +527,7 @@ pub struct AgentSettings {
     /// How many research sessions may work at once in one project (ADR
     /// 0013); `None` is the default.
     pub research_limit: Option<u32>,
-    /// Whether schedules start agents (ADR 0015); off by default.
+    /// Whether schedules start agents (ADR 0017); off by default.
     pub schedules_enabled: bool,
     /// The person's schedules of every project, oldest first. A stored
     /// `next_ms` is when the next run is due, also while paused or off.

@@ -305,7 +305,7 @@ pub(crate) struct Solo {
     pub(crate) attempt_of: Option<TaskId>,
     pub(crate) model: Option<AgentModel>,
     pub(crate) plan_first: bool,
-    /// The schedule that starts it (ADR 0015).
+    /// The schedule that starts it (ADR 0017).
     pub(crate) schedule: Option<String>,
 }
 
@@ -861,7 +861,7 @@ struct NewWorker<'a> {
     port: u16,
     skip_setup: bool,
     plan_first: bool,
-    /// The schedule that starts it (ADR 0015).
+    /// The schedule that starts it (ADR 0017).
     schedule: Option<String>,
 }
 

@@ -1,7 +1,7 @@
 # Scheduled tasks
 
 Status: approved by the owner on 2026-11-27 (project chat, "all useful,
-take them"), as opt-in. Decision record: ADR 0015.
+take them"), as opt-in. Decision record: ADR 0017.
 
 ## Problem
 
