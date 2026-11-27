@@ -312,4 +312,6 @@ type LaterResponseFor<R extends Request> = R extends ServersRequest
                     ? CatalogResponse
                     : R extends SshRequest
                       ? SshResponseFor<R["method"]>
-                      : never;
+                      : R extends { method: "agents.resume_interrupted" }
+                        ? Extract<Response, { type: "agents.resumed" }>
+                        : never;

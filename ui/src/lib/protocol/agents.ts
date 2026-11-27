@@ -113,6 +113,10 @@ export type SessionInfo = {
   planning?: boolean;
   /** What the person queued while a turn ran, oldest first; absent when empty. */
   queue?: QueuedMessage[];
+  /** It was working when Ovra last quit or crashed and has not run since: `agents.resume_interrupted` continues it (absent when false). */
+  interrupted?: boolean;
+  /** Why it may be stuck while it works; absent when it looks fine (`agents.stuck` sends changes). */
+  stuck?: Stuck | null;
 };
 
 /** A message that waits for the running turn to end (`agents.queue`). */
@@ -124,6 +128,18 @@ export interface QueuedMessage {
 
 /** The most messages that wait in one session's queue. */
 export const MAX_QUEUED = 10;
+
+/** Why a working session may be stuck: a hint only, Ovra never stops it for this. */
+export type Stuck =
+  /** The same tool call got the same result `times` times this turn. */
+  | { kind: "repeating"; name: string; call: ToolCall; times: number }
+  /** The last `times` tool calls all failed. */
+  | { kind: "failing"; times: number }
+  /** Nothing came from the agent for `minutes` minutes while it worked. */
+  | { kind: "silent"; minutes: number };
+
+/** A session `agents.resume_interrupted` could not continue, and why. */
+export type NotResumed = { session: SessionId; reason: string };
 
 /** A piece of a message with the first matched word at `from`..`to` (UTF-16 offsets). */
 export type Snippet = { text: string; from: number; to: number };
@@ -332,6 +348,8 @@ export type AgentsRequest =
   /** Lets a planning session change files and tells it to go ahead; `conflict` while a turn runs. */
   | { method: "agents.approve_plan"; params: { session: SessionId } }
   | { method: "agents.resume"; params: { session: SessionId; prompt: string } }
+  /** Continues the sessions Ovra's quit cut off: `session`, or all of `project`'s, coordinators first. Answers `agents.resumed`. */
+  | { method: "agents.resume_interrupted"; params: { project: ProjectId; session?: SessionId } }
   | { method: "agents.interrupt"; params: { session: SessionId } }
   | { method: "agents.stop"; params: { session: SessionId } }
   | { method: "agents.transcript"; params: { session: SessionId } }
@@ -362,6 +380,7 @@ export type AgentsResponse =
   | { type: "agents.limit"; data: AgentLimit }
   | { type: "agents.research_limit"; data: AgentLimit }
   | { type: "agents.checkpoints"; data: Checkpoint[] }
+  | { type: "agents.resumed"; data: { resumed: SessionId[]; left: NotResumed[] } }
   | { type: "agents.went_back"; data: { restored: string[]; conflicts: string[]; can_undo: boolean } }
   | { type: "agents.undid_go_back"; data: { restored: string[]; conflicts: string[] } };
 
@@ -402,4 +421,6 @@ export type AgentsEvent =
   /** The session's queue changed (`SessionInfo.queue`). */
   | { type: "agents.queue"; data: { session: SessionId; queue: QueuedMessage[] } }
   /** The session entered or left plan first (`SessionInfo.planning`). */
-  | { type: "agents.planning"; data: { session: SessionId; planning: boolean } };
+  | { type: "agents.planning"; data: { session: SessionId; planning: boolean } }
+  /** A working session may be stuck, or no longer looks so (`null`). */
+  | { type: "agents.stuck"; data: { session: SessionId; stuck: Stuck | null } };

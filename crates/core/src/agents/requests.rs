@@ -224,6 +224,10 @@ pub(crate) async fn agents(
             super::plan::approve(ctx, &session)?;
             Ok(OK)
         }
+        AgentsRequest::ResumeInterrupted { .. } => Err(ProtocolError::new(
+            ErrorCode::Unavailable,
+            "agents.resume_interrupted is not served yet",
+        )),
         AgentsRequest::Interrupt { session } => {
             let (process, project, stopping) =
                 sessions.find(&session, |s| (s.process(), s.info().project, s.stopping()))?;
@@ -615,6 +619,8 @@ pub(crate) async fn start(ctx: &Ctx<'_>, new: NewSession) -> Result<SessionInfo>
         active_ms: Some(super::now_ms()),
         planning: new.plan_first,
         queue: Vec::new(),
+        interrupted: false,
+        stuck: None,
     };
     // With its folder and role from the start, so that it counts in its
     // role, and its first message if it waits.

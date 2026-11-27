@@ -54,6 +54,7 @@ pub(crate) fn allows(request: &Request) -> bool {
             // the computer only.
             | AgentsRequest::ApprovePlan { .. }
             | AgentsRequest::Resume { .. }
+            | AgentsRequest::ResumeInterrupted { .. }
             | AgentsRequest::SetLimit { .. }
             | AgentsRequest::ResearchLimit
             | AgentsRequest::SetResearchLimit { .. }
@@ -133,7 +134,8 @@ pub(crate) fn shows(event: &Event) -> bool {
             | AgentsEvent::Billing { .. }
             | AgentsEvent::Sandbox { .. }
             | AgentsEvent::Queue { .. }
-            | AgentsEvent::Planning { .. } => true,
+            | AgentsEvent::Planning { .. }
+            | AgentsEvent::Stuck { .. } => true,
             AgentsEvent::ResearchLimitChanged(_) | AgentsEvent::TextDelta { .. } => false,
         },
         Event::Projects(_)

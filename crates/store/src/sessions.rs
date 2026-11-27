@@ -177,6 +177,8 @@ mod tests {
                 queue: Vec::new(),
                 started_ms: Some(1),
                 active_ms: Some(2),
+                interrupted: false,
+                stuck: None,
             },
             agent_session: None,
         }

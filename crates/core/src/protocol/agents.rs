@@ -208,6 +208,34 @@ pub struct SessionInfo {
     /// first: each goes as the next message when a turn ends.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub queue: Vec<QueuedMessage>,
+    /// It was working when Ovra last quit or crashed, and has not run
+    /// since: `agents.resume_interrupted` continues it.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub interrupted: bool,
+    /// Why it may be stuck, while it works; `None` when it looks fine
+    /// (`agents.stuck` sends changes).
+    /// Boxed: most sessions have none, and `SessionInfo` travels in many
+    /// replies.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stuck: Option<Box<Stuck>>,
+}
+
+/// Why a working session may be stuck (`docs/specs/stuck-and-resume.md`).
+/// Only a hint: Ovra never stops an agent for it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum Stuck {
+    /// The same tool call got the same result `times` times this turn.
+    Repeating {
+        /// The agent's own tool name.
+        name: String,
+        call: ToolCall,
+        times: u32,
+    },
+    /// The last `times` tool calls all failed.
+    Failing { times: u32 },
+    /// Nothing came from the agent for `minutes` minutes while it worked.
+    Silent { minutes: u32 },
 }
 
 /// A message that waits for the running turn to end (`agents.queue`).
@@ -806,6 +834,16 @@ pub enum AgentsRequest {
     /// new prompt. Answers `agents.session`.
     #[serde(rename = "agents.resume")]
     Resume { session: SessionId, prompt: String },
+    /// Continues the sessions that Ovra's quit cut off
+    /// ([`SessionInfo::interrupted`]): `session`, or all of `project`'s,
+    /// coordinators first, with Ovra's note that it was cut off. Answers
+    /// `agents.resumed`.
+    #[serde(rename = "agents.resume_interrupted")]
+    ResumeInterrupted {
+        project: ProjectId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        session: Option<SessionId>,
+    },
     /// Ends the current turn; the session then waits for the next message.
     /// Pending permission requests are denied. Answers `ok`.
     #[serde(rename = "agents.interrupt")]
@@ -851,6 +889,13 @@ pub enum AgentsRequest {
     UndoGoBack { session: SessionId },
 }
 
+/// A session `agents.resume_interrupted` could not continue.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NotResumed {
+    pub session: SessionId,
+    pub reason: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", content = "data")]
 pub enum AgentsResponse {
@@ -878,6 +923,12 @@ pub enum AgentsResponse {
     ResearchLimit(AgentLimit),
     #[serde(rename = "agents.checkpoints")]
     Checkpoints(Vec<Checkpoint>),
+    #[serde(rename = "agents.resumed")]
+    Resumed {
+        resumed: Vec<SessionId>,
+        /// The ones that could not continue, each with why.
+        left: Vec<NotResumed>,
+    },
     #[serde(rename = "agents.went_back")]
     WentBack {
         /// Files set back, relative to the work dir.
@@ -949,4 +1000,10 @@ pub enum AgentsEvent {
     /// The session entered or left plan first (`SessionInfo::planning`).
     #[serde(rename = "agents.planning")]
     Planning { session: SessionId, planning: bool },
+    /// A working session may be stuck, or no longer looks so (`None`).
+    #[serde(rename = "agents.stuck")]
+    Stuck {
+        session: SessionId,
+        stuck: Option<Stuck>,
+    },
 }
