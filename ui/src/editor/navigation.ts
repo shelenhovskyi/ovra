@@ -18,7 +18,7 @@ export type Place = {
 /** A cursor move of more lines than this is a jump of its own. */
 export const JUMP_LINES = 10;
 /** Places kept per project; the oldest go first. */
-export const HISTORY_MAX = 50;
+const HISTORY_MAX = 50;
 
 const far = (a: number | undefined, b: number | undefined) =>
   a !== undefined && b !== undefined && Math.abs(a - b) > JUMP_LINES;
