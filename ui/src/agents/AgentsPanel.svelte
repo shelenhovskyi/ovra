@@ -32,6 +32,7 @@ import type {
   AgentModel,
   ContextItem,
   FileChange,
+  ProjectId,
   SessionId,
   SessionInfo,
 } from "../lib/protocol";
@@ -40,6 +41,7 @@ import { CoreError } from "../lib/transport";
 import { isMenuKey, type MenuEntry, openContextMenu } from "../menu/context-menu.svelte";
 import { projectSandbox } from "../settings/sandbox";
 import { useOvra } from "../shell/context";
+import LinkedRepos from "./LinkedRepos.svelte";
 import { reveal } from "./reveal.svelte";
 import Icon from "../shell/Icon.svelte";
 import { menuTarget } from "../shell/menu";
@@ -147,9 +149,13 @@ const offered = $derived(modesFor(agent, names.info(agent)?.capabilities));
 const how = $derived(offered.includes(mode) ? mode : (offered[0] ?? "own"));
 /** How many agents try the next task, each in its own copy (Settings > Agents offers it). */
 let tries = $state(1);
-/** Who makes each attempt; one agent unless the person turned attempts on and chose more. */
+/** Other projects the task changes too (`docs/specs/multi-repo.md`): Claude in its own copy only. */
+let linkedRepos = $state<ProjectId[]>([]);
+const linking = $derived(how === "own" && agentPrefs.multiRepo && agent === "claude");
+const repos = $derived(linking ? linkedRepos : []);
+/** Who makes each attempt; one agent unless the person turned attempts on and chose more, without other repositories. */
 const attempting = $derived(
-  how === "own" && agentPrefs.attempts ? attemptAgents(agent, names.startable, tries) : [agent],
+  how === "own" && agentPrefs.attempts && repos.length === 0 ? attemptAgents(agent, names.startable, tries) : [agent],
 );
 /** The next task plans first, where Settings > Agents offers it. */
 let planFirst = $state(true);
@@ -254,7 +260,9 @@ const modeHint = $derived(
     : how === "research"
       ? `Reads this folder and searches the web${modeSandbox}. Changes nothing.`
       : how === "own"
-        ? attempting.length > 1
+        ? repos.length > 0
+          ? `Works on its own copy of this and ${repos.length === 1 ? "one other repository" : `${repos.length} other repositories`}${modeSandbox}. You review each first.`
+          : attempting.length > 1
           ? `${attempting.length} attempts (${attempting.map((a) => names.name(a)).join(", ")}), each on its own copy${modeSandbox}. Keep the best in Reviews.`
           : offered.includes("here")
           ? `Works on its own copy${modeSandbox}. You review before anything is merged.`
@@ -856,7 +864,7 @@ async function begin(
     how === "split"
       ? await sessions.startTask(id, body, context, who, model)
       : how === "own"
-        ? await sessions.startAttempts(id, body, attempts, context, model, plan)
+        ? await sessions.startAttempts(id, body, attempts, context, model, plan, repos)
         : (await sessions.start(id, body, use, how === "research" ? "research" : "direct", context, who, model, plan)).id;
   selected = started;
   await tick();
@@ -889,6 +897,7 @@ async function start(): Promise<void> {
     hints.mark("started");
     launchedPrompt = body;
     prompt = "";
+    linkedRepos = [];
     drafts.clear(newBox);
   } catch (err) {
     // A conflict (another agent already works here) is not a setup problem.
@@ -1899,7 +1908,10 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
             </select>
           </label>
         {/if}
-        {#if how === "own" && agentPrefs.attempts}
+        {#if linking}
+          <LinkedRepos project={project.id} bind:picked={linkedRepos} />
+        {/if}
+        {#if how === "own" && agentPrefs.attempts && repos.length === 0}
           <label class="agent-picker" data-testid="attempts-picker" title="Each attempt is an agent in its own copy">
             <span class="visually-hidden">Attempts</span>
             <select bind:value={tries}>

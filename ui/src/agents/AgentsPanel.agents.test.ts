@@ -192,3 +192,51 @@ it("starts several attempts at one task, each agent in its own copy, once Settin
     agentPrefs.planFirst = false;
   }
 });
+
+it("lets one agent in its own copy also change other repositories, once Settings offers it", async () => {
+  const core = new FakeAgentCore();
+  core.projects = [
+    ...core.projects,
+    { id: "p2", name: "api", root: "/api", last_opened_ms: null, trusted: false },
+    { id: "p3", name: "docs", root: "/docs", last_opened_ms: null, trusted: false },
+  ];
+  await open(core);
+  modeButton()?.click();
+  await settle();
+  target.querySelector<HTMLButtonElement>("[data-mode=own]")?.click();
+  await settle();
+  // Off by default: the form stays as it is.
+  expect(target.querySelector("[data-testid=linked-repos]")).toBeNull();
+  agentPrefs.multiRepo = true;
+  agentPrefs.attempts = true;
+  try {
+    await settle();
+    const also = target.querySelector<HTMLSelectElement>("[data-testid=linked-repos] select");
+    if (!also) throw new Error("no Also change picker");
+    expect([...also.options].map((o) => o.textContent)).toEqual(["Also change…", "api", "docs"]);
+    also.value = "p2";
+    also.dispatchEvent(new Event("change", { bubbles: true }));
+    await settle();
+    expect(target.querySelector("[data-testid=linked-repos] .chip")?.textContent).toContain("api");
+    // Other repositories go with one attempt only.
+    expect(target.querySelector("[data-testid=attempts-picker]")).toBeNull();
+    expect(target.querySelector("#agent-mode-hint")?.textContent).toContain("this and one other repository");
+
+    const field = target.querySelector<HTMLTextAreaElement>("#agent-prompt");
+    if (!field) throw new Error("no field");
+    field.value = "Rename the endpoint";
+    field.dispatchEvent(new Event("input", { bubbles: true }));
+    await settle();
+    target.querySelector<HTMLFormElement>("form")?.requestSubmit();
+    await settle();
+    const starts = core.calls.filter((c) => c.method === "orchestration.start").map((c) => c.params);
+    expect(starts).toEqual([
+      { project: "p1", prompt: "Rename the endpoint", agent: "claude", solo: true, repos: ["p2"] },
+    ]);
+    // Started: the picks are cleared for the next task.
+    expect(target.querySelector("[data-testid=linked-repos] .chip")).toBeNull();
+  } finally {
+    agentPrefs.multiRepo = false;
+    agentPrefs.attempts = false;
+  }
+});

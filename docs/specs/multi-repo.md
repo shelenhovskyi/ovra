@@ -62,10 +62,13 @@ and reviews and lands two unrelated results.
    own diff, fingerprint, Keep, Discard, parts, checks and pull request.
    Every item of a multi-repo worker carries `ReviewItem.task_repos`, the
    task's repositories, and Reviews of any of those projects lists all of
-   the session's items together under the task's name: "Changes in 2
-   repositories". Above them, "Keep all" keeps each open item in turn and
-   stops at the first one that is refused or conflicts, saying which. A
-   comment on any of them goes to the one session.
+   the session's items together under the task's name, each entry naming
+   its repository, and the item says which other repositories the task
+   changed. Keep moves on to the next item, so the next repository comes
+   up. There is no "Keep all": each repository's diff is kept only after
+   the person saw it, as today. A comment on any of them goes to the one
+   session. Checks across items of other workers compare only items of
+   the same repository.
 8. **Lifecycle.** Stop, resume and clean-up treat the linked copies as
    they treat the worker's worktree: once the task ended and every item of
    the worker is settled, each copy is removed and its branch deleted
@@ -84,7 +87,7 @@ and reviews and lands two unrelated results.
    sandbox profile, refusal on macOS and Windows sandboxes, clean-up.
 3. Review: an item per repository, `task_repos`, listing across projects.
 4. Policies per linked repository.
-5. UI: the setting, "Also change", grouped Reviews with "Keep all".
+5. UI: the setting, "Also change", grouped Reviews.
 6. Independent security review of 2 to 4, e2e with the fake agent.
 
 ## Not done (later, each its own step)

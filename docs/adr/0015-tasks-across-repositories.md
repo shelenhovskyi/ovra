@@ -19,9 +19,10 @@ wants one task and one review for them.
 - The sandbox treats every linked copy as one more work dir, with the same
   protected paths. A sandbox that cannot do that refuses the profile.
 - Review stays per repository: one item per repository, in its own
-  project, with all of today's checks. Items of one session are shown and
-  kept together. No review item spans two repositories, so fingerprints,
-  partial approval, undo, pull requests and clean-up stay as they are.
+  project, with all of today's checks. Items of one session are shown
+  together, and each is kept on its own. No review item spans two
+  repositories, so fingerprints, partial approval, undo, pull requests
+  and clean-up stay as they are.
 - Only the main repository's agent configuration loads. Policies of a
   linked project decide file tools on paths in its copy.
 - Coordinators, direct sessions, attempts and other providers do not take

@@ -34,6 +34,7 @@ export class AgentPrefs {
   #pickModel = $state(false);
   #templates = $state<Template[]>([]);
   #planFirst = $state(false);
+  #multiRepo = $state(false);
 
   constructor(private readonly storage: Store | null) {
     try {
@@ -44,6 +45,7 @@ export class AgentPrefs {
         if ("pickModel" in stored) this.#pickModel = stored.pickModel === true;
         if ("templates" in stored) this.#templates = templatesFrom(stored.templates);
         if ("planFirst" in stored) this.#planFirst = stored.planFirst === true;
+        if ("multiRepo" in stored) this.#multiRepo = stored.multiRepo === true;
       }
     } catch {
       // Nothing kept, or unreadable: the defaults.
@@ -131,6 +133,19 @@ export class AgentPrefs {
     this.save();
   }
 
+  /**
+   * Whether the task form offers "Also change" other repositories, each in
+   * its own copy (`docs/specs/multi-repo.md`). Off by default: most tasks need one.
+   */
+  get multiRepo(): boolean {
+    return this.#multiRepo;
+  }
+
+  set multiRepo(on: boolean) {
+    this.#multiRepo = on;
+    this.save();
+  }
+
   private save(): void {
     try {
       this.storage?.setItem(
@@ -141,6 +156,7 @@ export class AgentPrefs {
           pickModel: this.#pickModel,
           templates: this.#templates,
           planFirst: this.#planFirst,
+          multiRepo: this.#multiRepo,
         }),
       );
     } catch {

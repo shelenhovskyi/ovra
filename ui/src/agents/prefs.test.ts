@@ -42,6 +42,16 @@ describe("AgentPrefs", () => {
     const again = new AgentPrefs(store);
     expect([again.planFirst, again.attempts, again.showResources]).toEqual([true, true, false]);
   });
+
+  it("offers other repositories only once the person turns them on, keeping the other choices", () => {
+    const store = memory();
+    const prefs = new AgentPrefs(store);
+    expect(prefs.multiRepo).toBe(false);
+    prefs.attempts = true;
+    prefs.multiRepo = true;
+    const again = new AgentPrefs(store);
+    expect([again.multiRepo, again.attempts, again.showResources]).toEqual([true, true, false]);
+  });
 });
 
 describe("AgentPrefs templates and model", () => {

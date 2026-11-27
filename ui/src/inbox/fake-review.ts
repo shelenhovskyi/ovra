@@ -6,6 +6,7 @@ import type {
   CoreEvent,
   FileChange,
   GhStatus,
+  Project,
   PrStatus,
   Request,
   ResponseFor,
@@ -110,6 +111,9 @@ export class FakeReviewCore implements Transport {
     return this.calls.filter((c): c is Extract<Request, { method: M }> => c.method === method);
   }
 
+  /** What `projects.list` answers. */
+  projects: Project[] = [{ id: "p1", name: "demo", root: "/demo", last_opened_ms: null, trusted: false }];
+
   private find(id: string): ReviewItem {
     const item = this.items.find((i) => i.id === id);
     if (!item) throw new CoreError({ code: "not_found", message: `no review ${id}` });
@@ -128,7 +132,12 @@ export class FakeReviewCore implements Transport {
         // Copies, as over the wire: later changes here must not reach the UI's items.
         return {
           type: "review.list",
-          data: structuredClone(this.items.filter((i) => i.project === request.params.project)),
+          // A task across repositories lists its items in each of them.
+          data: structuredClone(
+            this.items.filter(
+              (i) => i.project === request.params.project || i.task_repos?.includes(request.params.project),
+            ),
+          ),
         };
       case "review.diff": {
         const item = this.find(request.params.id);
@@ -313,6 +322,8 @@ export class FakeReviewCore implements Transport {
         return { type: "agents.list", data: structuredClone(this.listed) };
       case "orchestration.list":
         return { type: "orchestration.list", data: structuredClone(this.tasks) };
+      case "projects.list":
+        return { type: "projects.list", data: structuredClone(this.projects) };
       case "agents.transcript": {
         const messages = this.transcripts.get(request.params.session) ?? [];
         return { type: "agents.transcript", data: { messages, seq: messages.length } };

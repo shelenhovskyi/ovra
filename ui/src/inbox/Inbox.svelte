@@ -67,6 +67,7 @@ import PrDialog from "./PrDialog.svelte";
 import PrPanel from "./PrPanel.svelte";
 import { ProtectedLooks } from "./protected.svelte";
 import { canOpenPr } from "./pull-request";
+import { repoLine, repoTag, sameRepo } from "./repos";
 import { message as errorText, type Outcome, type ReviewInbox } from "./reviews.svelte";
 import { byRisk, riskReason } from "./risk";
 import { fileSteps, stepOf } from "./steps";
@@ -110,6 +111,25 @@ let dialog = $state<HTMLElement>();
 let prFor = $state<ReviewId | null>(null);
 
 const item = $derived(inbox.items.find((i) => i.id === selectedId) ?? null);
+/** Project names, for the items of a task across repositories (`docs/specs/multi-repo.md`). */
+let projectNames = $state(new Map<string, string>());
+$effect(() => {
+  const wanted = inbox.items.flatMap((i) => i.task_repos ?? []);
+  if (wanted.every((id) => untrack(() => projectNames.has(id)))) return;
+  let live = true;
+  transport
+    .call({ method: "projects.list" })
+    .then(({ data }) => {
+      if (live) projectNames = new Map(data.map((p) => [p.id, p.name]));
+    })
+    .catch(() => {
+      // Without names the ids show.
+    });
+  return () => {
+    live = false;
+  };
+});
+const repoName = (id: string) => projectNames.get(id) ?? id;
 const file = $derived(item?.files.find((f) => f.path === selectedPath) ?? null);
 /** The item's files, those most worth a careful look first. */
 const ordered = $derived(item ? byRisk(item.files) : []);
@@ -126,12 +146,14 @@ $effect(() => {
   // name the steps that wrote them. A failed load only costs those.
   untrack(() => void sessions.loadTranscript(at.session).catch(() => {}));
 });
-const shared = $derived(item ? sharedFiles(item, inbox.items) : new Set<string>());
-const sharedText = $derived(item ? sharedHint(item, inbox.items, (o) => sessions.name(o.session)) : null);
+const shared = $derived(item ? sharedFiles(item, sameRepo(item, inbox.items)) : new Set<string>());
+const sharedText = $derived(
+  item ? sharedHint(item, sameRepo(item, inbox.items), (o) => sessions.name(o.session)) : null,
+);
 /** Files not copied because another worker's version was kept first, with that worker's name. */
 const keptFrom = $derived(
   new Map(
-    [...(item ? keptElsewhere(item, inbox.items) : [])].map(([path, o]) => [
+    [...(item ? keptElsewhere(item, sameRepo(item, inbox.items)) : [])].map(([path, o]) => [
       path,
       workerName(sessions.name(o.session)),
     ]),
@@ -140,7 +162,10 @@ const keptFrom = $derived(
 /** Files of the open item whose version another worker's item already copied, with that worker's name. */
 const keptBefore = $derived(
   new Map(
-    [...(item ? keptFirst(item, inbox.items) : [])].map(([path, o]) => [path, workerName(sessions.name(o.session))]),
+    [...(item ? keptFirst(item, sameRepo(item, inbox.items)) : [])].map(([path, o]) => [
+      path,
+      workerName(sessions.name(o.session)),
+    ]),
   ),
 );
 const protectedText = $derived(item ? protectedHint(item) : null);
@@ -160,7 +185,12 @@ const groups = $derived.by(() => {
     // Attempts at one task stay together, even with other items between them.
     const others = sessions.attempts(review.session);
     const tried = others.length > 0 ? out.find((g) => g.items.some((i) => others.includes(i.session))) : undefined;
-    if (tried) tried.items.push(review);
+    // One session's items in several repositories stay together too.
+    const repos = review.task_repos?.length
+      ? out.find((g) => g.items.some((i) => i.session === review.session))
+      : undefined;
+    if (repos) repos.items.push(review);
+    else if (tried) tried.items.push(review);
     else if (last && task !== null && last.task === task) last.items.push(review);
     else out.push({ task, items: [review] });
   }
@@ -742,7 +772,12 @@ function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
                     onkeydown={(e) =>
                       moveIn(e, "[data-item]", (el) => select(el.dataset.item ?? null))}
                   >
-                    <span class="name">{shortTitle(review, sessions.name(review.session))}</span>
+                    <span class="name"
+                      >{shortTitle(review, sessions.name(review.session))}{#if repoTag(review, repoName)}<span
+                          class="repo"
+                          data-testid="item-repo"> · {repoTag(review, repoName)}</span
+                        >{/if}</span
+                    >
                     <span class="meta"
                       ><span class="state {review.state}">{STATE_LABEL[review.state]}</span><span class="count"
                         > · {itemSummary(review)}</span
@@ -797,6 +832,9 @@ function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
                 <LookCloser {inbox} {item} onopen={(path) => (selectedPath = path)} />
                 {#if gitText}
                   <p class="protected" id="inbox-git" role="note" data-testid="inbox-git">{gitText}</p>
+                {/if}
+                {#if repoLine(item, repoName)}
+                  <p class="attempts" data-testid="inbox-repos">{repoLine(item, repoName)}</p>
                 {/if}
                 {#if attempts}
                   <p class="attempts" data-testid="inbox-attempts">

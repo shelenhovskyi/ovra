@@ -533,6 +533,7 @@ export class AgentSessions {
     context: ContextItem[] = [],
     model: AgentModel | null = null,
     planFirst = false,
+    repos: ProjectId[] = [],
   ): Promise<SessionId> {
     const once = async (agent: AgentKind, attemptOf?: TaskId): Promise<Task> => {
       const { data } = await this.transport.call({
@@ -546,6 +547,8 @@ export class AgentSessions {
           ...modelFor(agent, model),
           ...(attemptOf ? { attempt_of: attemptOf } : {}),
           ...(planFirst ? { plan_first: true } : {}),
+          // Other repositories go with one attempt only (`docs/specs/multi-repo.md`).
+          ...(repos.length > 0 && !attemptOf ? { repos } : {}),
         },
       });
       return data;

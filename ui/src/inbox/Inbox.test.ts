@@ -1095,4 +1095,27 @@ describe("Inbox", () => {
     expect(core.sent("agents.stop")).toHaveLength(1);
     expect($("[data-testid=inbox-explain]")).not.toBeNull();
   });
+
+  it("lists one task's items in several repositories together, each named by its repository", async () => {
+    const repos = ["p1", "p2"];
+    await setup(
+      [
+        review("r3", { session: "s2", mode: "isolated", files: [change("b.md")] }),
+        review("r2", { project: "p2", session: "s1", mode: "isolated", task_repos: repos, files: [change("lib.rs")] }),
+        review("r1", { session: "s1", mode: "isolated", task_repos: repos, files: [change("README.md")] }),
+      ],
+      async (core) => {
+        core.projects.push({ id: "p2", name: "api", root: "/api", last_opened_ms: null, trusted: false });
+      },
+    );
+    await open();
+    const entries = [...target.querySelectorAll<HTMLElement>("[data-item]")].map((e) => e.dataset.item);
+    // The session's two items stay next to each other.
+    expect(entries.indexOf("r2") + 1).toBe(entries.indexOf("r1"));
+    const tags = [...target.querySelectorAll("[data-testid=item-repo]")].map((e) => e.textContent?.trim());
+    expect(tags).toEqual(["· api", "· demo"]);
+    $<HTMLButtonElement>("[data-item=r2]")?.click();
+    await settle();
+    expect($("[data-testid=inbox-repos]")?.textContent).toContain("The changes in api. This task also changed demo");
+  });
 });

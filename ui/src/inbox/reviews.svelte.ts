@@ -396,7 +396,9 @@ export class ReviewInbox {
       case "pr.changed":
       case "fs.changed":
       case "fs.files_changed":
-        if (event.data.project === this.project) void this.refresh();
+        // Items of a task across repositories are in other projects too.
+        if (event.data.project === this.project || this.items.some((i) => i.task_repos?.includes(event.data.project)))
+          void this.refresh();
         return;
     }
   }
