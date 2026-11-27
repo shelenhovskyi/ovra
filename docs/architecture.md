@@ -74,7 +74,11 @@ snapshot taken at session start). See ADR 0005.
 Sessions and their transcripts are kept across restarts (`SessionStore`, in
 the project database). A session that ran when the core quit shows as
 stopped; `agents.resume` continues it with the agent's own conversation id
-(`claude --resume`).
+(`claude --resume`). One that was mid-turn is marked `interrupted`, and
+`agents.resume_interrupted` continues those with Ovra's note, coordinators
+first. While a session works, the core watches for a stuck turn (repeats,
+failures in a row, silence) and sends a hint (`agents.stuck`); see
+`docs/specs/stuck-and-resume.md`.
 
 ## Orchestration (phase 3)
 

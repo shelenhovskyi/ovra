@@ -6,8 +6,8 @@ use tokio::sync::broadcast;
 use crate::Core;
 use crate::fakes::{EchoTerminals, MemoryFs, MemoryProjects, MemorySessions, ScriptedAgent, Step};
 use crate::protocol::agents::{
-    AgentMessage, AgentModel, AgentStatus, AgentsEvent, AgentsResponse, SessionInfo, SessionMode,
-    Stuck, ToolCall, ToolKind, TurnUsage,
+    AgentMessage, AgentModel, AgentStatus, AgentsEvent, AgentsResponse, MessageFrom, SessionInfo,
+    SessionMode, Stuck, ToolCall, ToolKind, TurnUsage,
 };
 use crate::protocol::agents::{ProjectAgentConfig, ProjectConfigReview, SetupState};
 use crate::protocol::permissions::{
@@ -1998,6 +1998,80 @@ async fn each_message_has_a_number_and_the_transcript_says_its_last() {
         }
         other => panic!("unexpected {other:?}"),
     }
+}
+
+/// A session that stops on its own after `turn`, as one cut off by a quit
+/// shows to the next run, with the kept store.
+async fn cut_off(projects: &Arc<MemoryProjects>, kept: &Arc<MemorySessions>, prompts: &[&str]) {
+    let first = restartable(ScriptedAgent::new(vec![vec![]]), projects, kept);
+    project(&first).await;
+    let mut rx = first.subscribe();
+    for prompt in prompts {
+        ok(&first, start(prompt)).await;
+        until(&mut rx, AgentStatus::Idle).await;
+    }
+    // s1 was mid-turn when the core quit; s2 (if any) had finished its turn.
+    host(&first).status(AgentStatus::Working);
+}
+
+#[tokio::test]
+async fn a_session_cut_off_by_a_quit_resumes_with_ovras_note() {
+    let projects = Arc::new(MemoryProjects::default());
+    let kept = Arc::new(MemorySessions::default());
+    cut_off(&projects, &kept, &["go"]).await;
+
+    let agent = Arc::new(ScriptedAgent::new(vec![vec![Step::Say("on it")]]));
+    let second = Core::builder("test")
+        .projects(projects)
+        .sessions(kept)
+        .agents(agent.clone())
+        .build();
+    let before = sessions(&second).await;
+    assert_eq!(before[0].status, AgentStatus::Stopped);
+    assert!(before[0].interrupted, "it was working when the core quit");
+
+    let mut rx = second.subscribe();
+    let all = json!({"method": "agents.resume_interrupted", "params": {"project": "p1"}});
+    match ok(&second, all.clone()).await {
+        Response::Agents(AgentsResponse::Resumed { resumed, left }) => {
+            assert_eq!(resumed, [crate::protocol::agents::SessionId("s1".into())]);
+            assert!(left.is_empty());
+        }
+        other => panic!("unexpected {other:?}"),
+    }
+    until(&mut rx, AgentStatus::Idle).await;
+    assert!(!sessions(&second).await[0].interrupted);
+    let note = transcript(&second).await.into_iter().find_map(|m| match m {
+        AgentMessage::UserText {
+            from: MessageFrom::Ovra,
+            text,
+        } => Some(text),
+        _ => None,
+    });
+    assert!(note.is_some_and(|t| t.contains("Continued after Ovra closed")));
+    // Nothing is left to resume, and naming a session that was not cut off is refused.
+    match ok(&second, all).await {
+        Response::Agents(AgentsResponse::Resumed { resumed, .. }) => assert!(resumed.is_empty()),
+        other => panic!("unexpected {other:?}"),
+    }
+    let one = json!({"method": "agents.resume_interrupted",
+        "params": {"project": "p1", "session": "s1"}});
+    assert_eq!(code(&second, one).await, ErrorCode::Conflict);
+}
+
+#[tokio::test]
+async fn a_session_that_had_finished_its_turn_is_not_cut_off() {
+    let projects = Arc::new(MemoryProjects::default());
+    let kept = Arc::new(MemorySessions::default());
+    let first = restartable(ScriptedAgent::new(vec![vec![]]), &projects, &kept);
+    project(&first).await;
+    let mut rx = first.subscribe();
+    ok(&first, start("go")).await;
+    until(&mut rx, AgentStatus::Idle).await;
+    drop(first);
+    let second = restartable(ScriptedAgent::new(vec![]), &projects, &kept);
+    let after = sessions(&second).await;
+    assert!(after[0].resumable && !after[0].interrupted);
 }
 
 #[tokio::test(start_paused = true)]

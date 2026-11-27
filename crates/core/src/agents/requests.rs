@@ -8,8 +8,8 @@ use super::transcript::MAX_TEXT_BYTES;
 use super::{AgentHost, Launch, Sessions};
 use crate::protocol::agents::{
     AgentKind, AgentMessage, AgentModel, AgentStatus, AgentsEvent, AgentsRequest, AgentsResponse,
-    DEFAULT_ACCOUNT, MessageFrom, ProjectConfigReview, SessionId, SessionInfo, SessionMode,
-    SessionTranscript, SetupState, TurnUsage,
+    DEFAULT_ACCOUNT, MessageFrom, NotResumed, ProjectConfigReview, SessionId, SessionInfo,
+    SessionMode, SessionTranscript, SetupState, TurnUsage,
 };
 use crate::protocol::audit::DecidedBy;
 use crate::protocol::permissions::{
@@ -190,6 +190,10 @@ pub(crate) async fn agents(
             let info = resume(ctx, session, vec![(prompt, MessageFrom::Person)]).await?;
             Ok(Response::Agents(AgentsResponse::Session(info)))
         }
+        AgentsRequest::ResumeInterrupted { project, session } => {
+            let (resumed, left) = resume_interrupted(ctx, &project, session.as_ref()).await?;
+            Ok(Response::Agents(AgentsResponse::Resumed { resumed, left }))
+        }
         AgentsRequest::Send {
             session,
             text,
@@ -224,10 +228,6 @@ pub(crate) async fn agents(
             super::plan::approve(ctx, &session)?;
             Ok(OK)
         }
-        AgentsRequest::ResumeInterrupted { .. } => Err(ProtocolError::new(
-            ErrorCode::Unavailable,
-            "agents.resume_interrupted is not served yet",
-        )),
         AgentsRequest::Interrupt { session } => {
             let (process, project, stopping) =
                 sessions.find(&session, |s| (s.process(), s.info().project, s.stopping()))?;
@@ -924,6 +924,57 @@ pub(crate) async fn resume(ctx: &Ctx<'_>, session: SessionId, parts: Parts) -> R
     drop(place);
     let target = trusted_in(ctx, target, &launch.cwd).await;
     run(ctx, &session, target, launch, parts, Some(agent_session)).await
+}
+
+/// What an interrupted session is told when it goes on, in Ovra's words:
+/// the first line is the one the person reads in the transcript.
+const INTERRUPTED_NOTE: &str = "Continued after Ovra closed in the middle of this turn.\n\
+     Your last turn was cut off. Continue the task where you left off: check what is already \
+     done first, and do not redo it.";
+
+/// `agents.resume_interrupted`: coordinators first, so that their workers
+/// have someone to report to. One that cannot go on stays as it is.
+async fn resume_interrupted(
+    ctx: &Ctx<'_>,
+    project: &ProjectId,
+    only: Option<&SessionId>,
+) -> Result<(Vec<SessionId>, Vec<NotResumed>)> {
+    let sessions = ctx.sessions;
+    let mut cut_off: Vec<(SessionId, bool)> = sessions
+        .list(project)
+        .into_iter()
+        .filter(|s| s.interrupted && only.is_none_or(|id| id == &s.id))
+        .map(|s| {
+            let coordinator = sessions
+                .find(&s.id, |v| {
+                    v.launch().and_then(|l| l.tools) == Some(ToolRole::Coordinator)
+                })
+                .unwrap_or(false);
+            (s.id, coordinator)
+        })
+        .collect();
+    if let Some(id) = only
+        && cut_off.is_empty()
+    {
+        return Err(conflict(&format!(
+            "session {} was not cut off by Ovra closing",
+            id.0
+        )));
+    }
+    cut_off.sort_by_key(|(_, coordinator)| !coordinator);
+    let mut resumed = Vec::new();
+    let mut left = Vec::new();
+    for (session, _) in cut_off {
+        let note = vec![(INTERRUPTED_NOTE.to_owned(), MessageFrom::Ovra)];
+        match resume(ctx, session.clone(), note).await {
+            Ok(_) => resumed.push(session),
+            Err(err) => left.push(NotResumed {
+                session,
+                reason: err.message,
+            }),
+        }
+    }
+    Ok((resumed, left))
 }
 
 /// What a session may touch in a sandbox. A worker reads its main
