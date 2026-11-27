@@ -708,35 +708,48 @@ the sandbox contains it. It is decided in `can_use_tool` only, like an
   one: `bubblewrap...`). macOS (Seatbelt, off until verified on a Mac) and
   Windows (network gaps) still ask; a platform joins in its own change
   once verified.
-- The call, by the kind the runtime filled (ADR 0011):
-  - `read` and `search`: every path inside `work_dir`, not protected or
-    review-marked, and with no `.git` part (no path: the folder itself);
-  - `edit`: at least one path, every one inside `work_dir`, not protected
-    or review-marked, with no `.git` part and no part that may be a
-    Windows 8.3 short name. In a direct session too: Discard restores the
-    agent's own edits from the baseline (ADR 0005);
-  - `delete` and `move`: as `edit`, but not in a direct session;
-  - `execute`: not in a direct session (a mistake there lands in the
-    person's checkout, and Discard does not undo a command's changes).
-    The command has no backtick, `$(`, `<(` or `>(` (what runs would be
-    hidden). Every word that names `git` (as [`program`] reads it, quotes
-    and folders stripped) is followed by one of git's reading subcommands
-    (`status`, `diff`, `log`, `show`, `blame`, `grep`, `ls-files`,
-    `ls-tree`, `rev-parse`, `rev-list`, `describe`, `shortlog`,
-    `cat-file`, `show-ref`, `merge-base`, `name-rev`, `for-each-ref`,
-    `diff-tree`, `diff-files`, `diff-index`, `check-ignore`,
-    `check-attr`, `count-objects`, `help`, `version`), with only
-    `--no-pager` or `-P` before it: anything else may change git state.
-    No word names a protected or review-marked path. Paths outside the
-    folder are left to the sandbox, which hides or locks them;
+- The call, by the kind the runtime filled (ADR 0011). Changes and
+  commands run quietly only in a worktree (`isolated`): in a direct
+  session an edit lands in the person's checkout, where their own tools
+  (a pre-commit hook, `npm test`, a watcher) may run it before any review,
+  and a research session changes nothing.
+  - `read`: at least one path, and every path inside `work_dir`, not
+    protected or review-marked, and with no `.git` part;
+  - `search`: the same, where no path means the folder itself. Claude's
+    `Glob`, `Grep` and `LS` report their `path`, and a `Glob` pattern or
+    `Grep` glob that starts at `/`, `\` or `~` or holds `..` as a path
+    too; `WebSearch` has no path and runs on Anthropic's side;
+  - `edit`, `delete` and `move`: worktree only; at least one path, every
+    one inside `work_dir`, not protected or review-marked, with no `.git`
+    part and no part that may be a Windows 8.3 short name;
+  - `execute`: worktree only. The command has no backtick, `$(`, `<(` or
+    `>(` (what runs would be hidden). Every word that names `git` (as
+    [`program`] reads it, quotes and folders stripped) is followed by one
+    of git's reading subcommands (`status`, `diff`, `log`, `show`,
+    `blame`, `grep`, `ls-files`, `ls-tree`, `rev-parse`, `rev-list`,
+    `describe`, `shortlog`, `cat-file`, `show-ref`, `merge-base`,
+    `name-rev`, `for-each-ref`, `diff-tree`, `diff-files`, `diff-index`,
+    `check-ignore`, `check-attr`, `count-objects`, `help`, `version`),
+    with only `--no-pager` or `-P` before it: anything else may change
+    git state. No word (nor a part of `--opt=value`) names a protected or
+    review-marked path, a `.git` part, an agent's own state folder
+    (`.claude`, `.codex`, `.gemini`, ...), starts with `~`, holds `$` or
+    `%`, or is a glob from `/`: those reach the home folder, where the
+    agent's own login stays readable, under names the check cannot see.
+    Other paths outside the folder are left to the sandbox;
   - `fetch`: a plain URL whose host is a name with a dot, not an address
     and not on the netproxy's broad list. The netproxy still decides
     whether it is reachable;
   - `think` and `subagent`: allowed (a helper agent's own calls are
-    decided one by one). Claude's `Glob`, `Grep` and `LS` are `search`
-    calls with their `path`; `WebSearch` is one with no path, which runs
-    on Anthropic's side;
+    decided one by one);
   - anything else (`other`, any `mcp__` tool) asks.
+- A path anywhere in `read`, `search`, `edit` or `execute` (paths and
+  command words) is held by every deny and ask rule of a file tool
+  (`Read`, `NotebookRead`, `Edit`, `MultiEdit`, `Write`, `NotebookEdit`),
+  whatever tool the call is: `Read(.env)` deny keeps a quiet `Grep` or
+  `cat .env` asking. Such a rule without a match makes every one of these
+  calls ask. Paths starting with `~` or holding `$` or `%` never count as
+  inside the folder.
 - Keys still ask on first use (`UseKey`), Ovra's pushes keep their own
   rules (`Push`), and Ovra's IDE tools their role rules: quiet mode does
   not decide them.
@@ -746,10 +759,13 @@ the sandbox contains it. It is decided in `can_use_tool` only, like an
   wrote can run git. In a worktree `.git` is read-only in the sandbox, and
   pushes need the netproxy and a key, which asks.
 - "Always allow" is still offered on what quiet mode asks about.
-- Settings > Rules shows the switch with one line on the risk: "Agents
-  stop asking about actions the sandbox contains. A harmful instruction in
-  a file could run without you seeing it; its changes still wait for your
-  review." and one line on where it applies.
+- A quiet command reaches every host the allowlist lets through, broad
+  ones included, like any command the person allowed: data can leave to
+  them without a question. The switch says so.
+- Settings > Rules shows the switch, what runs without asking, what still
+  asks, where it works, and while it is on the risk: a harmful
+  instruction in a file could run unseen and send data to any allowed
+  site; changes still wait in Reviews.
 
 ## Audit log
 

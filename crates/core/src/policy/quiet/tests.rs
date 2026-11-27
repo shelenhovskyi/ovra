@@ -3,6 +3,7 @@ use std::path::Path;
 use serde_json::{Value, json};
 
 use crate::protocol::agents::{SandboxNetwork, SandboxReport, SessionMode};
+use crate::protocol::policy::{Policy, PolicyAction, PolicyRule};
 
 const DIR: &str = "/w";
 
@@ -14,9 +15,25 @@ fn linux() -> SandboxReport {
     }
 }
 
+fn quiet(rules: Vec<PolicyRule>) -> Policy {
+    Policy { rules, quiet: true }
+}
+
+fn allows_under(policy: &Policy, tool: &str, input: Value, mode: SessionMode) -> bool {
+    let call = crate::fakes::tool(tool, input).call;
+    super::allows(policy, tool, &call, Path::new(DIR), Some(&linux()), mode)
+}
+
 fn allows_in(tool: &str, input: Value, mode: SessionMode, sandbox: Option<&SandboxReport>) -> bool {
     let call = crate::fakes::tool(tool, input).call;
-    super::allows(tool, &call, Path::new(DIR), sandbox, mode)
+    super::allows(
+        &quiet(Vec::new()),
+        tool,
+        &call,
+        Path::new(DIR),
+        sandbox,
+        mode,
+    )
 }
 
 fn allows(tool: &str, input: Value) -> bool {
@@ -88,13 +105,14 @@ fn edits_stay_inside_the_folder_off_protected_and_git_paths() {
         "Write",
         json!({"file_path": "/w/notes.md", "content": ""})
     ));
-    // Discard restores a direct session's own edits.
-    assert!(allows_in(
-        "Edit",
-        edit("src/a.rs"),
-        SessionMode::Direct,
-        Some(&linux())
-    ));
+    // In the person's checkout their own tools may run an edit before any
+    // review; a research session changes nothing.
+    for mode in [SessionMode::Direct, SessionMode::Research] {
+        assert!(
+            !allows_in("Edit", edit("src/a.rs"), mode, Some(&linux())),
+            "{mode:?}"
+        );
+    }
     for path in [
         "/etc/hosts",
         "../a",
@@ -117,12 +135,96 @@ fn commands_run_quietly_only_in_a_worktree() {
     assert!(bash("npm test && npm run lint"));
     assert!(bash("rm -rf target"));
     assert!(bash("ls /usr/include > /dev/null"));
-    assert!(!allows_in(
-        "Bash",
-        json!({"command": "cargo test"}),
-        SessionMode::Direct,
-        Some(&linux())
+    for mode in [SessionMode::Direct, SessionMode::Research] {
+        let bash = json!({"command": "cargo test"});
+        assert!(!allows_in("Bash", bash, mode, Some(&linux())), "{mode:?}");
+        let rm = json!({"file_path": "a"});
+        assert!(!allows_in("Delete", rm, mode, Some(&linux())), "{mode:?}");
+    }
+    // Reading stays quiet in the person's checkout.
+    let read = json!({"file_path": "src/a.rs"});
+    assert!(allows_in("Read", read, SessionMode::Direct, Some(&linux())));
+}
+
+#[test]
+fn nothing_is_quiet_with_the_switch_off() {
+    let off = Policy::default();
+    assert!(!allows_under(
+        &off,
+        "Read",
+        json!({"file_path": "a"}),
+        SessionMode::Isolated
     ));
+}
+
+#[test]
+fn a_read_without_a_path_asks() {
+    assert!(!allows("Read", json!({})));
+    assert!(!allows("Read", json!({"file_path": 3})));
+}
+
+#[test]
+fn deny_and_ask_rules_on_files_hold_for_every_tool_that_names_them() {
+    let rule = |tool: &str, pattern: Option<&str>, action| PolicyRule {
+        tool: tool.into(),
+        pattern: pattern.map(str::to_owned),
+        action,
+        exact: false,
+        from_approval: false,
+    };
+    let policy = quiet(vec![
+        rule("Read", Some(".env"), PolicyAction::Deny),
+        rule("Edit", Some("keys/**"), PolicyAction::Ask),
+        rule("Read", Some("src/**"), PolicyAction::Auto),
+    ]);
+    let quietly =
+        |tool: &str, input: Value| allows_under(&policy, tool, input, SessionMode::Isolated);
+    for (tool, input) in [
+        ("Grep", json!({"pattern": ".", "path": ".env"})),
+        ("Read", json!({"file_path": "/w/.env"})),
+        ("Bash", json!({"command": "cat .env"})),
+        ("Bash", json!({"command": "cp a --to='keys/b'"})),
+        ("Write", json!({"file_path": "keys/a", "content": ""})),
+    ] {
+        assert!(!quietly(tool, input.clone()), "{tool} {input}");
+    }
+    assert!(quietly("Bash", json!({"command": "cat src/a.rs"})));
+    // A file rule without a match covers every call that names a path.
+    let all = quiet(vec![rule("Read", None, PolicyAction::Ask)]);
+    assert!(!allows_under(
+        &all,
+        "Bash",
+        json!({"command": "ls"}),
+        SessionMode::Isolated
+    ));
+}
+
+#[test]
+fn the_home_folder_and_agent_logins_ask() {
+    for (tool, input) in [
+        (
+            "Read",
+            json!({"file_path": "~/.claude-work/.credentials.json"}),
+        ),
+        ("Read", json!({"file_path": "$HOME/a"})),
+        (
+            "Grep",
+            json!({"pattern": "token", "path": "~/.claude-work"}),
+        ),
+        ("Glob", json!({"pattern": "/srv/other/**/.env"})),
+        ("Glob", json!({"pattern": "../other/*"})),
+        ("Grep", json!({"pattern": "x", "glob": "/etc/*"})),
+        (
+            "Bash",
+            json!({"command": "cat ~/.claude-work/.credentials.json"}),
+        ),
+        ("Bash", json!({"command": "cat $HOME/x"})),
+        ("Bash", json!({"command": "cat /root/.cl*/.cr*"})),
+        ("Bash", json!({"command": "ls /home/me/.codex"})),
+    ] {
+        assert!(!allows(tool, input.clone()), "{tool} {input}");
+    }
+    assert!(allows("Glob", json!({"pattern": "src/**/*.rs"})));
 }
 
 #[test]

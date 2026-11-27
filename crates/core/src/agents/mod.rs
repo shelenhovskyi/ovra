@@ -723,8 +723,14 @@ impl AgentHost {
         // Quiet mode decides only what no rule does, as an auto rule would
         // (ADR 0015).
         let quiet = decided.is_none()
-            && policy.quiet
-            && crate::policy::quiet::allows(&tool.name, &tool.call, &cwd, sandbox.as_ref(), mode);
+            && crate::policy::quiet::allows(
+                &policy,
+                &tool.name,
+                &tool.call,
+                &cwd,
+                sandbox.as_ref(),
+                mode,
+            );
         if quiet {
             return Ok(Some((
                 PolicyAction::Auto,
