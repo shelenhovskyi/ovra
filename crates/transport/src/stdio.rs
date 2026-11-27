@@ -10,7 +10,7 @@ use futures_util::StreamExt;
 use futures_util::stream::FuturesUnordered;
 use ovra_core::Core;
 use ovra_core::protocol::info::InfoEvent;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::time::Instant;
 
@@ -30,8 +30,8 @@ const IN_FLIGHT_MAX: usize = 64;
 /// Raised when the frames change in a way an older side cannot read.
 pub const PROTOCOL: u32 = 1;
 
-/// The first line the remote core writes.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+/// The first line the remote core writes; `ovra-ssh` reads it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Hello {
     /// The crate version; the laptop refuses any other than its own.
     pub version: String,
@@ -45,6 +45,13 @@ pub struct Hello {
 #[derive(Serialize)]
 struct HelloFrame<'a> {
     hello: &'a Hello,
+}
+
+/// The hello line as the laptop reads it.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct HelloLine {
+    pub hello: Hello,
 }
 
 /// Why [`serve`] returned.
@@ -129,28 +136,41 @@ async fn write_line<W: AsyncWrite + Unpin>(output: &mut W, line: &str) -> std::i
         .map_err(|_| std::io::ErrorKind::TimedOut)?
 }
 
-enum Line {
+/// One read of [`Lines`].
+#[derive(Debug, PartialEq, Eq)]
+pub enum Line {
     Text(String),
+    /// The other side closed, or reading failed.
     End,
+    /// Longer than the limit, or not UTF-8.
     Bad,
 }
 
-/// Reads lines without ever holding more than [`LINE_MAX`] bytes.
-struct Lines<R> {
+/// Reads lines without ever holding more than its limit
+/// ([`LINE_MAX`] for frames).
+#[derive(Debug)]
+pub struct Lines<R> {
     input: R,
     buf: Vec<u8>,
+    max: usize,
 }
 
 impl<R: AsyncBufRead + Unpin> Lines<R> {
-    fn new(input: R) -> Self {
+    pub fn new(input: R) -> Self {
+        Self::with_limit(input, LINE_MAX)
+    }
+
+    /// Lines of at most `max` bytes.
+    pub fn with_limit(input: R, max: usize) -> Self {
         Self {
             input,
             buf: Vec::new(),
+            max,
         }
     }
 
     /// Cancel-safe: a read cut short keeps what it had in `buf`.
-    async fn next(&mut self) -> Line {
+    pub async fn next(&mut self) -> Line {
         loop {
             let chunk = match self.input.fill_buf().await {
                 Ok(chunk) => chunk,
@@ -163,7 +183,7 @@ impl<R: AsyncBufRead + Unpin> Lines<R> {
                 Some(at) => (at + 1, true),
                 None => (chunk.len(), false),
             };
-            if self.buf.len() + take > LINE_MAX + 1 {
+            if self.buf.len() + take > self.max + 1 {
                 return Line::Bad;
             }
             self.buf.extend_from_slice(&chunk[..take]);

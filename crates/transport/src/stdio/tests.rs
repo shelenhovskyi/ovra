@@ -3,7 +3,7 @@ use std::time::Duration;
 use ovra_core::Core;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, DuplexStream};
 
-use super::{Ended, Hello, IDLE, LINE_MAX, PING, serve};
+use super::{Ended, Hello, HelloLine, IDLE, LINE_MAX, Line, Lines, PING, serve};
 
 fn hello() -> Hello {
     Hello {
@@ -125,4 +125,16 @@ async fn pings_sent_during_a_slow_write_still_count() {
     assert!(!task.is_finished());
     drop(input);
     assert_eq!(task.await.ok(), Some(Ended::Closed));
+}
+
+#[tokio::test]
+async fn the_laptop_reads_the_hello_back_and_lines_keep_their_limit() {
+    let (_task, _input, mut output) = start();
+    let first = line(&mut output).await;
+    let read: Result<HelloLine, _> = serde_json::from_str(&first);
+    assert_eq!(read.ok().map(|l| l.hello), Some(hello()));
+
+    let mut lines = Lines::with_limit(BufReader::new(&b"abcd\nabcdef\n"[..]), 4);
+    assert_eq!(lines.next().await, Line::Text("abcd".into()));
+    assert_eq!(lines.next().await, Line::Bad);
 }
