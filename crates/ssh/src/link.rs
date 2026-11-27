@@ -108,18 +108,16 @@ impl Link {
         &self.hello
     }
 
-    /// Sends one client frame. A frame that would not be one line is
-    /// refused rather than split.
+    /// Sends one client frame; see [`Sender::send`].
     pub async fn send(&self, frame: &str) -> Result<(), Failure> {
-        if frame.len() > LINE_MAX || frame.contains(['\n', '\r']) {
-            return Err(Failure::new(
-                Reason::Exited,
-                "a frame for the remote machine was not one line",
-            ));
-        }
-        match self.to.send(frame.to_owned()).await {
-            Ok(()) => Ok(()),
-            Err(_) => Err(self.ended()),
+        self.sender().send(frame).await
+    }
+
+    /// A handle that sends while another task waits in [`Link::recv`].
+    pub fn sender(&self) -> Sender {
+        Sender {
+            to: self.to.clone(),
+            end: self.end.clone(),
         }
     }
 
@@ -132,11 +130,51 @@ impl Link {
     }
 
     fn ended(&self) -> Failure {
-        self.end
-            .borrow()
-            .clone()
-            .unwrap_or_else(|| Failure::new(Reason::Exited, "the link was closed"))
+        ended(&self.end)
     }
+}
+
+/// Sends frames on a [`Link`]; it stops working when the link ends.
+#[derive(Debug, Clone)]
+pub struct Sender {
+    to: mpsc::Sender<String>,
+    end: watch::Receiver<Option<Failure>>,
+}
+
+impl Sender {
+    /// Sends one client frame. A frame that would not be one line is
+    /// refused rather than split.
+    pub async fn send(&self, frame: &str) -> Result<(), Failure> {
+        if frame.len() > LINE_MAX || frame.contains(['\n', '\r']) {
+            return Err(Failure::new(
+                Reason::Exited,
+                "a frame for the remote machine was not one line",
+            ));
+        }
+        match self.to.send(frame.to_owned()).await {
+            Ok(()) => Ok(()),
+            Err(_) => Err(ended(&self.end)),
+        }
+    }
+}
+
+fn ended(end: &watch::Receiver<Option<Failure>>) -> Failure {
+    end.borrow()
+        .clone()
+        .unwrap_or_else(|| Failure::new(Reason::Exited, "the link was closed"))
+}
+
+/// A link to whatever `command` runs, with the hello and frame checks but
+/// none of the SSH ones: e2e's `--fake-ssh` runs a local
+/// `ovra-daemon --stdio` through it.
+#[cfg(feature = "fake")]
+pub async fn fake(mut command: tokio::process::Command) -> Result<Link, Failure> {
+    crate::tools::own_group(&mut command);
+    pipes(&mut command);
+    let child = command
+        .spawn()
+        .map_err(|e| Failure::new(Reason::NoSsh, format!("could not run {e}")))?;
+    open(Group(child)).await
 }
 
 /// Waits for the hello of a started `ssh`, then hands its pipes to the

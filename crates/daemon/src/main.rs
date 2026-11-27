@@ -7,6 +7,9 @@ use std::net::{Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
 use std::sync::Arc;
 
+#[cfg(feature = "fake-agent")]
+mod fake_ssh;
+
 use anyhow::Context;
 use clap::Parser;
 use ovra_agent_runtime::ClaudeCli;
@@ -75,6 +78,11 @@ struct Args {
     #[cfg(feature = "fake-agent")]
     #[arg(long)]
     fake_forge: bool,
+    /// Serves `/ws/ssh/<id>`, the bridge of a remote window, with this
+    /// daemon as `--stdio --fake-agent` in place of `ssh`.
+    #[cfg(feature = "fake-agent")]
+    #[arg(long)]
+    fake_ssh: bool,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -170,14 +178,13 @@ async fn serve() -> anyhow::Result<()> {
     if let Some(server) = restore {
         server.restore(core.clone());
     }
-    let app = ws::router(
-        core,
-        Access {
-            token: token.clone(),
-            allowed_origins,
-        },
-    )
-    .fallback_service(static_files);
+    let access = Access {
+        token: token.clone(),
+        allowed_origins,
+    };
+    let app = ws::router(core, access.clone())
+        .merge(fake_ssh(&args, access))
+        .fallback_service(static_files);
 
     println!("OVRA_URL=http://{addr}/?token={token}");
     tracing::info!(%addr, "ovra-daemon listening");
@@ -1019,6 +1026,21 @@ impl ovra_core::services::DevServers for PresetServers {
     fn pod_ended(&self, work_dir: PathBuf) -> ovra_core::services::BoxFuture<'_, ()> {
         self.0.pod_ended(work_dir)
     }
+}
+
+/// The e2e bridge of remote windows, with `--fake-ssh` only.
+#[cfg(feature = "fake-agent")]
+fn fake_ssh(args: &Args, access: Access) -> axum::Router {
+    if args.fake_ssh {
+        fake_ssh::routes(access, &args.data_dir)
+    } else {
+        axum::Router::new()
+    }
+}
+
+#[cfg(not(feature = "fake-agent"))]
+fn fake_ssh(_: &Args, _: Access) -> axum::Router {
+    axum::Router::new()
 }
 
 fn new_token() -> String {

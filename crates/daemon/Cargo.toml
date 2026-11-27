@@ -14,7 +14,7 @@ path = "src/main.rs"
 [features]
 # `--fake-agent`: a scripted agent instead of the user's `claude`, for e2e
 # tests and UX reviews. Off in release builds.
-fake-agent = ["ovra-core/fakes", "dep:serde_json"]
+fake-agent = ["ovra-core/fakes", "dep:serde_json", "dep:ovra-ssh", "dep:futures-util", "dep:serde"]
 
 [dependencies]
 ovra-core.workspace = true
@@ -37,10 +37,13 @@ ovra-servers.workspace = true
 ovra-forge.workspace = true
 ovra-resources.workspace = true
 ovra-transport = { workspace = true, features = ["ws", "stdio"] }
+ovra-ssh = { workspace = true, optional = true, features = ["fake"] }
 anyhow.workspace = true
 axum.workspace = true
 clap.workspace = true
+futures-util = { workspace = true, optional = true }
 rand.workspace = true
+serde = { workspace = true, optional = true }
 serde_json = { workspace = true, optional = true }
 tokio = { workspace = true, features = ["io-std", "io-util", "time"] }
 tower-http.workspace = true
@@ -48,6 +51,8 @@ tracing.workspace = true
 tracing-subscriber.workspace = true
 
 [dev-dependencies]
+futures-util.workspace = true
+tokio-tungstenite.workspace = true
 serde_json.workspace = true
 tempfile = "3"
 

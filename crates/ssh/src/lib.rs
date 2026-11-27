@@ -20,7 +20,9 @@ use ovra_core::services::{BoxFuture, RemoteHosts, Result as ServiceResult};
 use ovra_core::ssh::{DaemonPath, Destination, HostId, MachineName, fingerprints_ok};
 use rand::Rng;
 
-pub use crate::link::{Failure, Link, Reason};
+#[cfg(feature = "fake")]
+pub use crate::link::fake;
+pub use crate::link::{Failure, Link, Reason, Sender};
 
 use crate::config::Effective;
 use crate::known::Known;

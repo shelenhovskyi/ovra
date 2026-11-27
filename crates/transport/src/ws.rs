@@ -32,6 +32,29 @@ pub struct Access {
     pub allowed_origins: Vec<String>,
 }
 
+impl Access {
+    /// The token and `Origin` checks of `/ws`, for every other endpoint
+    /// that must have the same ones.
+    pub fn check(
+        &self,
+        token: Option<&str>,
+        headers: &HeaderMap,
+    ) -> Result<(), (StatusCode, &'static str)> {
+        if !token_matches(token, &self.token) {
+            return Err((StatusCode::UNAUTHORIZED, "bad token"));
+        }
+        if let Some(origin) = headers.get(header::ORIGIN) {
+            let allowed = origin
+                .to_str()
+                .is_ok_and(|o| self.allowed_origins.iter().any(|a| a == o));
+            if !allowed {
+                return Err((StatusCode::FORBIDDEN, "origin not allowed"));
+            }
+        }
+        Ok(())
+    }
+}
+
 #[derive(Debug, Clone)]
 struct AppState {
     core: Core,
@@ -59,16 +82,8 @@ async fn upgrade(
     headers: HeaderMap,
     ws: WebSocketUpgrade,
 ) -> Response {
-    if !token_matches(query.token.as_deref(), &state.access.token) {
-        return (StatusCode::UNAUTHORIZED, "bad token").into_response();
-    }
-    if let Some(origin) = headers.get(header::ORIGIN) {
-        let allowed = origin
-            .to_str()
-            .is_ok_and(|o| state.access.allowed_origins.iter().any(|a| a == o));
-        if !allowed {
-            return (StatusCode::FORBIDDEN, "origin not allowed").into_response();
-        }
+    if let Err(refused) = state.access.check(query.token.as_deref(), &headers) {
+        return refused.into_response();
     }
     ws.on_upgrade(move |socket| serve(socket, state.core))
 }

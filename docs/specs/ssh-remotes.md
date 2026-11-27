@@ -316,7 +316,7 @@ ssh -T -x -a
 - **e2e.** A daemon built with the `fake-agent` feature serves the same
   bridge at `/ws/ssh/<id>` with the token and Origin checks of `/ws`, and
   `--fake-ssh` runs a local `ovra-daemon --stdio` with a fake agent
-  instead of `ssh`. Release builds do not have the endpoint (a test checks
+  instead of `ssh`. A failure closes the socket with its reason (`busy`, `version_mismatch`, …) as the WebSocket close reason, never as a frame. Release builds do not have the endpoint (a test checks
   for 404), so the headless token gives no reach to the person's machines.
 
 ## 5. UI

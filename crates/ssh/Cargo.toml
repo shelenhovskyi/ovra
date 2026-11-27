@@ -7,6 +7,10 @@ license.workspace = true
 rust-version.workspace = true
 publish = false
 
+[features]
+# `link::fake`: a link to any command, for e2e's `--fake-ssh`.
+fake = []
+
 [dependencies]
 ovra-core.workspace = true
 ovra-transport = { workspace = true, features = ["stdio"] }
