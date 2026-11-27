@@ -3824,6 +3824,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "ovra-ssh"
+version = "0.1.0"
+dependencies = [
+ "insta",
+ "ovra-core",
+]
+
+[[package]]
 name = "ovra-store"
 version = "0.1.0"
 dependencies = [

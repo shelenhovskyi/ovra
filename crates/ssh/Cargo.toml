@@ -1,0 +1,17 @@
+[package]
+name = "ovra-ssh"
+description = "Remote machines over the person's own OpenSSH (ADR 0016; security code). Will implement ovra_core::services::RemoteHosts."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+ovra-core.workspace = true
+
+[dev-dependencies]
+insta.workspace = true
+
+[lints]
+workspace = true
