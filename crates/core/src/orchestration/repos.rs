@@ -180,6 +180,24 @@ pub(super) fn note(core: &Core, made: &[Made]) -> Option<String> {
     Some(text)
 }
 
+/// The linked repositories of the worker `session` and its copy of each.
+pub(crate) fn linked_projects(core: &Core, session: &SessionId) -> Vec<(ProjectId, PathBuf)> {
+    let state = core.orchestration_state();
+    let guard = state.lock();
+    guard
+        .tasks
+        .iter()
+        .flat_map(|t| &t.workers)
+        .find(|w| &w.session == session)
+        .map(|w| {
+            w.repos
+                .iter()
+                .map(|c| (c.project.clone(), PathBuf::from(&c.worktree)))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 /// The linked copies of the worker `session` and the git folders of their
 /// main checkouts, which a worktree's history lives in: its sandbox writes
 /// the copies and reads those folders, and its agent adds the copies.

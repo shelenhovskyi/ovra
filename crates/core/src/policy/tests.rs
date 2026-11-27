@@ -1157,3 +1157,61 @@ fn use_key_rules_name_one_key_and_never_match_an_agents_tool() {
     );
     assert_eq!(keys::always("github", None), None);
 }
+
+#[test]
+fn a_linked_repositorys_rules_decide_paths_in_its_copy() {
+    let api = if cfg!(windows) { "C:\\api" } else { "/api" };
+    let main = policy();
+    let linked = vec![(
+        Policy {
+            rules: vec![
+                rule("Edit", Some("src/**"), PolicyAction::Auto),
+                rule("Edit", Some("src/keys.rs"), PolicyAction::Deny),
+                rule("Bash", Some("cargo test"), PolicyAction::Auto),
+                rule("Bash", Some("rm"), PolicyAction::Ask),
+            ],
+            quiet: false,
+        },
+        Path::new(api).to_path_buf(),
+    )];
+    let sandbox = sandboxed(SandboxNetwork::Proxy);
+    let decide = |tool: &str, input: serde_json::Value| {
+        let call = crate::fakes::tool(tool, input).call;
+        super::decide_across(
+            (&main, Path::new(WORK)),
+            &linked,
+            tool,
+            &call,
+            Some(&sandbox),
+        )
+        .map(|(action, _)| action)
+    };
+    let file = |dir: &str, path: &str| Path::new(dir).join(path).display().to_string();
+    let edit = |path: String| json!({"file_path": path, "old_string": "a", "new_string": "b"});
+    // Each copy by its own project's rules.
+    assert_eq!(
+        decide("Edit", edit(file(api, "src/lib.rs"))),
+        Some(PolicyAction::Auto)
+    );
+    assert_eq!(
+        decide("Edit", edit(file(WORK, "docs/a.md"))),
+        Some(PolicyAction::Auto)
+    );
+    assert_eq!(
+        decide("Edit", edit(file(api, "src/keys.rs"))),
+        Some(PolicyAction::Deny)
+    );
+    // The main rules do not reach into the copy, nor its rules out of it.
+    assert_eq!(decide("Edit", edit(file(api, "docs/a.md"))), None);
+    assert_eq!(decide("Edit", edit(file(WORK, "src/lib.rs"))), None);
+    // Commands are allowed by the main rules only; any deny or ask holds.
+    let bash = |command: &str| json!({"command": command});
+    assert_eq!(decide("Bash", bash("cargo test")), None);
+    assert_eq!(decide("Bash", bash("npm test")), Some(PolicyAction::Auto));
+    assert_eq!(decide("Bash", bash("rm -rf x")), Some(PolicyAction::Ask));
+    assert_eq!(decide("Bash", bash("git push")), Some(PolicyAction::Deny));
+    // Without a sandbox nothing is allowed on its own.
+    let call = crate::fakes::tool("Edit", edit(file(api, "src/lib.rs"))).call;
+    let open = super::decide_across((&main, Path::new(WORK)), &linked, "Edit", &call, None);
+    assert_eq!(open, None);
+}

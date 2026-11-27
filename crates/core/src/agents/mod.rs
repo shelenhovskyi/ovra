@@ -818,10 +818,25 @@ impl AgentHost {
             .map_err(|_| ())?;
         let policy = core.project_store().policy(&self.project).map_err(|_| ())?;
         let cwd = cwd.ok_or(())?;
-        let decided =
-            crate::policy::decide(&policy, &tool.name, &tool.call, &cwd, sandbox.as_ref());
+        // A worker across repositories: each linked copy's own rules too.
+        let linked = crate::orchestration::linked_projects(&core, &self.session);
+        let decided = if linked.is_empty() {
+            crate::policy::decide(&policy, &tool.name, &tool.call, &cwd, sandbox.as_ref())
+        } else {
+            let mut policies = Vec::new();
+            for (project, dir) in linked {
+                policies.push((core.project_store().policy(&project).map_err(|_| ())?, dir));
+            }
+            crate::policy::decide_across(
+                (&policy, &cwd),
+                &policies,
+                &tool.name,
+                &tool.call,
+                sandbox.as_ref(),
+            )
+        };
         // Quiet mode decides only what no rule does, as an auto rule would
-        // (ADR 0015).
+        // (ADR 0015), and only in the main copy.
         let quiet = decided.is_none()
             && crate::policy::quiet::allows(
                 &policy,

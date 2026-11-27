@@ -644,6 +644,51 @@ pub(crate) fn decide(
     None
 }
 
+/// [`decide`] for a worker across repositories
+/// (`docs/specs/multi-repo.md`): `main` is its project's policy and folder,
+/// `linked` each linked repository's policy and copy. A deny or ask of any
+/// of them holds; an auto rule of a linked one allows only a file tool
+/// whose every path is in that copy (its matching already needs that),
+/// so commands and fetches are allowed by the main rules alone.
+pub(crate) fn decide_across(
+    main: (&Policy, &Path),
+    linked: &[(Policy, std::path::PathBuf)],
+    tool: &str,
+    call: &ToolCall,
+    sandbox: Option<&SandboxReport>,
+) -> Option<(PolicyAction, String)> {
+    if tool == PUSH_TOOL || tool == keys::KEY_TOOL {
+        return None;
+    }
+    let parts = || std::iter::once(main).chain(linked.iter().map(|(p, d)| (p, d.as_path())));
+    let matching = |policy: &Policy, dir: &Path, action: PolicyAction| {
+        policy
+            .rules
+            .iter()
+            .filter(|r| r.action == action && r.tool == tool)
+            .find(|r| matches(r, call, dir, action))
+            .map(|r| (action, text(r)))
+    };
+    for action in [PolicyAction::Deny, PolicyAction::Ask] {
+        if let Some(found) = parts().find_map(|(p, d)| matching(p, d, action)) {
+            return Some(found);
+        }
+    }
+    let contained = sandbox.is_some_and(|s| s.network != SandboxNetwork::Open);
+    if !contained {
+        return None;
+    }
+    if let Some(found) = matching(main.0, main.1, PolicyAction::Auto) {
+        return Some(found);
+    }
+    let file_tool = matches!(call.kind, ToolKind::Read | ToolKind::Edit)
+        && matches!(matched_kind(tool), Some(ToolKind::Read | ToolKind::Edit));
+    linked
+        .iter()
+        .filter(|_| file_tool)
+        .find_map(|(p, d)| matching(p, d, PolicyAction::Auto))
+}
+
 /// Whether `rule`, which names the call's tool, matches `call`: its
 /// `match` is tested against the field the rule's tool takes it for
 /// ([`MATCHED_TOOLS`]).

@@ -51,10 +51,12 @@ and reviews and lands two unrelated results.
    the profile, so the task does not start rather than start with less
    protection. The netproxy allowlist is the main project's.
 6. **Policies.** A file tool's path inside a linked copy is judged by that
-   project's rules, relative to its copy, and "Always allow" on it adds the
-   rule to that project. A `Bash` call is judged by the main project's
-   rules, as today: it runs in the main copy. A path outside every copy is
-   handled as today.
+   project's rules, relative to its copy. A deny or ask rule of any of
+   the task's projects holds; an allow rule of a linked project allows
+   only file tools whose every path is in its copy. A `Bash` call is
+   allowed by the main project's rules only, as today: it runs in the main
+   copy. "Always allow" is offered for the main copy only; a path outside
+   every copy is handled as today.
 7. **Review.** Each repository with changes gets its own review item, as a
    worker's item today, in its own project (`ReviewItem.project`), with its
    own diff, fingerprint, Keep, Discard, parts, checks and pull request.
