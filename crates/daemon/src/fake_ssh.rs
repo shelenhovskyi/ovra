@@ -74,40 +74,54 @@ async fn run(socket: WebSocket, data: PathBuf) {
         Err(failure) => return close(&mut socket, failure.reason).await,
     };
     let sender = link.sender();
-    let (mut to_window, mut from_window) = socket.split();
+    let (to_window, mut from_window) = socket.split();
+    let to_window = tokio::sync::Mutex::new(to_window);
     // Each way in its own future: a remote that fills its queue never
     // stops the window's frames from going out, nor the other way.
     let outgoing = async {
         while let Some(Ok(message)) = from_window.next().await {
             match message {
                 Message::Text(text) => {
-                    if sender.send(text.as_str()).await.is_err() {
-                        break;
+                    if let Err(failure) = sender.send(text.as_str()).await {
+                        return Some(failure.reason);
                     }
                 }
                 Message::Close(_) => break,
                 _ => {}
             }
         }
+        None
     };
     let incoming = async {
         loop {
             match link.recv().await {
                 Ok(frame) => {
-                    if to_window.send(Message::Text(frame.into())).await.is_err() {
+                    let sent = to_window
+                        .lock()
+                        .await
+                        .send(Message::Text(frame.into()))
+                        .await;
+                    if sent.is_err() {
                         return;
                     }
                 }
                 Err(failure) => {
-                    let _ = to_window.send(close_message(failure.reason)).await;
+                    let _ = to_window
+                        .lock()
+                        .await
+                        .send(close_message(failure.reason))
+                        .await;
                     return;
                 }
             }
         }
     };
-    tokio::select! {
-        () = outgoing => {}
-        () = incoming => {}
+    let refused = tokio::select! {
+        refused = outgoing => refused,
+        () = incoming => None,
+    };
+    if let Some(reason) = refused {
+        let _ = to_window.lock().await.send(close_message(reason)).await;
     }
 }
 

@@ -171,9 +171,14 @@ fn ended(end: &watch::Receiver<Option<Failure>>) -> Failure {
 pub async fn fake(mut command: tokio::process::Command) -> Result<Link, Failure> {
     crate::tools::own_group(&mut command);
     pipes(&mut command);
+    let program = command
+        .as_std()
+        .get_program()
+        .to_string_lossy()
+        .into_owned();
     let child = command
         .spawn()
-        .map_err(|e| Failure::new(Reason::NoSsh, format!("could not run {e}")))?;
+        .map_err(|e| Failure::new(Reason::NoSsh, format!("could not run {program}: {e}")))?;
     open(Group(child)).await
 }
 

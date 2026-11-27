@@ -102,6 +102,24 @@ async fn a_remote_window_reaches_its_own_core_with_the_token_only() {
     };
     // A remote core never offers phone access.
     assert_eq!(answer["error"]["code"], "unavailable");
+
+    // A frame that is not one line is refused, with the reason.
+    ok(socket
+        .send(Message::Text(
+            "{\"id\":2,\n\"method\":\"remote.status\"}".into(),
+        ))
+        .await);
+    let closed = loop {
+        match socket.next().await {
+            Some(Ok(Message::Close(frame))) => break frame,
+            Some(Ok(_)) => {}
+            other => panic!("{other:?}"),
+        }
+    };
+    assert_eq!(
+        closed.map(|f| f.reason.to_string()).as_deref(),
+        Some("exited")
+    );
 }
 
 #[tokio::test]
