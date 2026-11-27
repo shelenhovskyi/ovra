@@ -241,4 +241,5 @@ the header, so it terminates TLS for that host only:
   person a second paste).
 - Removing a project removes its secrets (they could never be listed
   again).
-- The UI to set secrets is a follow-up task in its own UI area.
+- The UI to set secrets is Settings > Keys. Since 2026-11-27 the proxy adds
+  a key only with the person's consent (`docs/specs/secrets-consent.md`).
