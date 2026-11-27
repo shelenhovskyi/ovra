@@ -35,9 +35,12 @@ const KEYCHAIN_HELPER: &str = r#"(regex #"/[gG][iI][tT]-[cC][rR][eE][dD][eE][nN]
 /// settings, use `/dev/null` and the ptys it opens itself (no `/dev/tty`:
 /// the helper leaves the person's terminal with `setsid`), and look up the
 /// few system services that resolve users, read preferences, log, and
-/// check certificates and the keychain (`claude` keeps its login there).
-/// No service that starts programs outside the sandbox (Launch Services,
-/// `launchd` jobs) and no DNS: names are resolved by the netproxy.
+/// check certificates. Not the keychain (`com.apple.SecurityServer`): it
+/// would answer for any item `/usr/bin/security` may read, the person's
+/// `gh` login among them, so `claude` in the sandbox keeps its login in
+/// its file instead. No service that starts programs outside the sandbox
+/// (Launch Services, `launchd` jobs) and no DNS: names are resolved by the
+/// netproxy.
 const BASE: &str = r#"(version 1)
 (deny default)
 (allow process-exec
@@ -72,7 +75,6 @@ const BASE: &str = r#"(version 1)
   (global-name "com.apple.cfprefsd.daemon")
   (global-name "com.apple.cfprefsd.agent")
   (global-name "com.apple.bsd.dirhelper")
-  (global-name "com.apple.SecurityServer")
   (global-name "com.apple.trustd")
   (global-name "com.apple.trustd.agent")
   (global-name "com.apple.ocspd"))
@@ -258,6 +260,13 @@ mod tests {
             regex(&named).ok().as_deref(),
             Some(r#"(regex #"^/[wW]/(.*/)?[.][gG][iI][tT](/.*)?$")"#)
         );
+    }
+
+    #[test]
+    fn no_profile_reaches_the_keychain() {
+        // It would answer for every item `security` may read (the gh login).
+        assert!(!BASE.contains("SecurityServer"));
+        assert!(!BASE.contains("securityd"));
     }
 
     #[test]

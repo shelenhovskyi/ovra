@@ -511,8 +511,12 @@ impl Plan {
             if lists.files_made.contains(name) {
                 let _ = fs::OpenOptions::new().create(true).append(true).open(&file);
             }
-            if fs::symlink_metadata(&file).is_ok_and(|m| m.is_file()) {
-                self.write_files.push(file);
+            // Also when missing: without the keychain, `claude` makes its
+            // login file (`.credentials.json`) when the person signs in.
+            match fs::symlink_metadata(&file) {
+                Ok(meta) if meta.is_file() => self.write_files.push(file),
+                Ok(_) => {}
+                Err(_) => self.write_files.push(file),
             }
         }
         if fs::symlink_metadata(&state).is_ok_and(|m| m.is_file()) {

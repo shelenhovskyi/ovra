@@ -74,9 +74,17 @@ must do) and ADR 0011 (`ProviderLists`).
   sandboxed agent, and it has no controlling terminal. Signals and
   process information reach only the sandbox's own processes.
 - **System services** (`mach-lookup`): user and group lookups,
-  preferences (read only), logging, notifications, certificate checks and
-  the keychain, which `claude` keeps its login in. No Launch Services and
-  no `launchd` jobs, which would start programs outside the sandbox.
+  preferences (read only), logging, notifications and certificate checks.
+  No Launch Services and no `launchd` jobs, which would start programs
+  outside the sandbox. No keychain (`com.apple.SecurityServer`, and
+  `~/Library/Keychains` is never readable): Seatbelt cannot tell which
+  item `/usr/bin/security` asks for, so allowing `claude`'s own login
+  would allow every item it may read, the person's `gh` login among them.
+  `claude` in the sandbox keeps its login in `~/.claude/.credentials.json`
+  instead (writable, made when it signs in); the person signs in once for
+  sandboxed agents (owner's choice pending, 2026-11-27). A broker outside
+  the sandbox that hands `claude` only its own item would pass its token
+  through Ovra, which ADR 0006 forbids.
   `git-credential-osxkeychain` (by name, anywhere, any case) may neither
   run nor be read, so it cannot be copied and run from elsewhere, and
   git's `credential.helper` is emptied (`GIT_CONFIG_COUNT`), so git does
@@ -99,13 +107,6 @@ must do) and ADR 0011 (`ProviderLists`).
 
 Sessions report these (`GAPS` in `src/lib.rs`):
 
-- the keychain: `security find-generic-password` answers for any item
-  whose access list trusts `/usr/bin/security`, among them the `gh` login
-  (`gh:github.com`), and items can be added, changed and deleted. `claude`
-  needs `security` for its own login, so a profile rule cannot close it;
-  the owner accepted this on 2026-11-27. A copy of
-  `git-credential-osxkeychain` the agent downloads (through an allowed
-  host) is signed the same and still works, as `security` does;
 - other apps' preferences, read through `cfprefsd` (`defaults read`);
 - whether a file exists, and its size, anywhere on the Mac;
 - the session's proxy and its token, for the person's other programs that
@@ -138,8 +139,15 @@ must happen.
 
 1. The sandbox report says `Seatbelt` with the gaps above; Settings show
    no probe error.
-2. `claude` starts, is signed in (keychain), answers, and a resume of the
-   session works.
+2. `claude` starts without the keychain. Check that it falls back to
+   `~/.claude/.credentials.json`: before the first sign-in it says it is
+   signed out (not that the keychain failed); after signing in once inside
+   the sandbox (run `claude` through the helper line Ovra builds, then
+   `/login`) it answers, a resume works, and the person's own `claude`
+   outside still uses its keychain login. If it does not fall back, the
+   sandbox stays off until this is solved another way. How the person
+   signs in for sandboxed agents (a terminal inside the sandbox, from
+   Settings) is a follow-up that must land before `VERIFIED`.
 3. `cat ~/.ssh/id_*`, `cat ~/.SSH/id_*`, `ls ~`, `ls ~/Documents`,
    `cat ~/.aws/credentials`, `cat ~/.cargo/credentials.toml`, and other
    spellings of the same paths: `cat //Users/$USER/.ssh/id_*`,
@@ -182,10 +190,11 @@ must happen.
     and `.../git-credential-osxkeychain get` give no token; copying it
     (`cp "$(git --exec-path)/git-credential-osxkeychain" x`, `cat ... > x`,
     `cp -c`, `ln` into the work dir) and running the copy, and running it
-    as `GIT-Credential-OSXKeychain`, are all refused; a downloaded copy is
-    the known gap (write down whether it answers). `security
-    find-generic-password -s gh:github.com -w` is the known gap (write
-    down whether it answers). `cat /dev/ttys000` with another Terminal
+    as `GIT-Credential-OSXKeychain`, are all refused; a downloaded copy
+    gives no token either. `security find-generic-password -s
+    gh:github.com -w`, `security find-generic-password -s "Claude
+    Code-credentials" -w` and `security dump-keychain` give nothing, and
+    no keychain dialog appears. `cat /dev/ttys000` with another Terminal
     open is refused; `defaults read com.apple.Terminal` is the known gap.
     With Ovra started from Terminal (`just dev-headless`): `ps -o
     tty= -p $$` shows no terminal, `exec 3<>/dev/tty` fails, and `perl -e

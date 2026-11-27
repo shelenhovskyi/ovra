@@ -110,8 +110,7 @@ impl Setup {
 /// What the macOS sandbox does not cover, as sessions report it
 /// (`docs/specs/sandbox-macos.md`, "Known gaps"). Keep it in step with
 /// that list.
-const GAPS: [&str; 8] = [
-    "the keychain: items command-line tools may read or change, the gh login among them, also through a downloaded git-credential-osxkeychain",
+const GAPS: [&str; 7] = [
     "other apps' preferences (read)",
     "whether a file exists, and its size, anywhere on the Mac",
     "the session's proxy and its token, for the person's other programs that read the agent's environment",
