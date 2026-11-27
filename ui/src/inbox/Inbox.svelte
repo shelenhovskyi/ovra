@@ -13,6 +13,7 @@ import { agentSessions } from "../agents/sessions.svelte";
 import { isEnded } from "../agents/status";
 import { sessionSummary } from "../agents/summary";
 import TaskSummary from "../agents/TaskSummary.svelte";
+import { RULES_FILE, rememberRule } from "../catalog/teach";
 import { registerCommand } from "../keys/commands";
 import { registerContextKeys } from "../keys/context-keys";
 import { formatShortcut, isApple } from "../keys/shortcut";
@@ -87,6 +88,8 @@ let commit = $state(false);
 let commitMessage = $state("");
 let confirmingReject = $state(false);
 let comment = $state("");
+/** Remember this: the sent comment is also added to the project's AGENTS.md as a rule. */
+let remember = $state(false);
 /** Unsent comments of the items not selected now, by item. */
 const drafts = new Map<ReviewId, string>();
 /** Comments on lines of the selected item, sent with the next comment. */
@@ -598,6 +601,16 @@ async function sendComment(review: ReviewItem): Promise<void> {
     comment = "";
     lineComments = [];
     announcement = "Comment sent. The agent continues, and this review updates when its changes do.";
+    const project = workspace.project?.id;
+    if (remember && text && project) {
+      remember = false;
+      try {
+        await rememberRule(transport, project, text);
+        announcement = `Comment sent and added to ${RULES_FILE}, so later tasks follow it too.`;
+      } catch (err) {
+        announcement = `Comment sent. Could not add it to ${RULES_FILE}: ${errorText(err)}`;
+      }
+    }
   }
 }
 
@@ -1058,6 +1071,10 @@ function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
                     aria-keyshortcuts="Control+Enter Meta+Enter"
                     onkeydown={(e) => onCommentKeydown(e, item)}
                   ></textarea>
+                  <label class="remember" title={`Adds the comment to ${RULES_FILE}, which every agent reads first`}>
+                    <input type="checkbox" bind:checked={remember} data-testid="inbox-remember" />
+                    Remember this for later tasks
+                  </label>
                   <button type="submit" aria-disabled={busy || (!comment.trim() && lineComments.length === 0)}
                     >Send comment ({modEnter})</button
                   >
@@ -1444,6 +1461,11 @@ function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
   }
   .comment button {
     align-self: flex-start;
+  }
+  .comment .remember {
+    display: flex;
+    gap: 6px;
+    align-items: center;
   }
   input[type="text"],
   textarea {

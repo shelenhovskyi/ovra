@@ -317,6 +317,11 @@ export class FakeReviewCore implements Transport {
         const messages = this.transcripts.get(request.params.session) ?? [];
         return { type: "agents.transcript", data: { messages, seq: messages.length } };
       }
+      // A project without AGENTS.md, for Remember this.
+      case "fs.read_file":
+        throw new CoreError({ code: "not_found", message: "no such file" });
+      case "fs.write_file":
+        return { type: "fs.written", data: { mtime_ms: 1 } };
       default:
         throw new CoreError({ code: "unavailable", message: `${request.method} is not faked` });
     }

@@ -814,6 +814,22 @@ describe("Inbox", () => {
     expect(button(/^Keep changes$/)).toBeDefined();
   });
 
+  it("remembers a sent comment in AGENTS.md when asked", async () => {
+    const core = await setup();
+    await open();
+    const field = $<HTMLTextAreaElement>("#inbox-comment");
+    if (field) field.value = "Use the fake clock";
+    field?.dispatchEvent(new Event("input", { bubbles: true }));
+    $<HTMLInputElement>("[data-testid=inbox-remember]")?.click();
+    button(/^Send comment/)?.click();
+    await settle();
+    expect(core.sent("review.comment").map((c) => c.params.text)).toEqual(["Use the fake clock"]);
+    const written = core.sent("fs.write_file").map((c) => c.params);
+    expect(written.map((w) => [w.path, w.expected_mtime_ms])).toEqual([["AGENTS.md", null]]);
+    expect(written[0]?.text).toMatch(/## Rules\n\n- Use the fake clock\n$/);
+    expect($<HTMLInputElement>("[data-testid=inbox-remember]")?.checked).toBe(false);
+  });
+
   it("keeps a comment draft per item: Escape leaves the field, the next closes the inbox", async () => {
     await setup([review("r1"), review("r2", { files: [change("b.md")] })]);
     await open();

@@ -164,3 +164,29 @@ it("explains what goes here when there is nothing, and reads again when an agent
   expect(calls.filter((c) => c.method === "catalog.list")).toHaveLength(2);
   expect(target.querySelector("nav button")?.textContent?.trim()).toBe("release");
 });
+
+it("opens Teach the project from the empty state and from the list, and Cancel closes it", async () => {
+  const { target } = setup([]);
+  await settle();
+  const action = [...target.querySelectorAll<HTMLButtonElement>("[data-testid=catalog-empty] button")].find(
+    (b) => b.textContent?.trim() === "Teach the project",
+  );
+  action?.click();
+  await settle();
+  expect(target.querySelector("[data-testid=catalog-teach]")).not.toBeNull();
+  [...target.querySelectorAll<HTMLButtonElement>("[data-testid=catalog-teach] button")]
+    .find((b) => b.textContent?.trim() === "Cancel")
+    ?.click();
+  flushSync();
+  expect(target.querySelector("[data-testid=catalog-empty]")).not.toBeNull();
+});
+
+it("shows Teach the project in place of the detail", async () => {
+  const { target } = setup([RULES]);
+  await settle();
+  target.querySelector<HTMLButtonElement>("[data-testid=catalog-teach-open]")?.click();
+  await settle();
+  expect(target.querySelector("[data-testid=catalog-detail]")).toBeNull();
+  expect(target.querySelector("[data-testid=catalog-teach]")).not.toBeNull();
+  expect(target.querySelector("[data-testid=catalog-teach-open]")).toBeNull();
+});
