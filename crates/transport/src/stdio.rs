@@ -108,7 +108,10 @@ where
                 }
                 None => return Ended::Closed,
             },
-            () = tokio::time::sleep_until(deadline) => return Ended::Idle,
+            // Not while requests fill every slot: pings then wait unread.
+            () = tokio::time::sleep_until(deadline), if running.len() < IN_FLIGHT_MAX => {
+                return Ended::Idle;
+            }
         }
     }
 }

@@ -2,13 +2,258 @@
 //! `docs/specs/ssh-remotes.md`). Security code: every change here gets an
 //! independent security review.
 //!
-//! The stub holds the command line; hosts, pins, `ssh -G` checks and the
-//! frame link follow in their own steps.
+//! [`OpenSsh`] keeps the person's remote machines and pins their host
+//! keys under Ovra's data folder (`ssh/hosts.json`, `ssh/<id>/known_hosts`).
+//! The frame link follows in its own step.
 
-use std::path::Path;
+mod config;
+mod known;
+mod tools;
 
+use std::path::{Path, PathBuf};
+use std::sync::{Mutex, PoisonError};
+
+use ovra_core::protocol::ssh::{PreparedHost, RemoteHost};
 use ovra_core::protocol::{ErrorCode, ProtocolError};
-use ovra_core::ssh::{DaemonPath, Destination, HostId};
+use ovra_core::services::{RemoteHosts, Result as ServiceResult};
+use ovra_core::ssh::{DaemonPath, Destination, HostId, MachineName};
+use rand::Rng;
+
+use crate::config::Effective;
+use crate::known::Known;
+use crate::tools::Tools;
+
+/// Remote machines over the person's own OpenSSH.
+#[derive(Debug)]
+pub struct OpenSsh {
+    /// `<data>/ssh`.
+    dir: PathBuf,
+    /// Held while the host list changes.
+    changing: Mutex<()>,
+    /// An SSH config other than the person's, for tests.
+    config: Option<PathBuf>,
+}
+
+impl OpenSsh {
+    /// Keeps hosts and pins under `data_dir/ssh`.
+    pub fn new(data_dir: &Path) -> Self {
+        Self {
+            dir: data_dir.join("ssh"),
+            changing: Mutex::new(()),
+            config: None,
+        }
+    }
+
+    /// Reads `config` instead of the person's `~/.ssh/config`.
+    #[cfg(test)]
+    fn with_config(data_dir: &Path, config: PathBuf) -> Self {
+        Self {
+            config: Some(config),
+            ..Self::new(data_dir)
+        }
+    }
+
+    fn tools(&self) -> ServiceResult<Tools> {
+        Tools::find(std::env::var_os("PATH"))
+    }
+
+    /// `ssh -G` for `destination` as the person's config resolves it.
+    fn resolve(&self, tools: &Tools, destination: &Destination) -> ServiceResult<Effective> {
+        let mut command = tools.ssh();
+        if let Some(config) = &self.config {
+            command.arg("-F").arg(config);
+        }
+        command.args(["-G", "--", destination.as_str()]);
+        let out = tools.run(&mut command, None)?;
+        if !out.status.success() {
+            return Err(ProtocolError::new(
+                ErrorCode::BadRequest,
+                format!(
+                    "your SSH config could not be read for {}",
+                    destination.as_str()
+                ),
+            ));
+        }
+        Ok(Effective::parse(&String::from_utf8_lossy(&out.stdout)))
+    }
+
+    fn found(&self, destination: &Destination) -> ServiceResult<(Effective, String, Vec<Known>)> {
+        let tools = self.tools()?;
+        let effective = self.resolve(&tools, destination)?;
+        let name = effective.key_name().ok_or_else(|| {
+            ProtocolError::new(
+                ErrorCode::BadRequest,
+                "your SSH config names no host for this",
+            )
+        })?;
+        let keys = known::lookup(&tools, &name, &effective.known_files())?;
+        Ok((effective, name, keys))
+    }
+
+    fn hosts_file(&self) -> PathBuf {
+        self.dir.join("hosts.json")
+    }
+
+    fn read(&self) -> ServiceResult<Vec<RemoteHost>> {
+        match std::fs::read(self.hosts_file()) {
+            Ok(bytes) => serde_json::from_slice(&bytes).map_err(|e| internal(&e)),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Vec::new()),
+            Err(e) => Err(internal(&e)),
+        }
+    }
+
+    fn write(&self, hosts: &[RemoteHost]) -> ServiceResult<()> {
+        private_dir(&self.dir)?;
+        let bytes = serde_json::to_vec_pretty(hosts).map_err(|e| internal(&e))?;
+        write_private(&self.hosts_file(), &bytes)
+    }
+}
+
+impl RemoteHosts for OpenSsh {
+    fn list(&self) -> ServiceResult<Vec<RemoteHost>> {
+        self.read()
+    }
+
+    fn prepare(&self, destination: &Destination) -> ServiceResult<PreparedHost> {
+        let (effective, key_name, keys) = self.found(destination)?;
+        Ok(PreparedHost {
+            destination: destination.as_str().to_owned(),
+            host_name: effective.get("hostname").unwrap_or_default().to_owned(),
+            port: effective
+                .get("port")
+                .and_then(|p| p.parse().ok())
+                .unwrap_or(22),
+            user: effective.get("user").unwrap_or_default().to_owned(),
+            key_name,
+            keys: keys.into_iter().map(|k| k.key).collect(),
+        })
+    }
+
+    fn add(
+        &self,
+        name: &MachineName,
+        destination: &Destination,
+        daemon: &DaemonPath,
+        fingerprints: &[String],
+    ) -> ServiceResult<RemoteHost> {
+        let (_, _, keys) = self.found(destination)?;
+        let pinned: Vec<&Known> = fingerprints
+            .iter()
+            .filter_map(|f| keys.iter().find(|k| &k.key.fingerprint == f))
+            .collect();
+        if pinned.len() != fingerprints.len() {
+            return Err(ProtocolError::new(
+                ErrorCode::Conflict,
+                "your SSH no longer trusts these keys for this machine; check them again",
+            ));
+        }
+        let _changing = self.changing.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut hosts = self.read()?;
+        let id = new_id();
+        let folder = self.dir.join(id.as_str());
+        private_dir(&self.dir)?;
+        private_dir(&folder)?;
+        let lines: String = pinned
+            .iter()
+            .map(|k| format!("ovra-{} {} {}\n", id.as_str(), k.key.kind, k.blob))
+            .collect();
+        write_private(&folder.join("known_hosts"), lines.as_bytes())?;
+        let host = RemoteHost {
+            id: id.as_str().to_owned(),
+            name: name.as_str().to_owned(),
+            destination: destination.as_str().to_owned(),
+            daemon: daemon.as_str().to_owned(),
+            fingerprints: fingerprints.to_vec(),
+            last_connected: None,
+        };
+        hosts.push(host.clone());
+        self.write(&hosts)?;
+        Ok(host)
+    }
+
+    fn remove(&self, id: &HostId) -> ServiceResult<()> {
+        let _changing = self.changing.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut hosts = self.read()?;
+        let before = hosts.len();
+        hosts.retain(|h| h.id != id.as_str());
+        if hosts.len() == before {
+            return Err(missing(id));
+        }
+        self.write(&hosts)?;
+        match std::fs::remove_dir_all(self.dir.join(id.as_str())) {
+            Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(internal(&e)),
+            _ => Ok(()),
+        }
+    }
+
+    fn rename(&self, id: &HostId, name: &MachineName) -> ServiceResult<RemoteHost> {
+        let _changing = self.changing.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut hosts = self.read()?;
+        let host = hosts
+            .iter_mut()
+            .find(|h| h.id == id.as_str())
+            .ok_or_else(|| missing(id))?;
+        host.name = name.as_str().to_owned();
+        let host = host.clone();
+        self.write(&hosts)?;
+        Ok(host)
+    }
+}
+
+/// Twelve random lowercase letters and digits.
+fn new_id() -> HostId {
+    const CHARS: &[u8] = b"abcdefghijklmnopqrstuvwxyz0123456789";
+    let mut rng = rand::rng();
+    let text: String = (0..12)
+        .map(|_| char::from(CHARS[rng.random_range(0..CHARS.len())]))
+        .collect();
+    HostId::parse(&text).unwrap_or_else(|_| unreachable!("made of allowed characters"))
+}
+
+fn missing(id: &HostId) -> ProtocolError {
+    ProtocolError::new(
+        ErrorCode::NotFound,
+        format!("no remote machine {}", id.as_str()),
+    )
+}
+
+fn internal(e: &dyn std::fmt::Display) -> ProtocolError {
+    ProtocolError::new(ErrorCode::Internal, format!("remote machines: {e}"))
+}
+
+/// A folder only this user may read (0700 on Unix); a symlink is refused.
+fn private_dir(dir: &Path) -> ServiceResult<()> {
+    std::fs::create_dir_all(dir).map_err(|e| internal(&e))?;
+    let meta = std::fs::symlink_metadata(dir).map_err(|e| internal(&e))?;
+    if !meta.is_dir() {
+        return Err(internal(&format!("{} is not a folder", dir.display())));
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700))
+            .map_err(|e| internal(&e))?;
+    }
+    Ok(())
+}
+
+/// Writes `path` whole or not at all, readable by this user only.
+fn write_private(path: &Path, bytes: &[u8]) -> ServiceResult<()> {
+    use std::io::Write;
+    let tmp = path.with_extension("tmp");
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let mut file = options.open(&tmp).map_err(|e| internal(&e))?;
+    file.write_all(bytes)
+        .and_then(|()| file.sync_all())
+        .map_err(|e| internal(&e))?;
+    std::fs::rename(&tmp, path).map_err(|e| internal(&e))
+}
 
 /// The arguments for `ssh` (without the program) that reach `daemon` on
 /// `destination`, trusting only the keys in `pins` under `ovra-<id>`.

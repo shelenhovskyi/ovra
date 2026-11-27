@@ -283,6 +283,7 @@ fn main() {
                     None,
                 )))
                 .remote(remote.clone())
+                .ssh(Arc::new(ovra_ssh::OpenSsh::new(&data_dir)))
                 .sandbox(ovra_sandbox::for_this_os(&data_dir))
                 .build();
             let restored = core.clone();

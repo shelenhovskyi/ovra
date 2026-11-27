@@ -46,7 +46,8 @@
       "ovra-forge",
       "ovra-resources",
       "ovra-power",
-      "ovra-remote"
+      "ovra-remote",
+      "ovra-ssh"
     ],
     "ovra-app": [
       "ovra-core",
@@ -68,7 +69,8 @@
       "ovra-forge",
       "ovra-resources",
       "ovra-power",
-      "ovra-remote"
+      "ovra-remote",
+      "ovra-ssh"
     ]
   },
   "banned": {
@@ -94,6 +96,7 @@
     "ovra-forge": ["tauri", "wry", "axum", "hyper", "tokio-tungstenite"],
     "ovra-resources": ["tauri", "wry", "axum", "hyper", "tokio-tungstenite"],
     "ovra-acp-client": ["tauri", "wry", "axum", "hyper", "tokio-tungstenite"],
-    "ovra-remote": ["tauri", "wry"]
+    "ovra-remote": ["tauri", "wry"],
+    "ovra-ssh": ["tauri", "wry", "axum", "hyper", "tokio-tungstenite"]
   }
 }

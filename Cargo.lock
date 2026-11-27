@@ -3531,6 +3531,7 @@ dependencies = [
  "ovra-sandbox",
  "ovra-secrets",
  "ovra-servers",
+ "ovra-ssh",
  "ovra-store",
  "ovra-transport",
  "ovra-worktree",
@@ -3594,6 +3595,7 @@ dependencies = [
  "ovra-sandbox",
  "ovra-secrets",
  "ovra-servers",
+ "ovra-ssh",
  "ovra-store",
  "ovra-transport",
  "ovra-worktree",
@@ -3832,6 +3834,9 @@ version = "0.1.0"
 dependencies = [
  "insta",
  "ovra-core",
+ "rand 0.9.5",
+ "serde_json",
+ "tempfile",
 ]
 
 [[package]]

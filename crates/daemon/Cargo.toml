@@ -23,6 +23,7 @@ ovra-opener.workspace = true
 ovra-power.workspace = true
 ovra-pty.workspace = true
 ovra-remote.workspace = true
+ovra-ssh.workspace = true
 ovra-agent-runtime.workspace = true
 ovra-acp-client.workspace = true
 ovra-worktree.workspace = true
