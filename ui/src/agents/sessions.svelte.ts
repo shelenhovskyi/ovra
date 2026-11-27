@@ -17,6 +17,7 @@ import type {
   FailedWorker,
   FileChange,
   Leftover,
+  NotResumed,
   Pressure,
   ProjectId,
   ReviewItem,
@@ -381,6 +382,7 @@ export class AgentSessions {
       const failed = missed + workers.filter((s) => s?.state === "failed").length;
       if (failed > 0) return `Failed: ${failed} of ${workers.length + missed} workers`;
     }
+    if (info.interrupted && isEnded(info.status)) return "Stopped when Ovra closed";
     const transcript = this.transcripts.get(id);
     // Stopping a worker that had finished (its task was stopped) does not undo its work.
     if (role?.kind === "worker" && info.status.state === "stopped" && transcript?.at(-1)?.kind === "turn_end")
@@ -679,6 +681,19 @@ export class AgentSessions {
     this.byId.set(data.id, { ...data, status: this.byId.get(data.id)?.status ?? data.status, can_undo_go_back: false });
   }
 
+  /**
+   * Continues the sessions Ovra's quit cut off: `session`, or every one of
+   * `project`'s. Answers why those that could not go on did not.
+   */
+  async resumeInterrupted(project: ProjectId, session?: SessionId): Promise<NotResumed[]> {
+    const { data } = await this.transport.call({
+      method: "agents.resume_interrupted",
+      params: session ? { project, session } : { project },
+    });
+    for (const id of data.resumed) this.patch(id, { interrupted: false, resumable: false, can_undo_go_back: false });
+    return data.left;
+  }
+
   async stop(session: SessionId): Promise<void> {
     await this.transport.call({ method: "agents.stop", params: { session } });
   }
@@ -754,6 +769,8 @@ export class AgentSessions {
         account: null,
       });
       void this.load(project).catch(() => {});
+    } else if (event.type === "agents.stuck") {
+      this.patch(event.data.session, { stuck: event.data.stuck });
     } else if (event.type === "agents.billing") {
       const known = this.byId.get(event.data.session);
       if (known) this.byId.set(event.data.session, { ...known, billing: event.data.billing });

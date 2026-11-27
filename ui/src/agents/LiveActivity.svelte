@@ -3,17 +3,22 @@
 // streams in, and one line with what it does now and for how long, so a long
 // turn never looks frozen. Not a live region: the transcript's own region
 // speaks the agent's finished text.
-import type { AgentMessage, AgentStatus } from "../lib/protocol";
+import type { AgentMessage, AgentStatus, Stuck } from "../lib/protocol";
 import AgentText from "./AgentText.svelte";
 import { elapsed, liveStep } from "./steps";
+import { stuckLine } from "./stuck";
 
-/** `agent`: the provider's display name. `root`: the session's folder; files in it show relative to it. */
+/**
+ * `agent`: the provider's display name. `root`: the session's folder; files in it show relative to it.
+ * `stuck`: the core's hint that the turn may be stuck, one quiet line under what it does.
+ */
 let {
   agent = "Agent",
   status,
   messages,
   partial = "",
   root = null,
+  stuck = null,
   onlink,
 }: {
   agent?: string;
@@ -21,8 +26,11 @@ let {
   messages: AgentMessage[];
   partial?: string;
   root?: string | null;
+  stuck?: Stuck | null;
   onlink?: (href: string) => void;
 } = $props();
+
+const hint = $derived(status.state === "working" ? stuckLine(stuck) : null);
 
 const step = $derived(liveStep(status, messages, partial !== "", root));
 let since = $state(Date.now());
@@ -57,6 +65,10 @@ const time = $derived(now - since >= 1000 ? elapsed(now - since) : "");
     {#if time}<span class="time">· {time}</span>{/if}
   </li>
 {/if}
+{#if hint}
+  <!-- A hint, not an alarm: Stop and the reply box are where they always are. -->
+  <li class="stuck" data-testid="stuck-hint">{hint} Stop it, or send it a hint.</li>
+{/if}
 
 <style>
   .who {
@@ -76,6 +88,12 @@ const time = $derived(now - since >= 1000 ? elapsed(now - since) : "");
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+  .stuck {
+    font-size: 13px;
+    color: var(--text-2);
+    border-left: 2px solid var(--warn);
+    padding-left: 8px;
   }
   .time {
     flex: none;

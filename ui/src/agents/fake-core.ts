@@ -309,6 +309,17 @@ export class FakeAgentCore implements Transport {
         this.message(info.id, { kind: "user_text", text: request.params.prompt, from: "person" });
         return { type: "agents.session", data: { ...info } };
       }
+      case "agents.resume_interrupted": {
+        const { project, session } = request.params;
+        const cut = this.sessions.filter(
+          (s) => s.project === project && s.interrupted && (!session || s.id === session),
+        );
+        for (const info of cut) {
+          Object.assign(info, { interrupted: false, resumable: false });
+          this.status(info.id, { state: "starting" });
+        }
+        return { type: "agents.resumed", data: { resumed: cut.map((s) => s.id), left: [] } };
+      }
       case "setup.check":
         if (!this.setupReport) throw new CoreError({ code: "unavailable", message: "setup.check is not faked" });
         return { type: "setup.report", data: this.setupReport };

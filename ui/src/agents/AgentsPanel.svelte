@@ -67,6 +67,7 @@ import ProjectTrust from "./setup/ProjectTrust.svelte";
 import { isBusy, isEnded } from "./status";
 import { providers } from "./providers.svelte";
 import { inFolder } from "./steps";
+import { interruptedLine } from "./stuck";
 import Transcript from "./Transcript.svelte";
 import PlanBar from "./PlanBar.svelte";
 import QueuedMessages from "./QueuedMessages.svelte";
@@ -977,6 +978,20 @@ function resume(): Promise<void> {
   });
 }
 
+/** Sessions of this project Ovra's quit cut off, which can go on where they were. */
+const cutOff = $derived(list.filter((s) => s.interrupted && isEnded(s.status)));
+
+/** Continues what the quit cut off: `id`, or all of the project's; says why any could not. */
+function resumeCutOff(id?: SessionId): Promise<void> {
+  const at = project?.id;
+  if (!at) return Promise.resolve();
+  return run(async () => {
+    const left = await sessions.resumeInterrupted(at, id);
+    if (left.length > 0)
+      error = left.map((l) => `${sessions.name(l.session)}: ${l.reason}`).join("\n");
+  });
+}
+
 /** What the person last asked, to ask again after a turn that ended in an error. */
 const lastAsk = $derived.by(() => {
   const found = [...(messages ?? [])].reverse().find((m) => m.kind === "user_text" && m.from === "person");
@@ -1487,6 +1502,7 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
         root={folder(current.id)}
         {workerName}
         status={current.status}
+        stuck={current.stuck}
         partial={sessions.partial.get(current.id) ?? ""}
         onretry={retryTurn}
         denied={(use) => sessions.denied(current.id, use.name, use.input)}
@@ -1590,6 +1606,14 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
           </div>
         </form>
       {:else if current.resumable && !signedOut}
+        {#if current.interrupted}
+          <div class="cut-off" data-testid="agent-cut-off">
+            <p>Stopped when Ovra closed, in the middle of a turn.</p>
+            <button type="button" class="primary" disabled={busy} onclick={() => void resumeCutOff(current.id)}
+              >Continue</button
+            >
+          </div>
+        {/if}
         <form
           class="compose"
           onsubmit={(event) => {
@@ -1621,6 +1645,14 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
         <Starters disabled={busy || blocked} pick={(starter) => void startStarter(starter)} />
         <SetupLink />
       {:else}
+        {#if cutOff.length > 0}
+          <div class="cut-off" data-testid="agents-cut-off">
+            <p>{interruptedLine(cutOff.length)}</p>
+            <button type="button" class="quiet soft" disabled={busy || blocked} onclick={() => void resumeCutOff()}
+              >Continue all</button
+            >
+          </div>
+        {/if}
         <ul class="sessions" aria-label="Tasks">
           {#each ordered as session (session.id)}
             {@const role = sessions.roles.get(session.id)}
@@ -2337,6 +2369,19 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
   .strong {
     color: var(--text);
     font-weight: 500;
+  }
+  .cut-off {
+    margin: 0 16px 8px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    color: var(--text-2);
+  }
+  .cut-off p {
+    flex: 1;
+    min-width: 0;
+    margin: 0;
   }
   .went-back {
     margin: 0 16px 4px;

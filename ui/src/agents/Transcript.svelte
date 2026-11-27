@@ -7,7 +7,7 @@
 // new messages only while scrolled to within 60 px of the end.
 import { untrack } from "svelte";
 import { describeTool } from "../approvals/describe";
-import type { AgentMessage, AgentStatus, Billing, MessageFrom, ToolCall } from "../lib/protocol";
+import type { AgentMessage, AgentStatus, Billing, MessageFrom, Stuck, ToolCall } from "../lib/protocol";
 import Icon from "../shell/Icon.svelte";
 import AgentText from "./AgentText.svelte";
 import { turnsOf, turnsText } from "./checkpoints";
@@ -53,6 +53,7 @@ let {
   root = null,
   workerName = () => undefined,
   status = null,
+  stuck = null,
   partial = "",
   onretry,
   denied: answeredNo = () => false,
@@ -68,6 +69,8 @@ let {
   root?: string | null;
   workerName?: (session: string) => string | undefined;
   status?: AgentStatus | null;
+  /** Why the working turn may be stuck (`SessionInfo.stuck`). */
+  stuck?: Stuck | null;
   partial?: string;
   onretry?: () => void;
   /** Whether the person's own answer denied this call (known while this window watched it). */
@@ -422,7 +425,7 @@ const lastError = $derived.by(() => {
       </li>
     {/if}
   {/each}
-  {#if status}<LiveActivity {agent} {status} {messages} {partial} {root} {onlink} />{/if}
+  {#if status}<LiveActivity {agent} {status} {messages} {partial} {root} {stuck} {onlink} />{/if}
 </ol>
 </div>
 {#if detached}

@@ -24,6 +24,8 @@ export class TaskRows {
     const role = this.sessions.roles.get(s.id);
     if (role?.kind === "coordinator" && this.boards.openForPerson(role.task).length > 0)
       return { text: "Answer", tone: "warn" };
+    // A hint only: the row says so, and the person decides.
+    if (s.stuck && s.status.state === "working") return { text: "Stuck?", tone: "warn" };
     if (isBusy(s.status)) return null;
     const inTask = this.sessions.waitingInTask(s.id);
     if (inTask > 0) return { text: inTask > 1 ? `Review ${inTask}` : "Review", tone: "ok" };
