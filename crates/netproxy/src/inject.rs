@@ -21,11 +21,11 @@ use tokio::time::timeout;
 use tokio_rustls::rustls::ClientConfig;
 use tokio_rustls::rustls::pki_types::ServerName;
 use tokio_rustls::{TlsAcceptor, TlsConnector};
-use zeroize::Zeroize;
+use zeroize::{Zeroize, Zeroizing};
 
 use crate::ca::SessionCa;
 use crate::dial::{Conn, Stream};
-use crate::serve::{HEAD_TIMEOUT, IDLE_TIMEOUT, idle, read_head, relay_one_way, respond};
+use crate::serve::{HEAD_TIMEOUT, IDLE_TIMEOUT, idle, read_head, respond};
 
 const MAX_HEADERS: usize = 64;
 /// A chunk-size line: hex digits, perhaps an extension, CRLF.
@@ -79,7 +79,7 @@ pub(crate) struct Checked {
 
 /// Headers never passed on: this hop's, and the framing the proxy writes
 /// itself.
-const DROPPED: [&str; 9] = [
+const DROPPED: [&str; 10] = [
     "host",
     "connection",
     "keep-alive",
@@ -90,6 +90,8 @@ const DROPPED: [&str; 9] = [
     "transfer-encoding",
     // The proxy reads the body without waiting for `100 Continue`.
     "expect",
+    // It asks for an answer it can search for the value: uncompressed.
+    "accept-encoding",
 ];
 
 /// Parses one request head for `host` (`port`) strictly, refusing every
@@ -210,7 +212,7 @@ pub(crate) fn check(
         }
         Body::Length(n)
     };
-    head.extend_from_slice(b"Connection: close\r\n");
+    head.extend_from_slice(b"Accept-Encoding: identity\r\nConnection: close\r\n");
     Ok(Checked { head, body })
 }
 
@@ -274,6 +276,13 @@ pub(crate) async fn serve(
         head.extend_from_slice(b"\r\n");
     }
     head.extend_from_slice(b"\r\n");
+    // What the answer must not carry back.
+    let hidden: Vec<Zeroizing<Vec<u8>>> = values
+        .iter()
+        .map(|v| v.expose().as_bytes())
+        .filter(|v| v.len() >= MIN_MASKED)
+        .map(|v| Zeroizing::new(v.to_vec()))
+        .collect();
     drop(values);
     let written = upstream.write_all(&head).await;
     head.zeroize();
@@ -307,7 +316,64 @@ pub(crate) async fn serve(
         return Ok(());
     }
     upstream.flush().await?;
-    relay_one_way(&mut upstream, &mut tls_write, IDLE_TIMEOUT).await
+    let moved = AtomicBool::new(false);
+    tokio::select! {
+        relayed = relay_masked(&mut upstream, &mut tls_write, &hidden, &moved) => relayed,
+        () = idle(&moved, IDLE_TIMEOUT) => Ok(()),
+    }
+}
+
+/// Values shorter than this are not masked in answers: they are no real
+/// token, and masking them would garble the answer.
+const MIN_MASKED: usize = 8;
+
+/// Relays the answer, every copy of each of `hidden` replaced by as many
+/// `*`, so an endpoint that echoes the request cannot hand a value back
+/// (`docs/specs/secrets-consent.md`). The length stays, so the framing
+/// does too. The last bytes wait for the next read: a copy may span two.
+async fn relay_masked(
+    from: &mut (impl AsyncRead + Unpin),
+    to: &mut (impl AsyncWrite + Unpin),
+    hidden: &[Zeroizing<Vec<u8>>],
+    moved: &AtomicBool,
+) -> io::Result<()> {
+    let keep = hidden.iter().map(|h| h.len()).max().unwrap_or(1) - 1;
+    let mut pending = Zeroizing::new(Vec::<u8>::new());
+    let mut buf = Zeroizing::new(vec![0u8; 16 * 1024]);
+    loop {
+        let n = from.read(&mut buf).await?;
+        if n > 0 {
+            moved.store(true, Ordering::Relaxed);
+        }
+        pending.extend_from_slice(&buf[..n]);
+        mask(&mut pending, hidden);
+        let ready = if n == 0 {
+            pending.len()
+        } else {
+            pending.len().saturating_sub(keep)
+        };
+        to.write_all(&pending[..ready]).await?;
+        pending.drain(..ready);
+        if n == 0 {
+            let _ = to.shutdown().await;
+            return Ok(());
+        }
+    }
+}
+
+/// Replaces every copy of each of `hidden` in `bytes` with `*`.
+pub(crate) fn mask(bytes: &mut [u8], hidden: &[Zeroizing<Vec<u8>>]) {
+    for needle in hidden {
+        let mut at = 0;
+        while at + needle.len() <= bytes.len() {
+            if bytes[at..at + needle.len()] == needle[..] {
+                bytes[at..at + needle.len()].fill(b'*');
+                at += needle.len();
+            } else {
+                at += 1;
+            }
+        }
+    }
 }
 
 /// A reader that notes when bytes arrive, for the idle timeout.

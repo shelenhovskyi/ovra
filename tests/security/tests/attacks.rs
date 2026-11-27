@@ -1019,7 +1019,7 @@ fn secret_proxy() {
         host: BOUND.into(),
         header: "Authorization".into(),
         prefix: "Bearer ".into(),
-        variable: None,
+        variable: Some("BOUND_TOKEN".into()),
     };
     let secrets = std::sync::Arc::new(ovra_core::fakes::MemorySecrets::default());
     secrets
@@ -1028,7 +1028,10 @@ fn secret_proxy() {
     let proxies = NetProxies::from_env(secrets).unwrap();
     let core = Core::new("test");
     let session = SessionId("s1".into());
-    let reporter = NetReporter::new(project, session.clone(), core.sink());
+    // The worst case: the person allowed the key, so the proxy adds it.
+    let allowed = ovra_core::services::KeyConsent::new(|_| Box::pin(std::future::ready(true)));
+    let reporter =
+        NetReporter::new(project, session.clone(), core.sink()).with_key_consent(allowed);
     let started = rt
         .block_on(proxies.start(
             session,
@@ -1116,7 +1119,7 @@ fn a_bound_secret_never_enters_the_sandbox() {
     let profile = world.profile(ProfileNetwork::Proxy {
         address,
         ca_bundle: Some(ca.clone()),
-        variables: Vec::new(),
+        variables: vec![("BOUND_TOKEN".into(), "ovra-key-token".into())],
     });
     let checks = format!(
         "find the value in the environment: env | grep -q {pattern}

@@ -1,5 +1,6 @@
 use std::io;
 use std::net::SocketAddr;
+use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex, RwLock};
 
 use ovra_core::Core;
@@ -8,7 +9,7 @@ use ovra_core::protocol::agents::SessionId;
 use ovra_core::protocol::netproxy::AllowedHost;
 use ovra_core::protocol::projects::ProjectId;
 use ovra_core::protocol::secrets::{SecretInfo, SecretValue};
-use ovra_core::services::{BoxFuture, NetReporter, Secrets};
+use ovra_core::services::{BoxFuture, KeyConsent, NetReporter, Secrets};
 use rcgen::{BasicConstraints, CertificateParams, IsCa, Issuer, KeyPair};
 use tokio::io::{AsyncReadExt, AsyncWriteExt, duplex};
 use tokio_rustls::rustls::pki_types::pem::PemObject;
@@ -17,8 +18,9 @@ use tokio_rustls::rustls::pki_types::{
 };
 use tokio_rustls::rustls::{ClientConfig, RootCertStore, ServerConfig};
 use tokio_rustls::{TlsAcceptor, TlsConnector};
+use zeroize::Zeroizing;
 
-use super::{Body, Bound, check, copy_chunked};
+use super::{Body, Bound, check, copy_chunked, mask, relay_masked};
 use crate::ca::SessionCa;
 use crate::dial::{Conn, Dial};
 use crate::rules::Rules;
@@ -53,7 +55,7 @@ fn a_request_is_rebuilt_without_what_the_secret_or_this_hop_owns() {
         head.as_deref(),
         Ok(
             "POST /repos?x=1 HTTP/1.1\r\nHost: api.example.com\r\nAccept: */*\r\n\
-            Content-Length: 3\r\nConnection: close\r\n"
+            Content-Length: 3\r\nAccept-Encoding: identity\r\nConnection: close\r\n"
         )
     );
     let chunked = check(
@@ -203,11 +205,17 @@ impl Dial for Host {
                     .lock()
                     .unwrap_or_else(|e| e.into_inner())
                     .push(String::from_utf8_lossy(&got).into_owned());
-                let _ = stream
-                    .write_all(
-                        b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok",
-                    )
-                    .await;
+                // `/echo` answers with the request, as a debugging endpoint does.
+                let body = if got.starts_with(b"GET /echo") {
+                    got.clone()
+                } else {
+                    b"ok".to_vec()
+                };
+                let head = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    body.len()
+                );
+                let _ = stream.write_all(&[head.into_bytes(), body].concat()).await;
                 let _ = stream.shutdown().await;
                 // Anything more would be a second request.
                 let mut after = Vec::new();
@@ -261,6 +269,11 @@ fn setup(secrets: Arc<MemorySecrets>) -> Setup {
 /// `trusted`: Ovra's roots hold the host's CA. `plain`: the host speaks
 /// plain HTTP.
 fn setup_with(secrets: Arc<MemorySecrets>, trusted: bool, plain: bool) -> Setup {
+    setup_full(secrets, trusted, plain, true)
+}
+
+/// `consent`: what the person answers about the key.
+fn setup_full(secrets: Arc<MemorySecrets>, trusted: bool, plain: bool, consent: bool) -> Setup {
     let (host_ca, host_config) = host_tls();
     let host = Arc::new(Host {
         tls: host_config,
@@ -296,7 +309,10 @@ fn setup_with(secrets: Arc<MemorySecrets>, trusted: bool, plain: bool) -> Setup 
                 port: None,
             }],
         }),
-        reporter: NetReporter::new(ProjectId("p1".into()), SessionId("s1".into()), core.sink()),
+        reporter: NetReporter::new(ProjectId("p1".into()), SessionId("s1".into()), core.sink())
+            .with_key_consent(KeyConsent::new(move |_| {
+                Box::pin(std::future::ready(consent))
+            })),
         bound: Some(bound),
         grants: tokio::sync::watch::Sender::new(Arc::default()),
     });
@@ -376,7 +392,8 @@ async fn the_secret_reaches_the_bound_host_and_nothing_after_the_request_does() 
     assert_eq!(
         got[0],
         "POST /gists HTTP/1.1\r\nHost: api.example.com\r\nTransfer-Encoding: chunked\r\n\
-         Connection: close\r\nAuthorization: Bearer ghp_value\r\n\r\n5\r\nhello\r\n0\r\n\r\n"
+         Accept-Encoding: identity\r\nConnection: close\r\nAuthorization: Bearer ghp_value\r\n\r\n\
+         5\r\nhello\r\n0\r\n\r\n"
     );
 }
 
@@ -496,4 +513,73 @@ async fn a_body_that_stops_arriving_ends_the_tunnel() {
     )
     .await;
     assert!(answer.is_empty(), "{answer}");
+}
+
+#[tokio::test]
+async fn without_consent_the_proxy_only_tunnels() {
+    let setup = setup_full(stored(), true, false, false);
+    let (mut agent, proxy) = duplex(64 * 1024);
+    tokio::spawn(serve(proxy, setup.shared.clone(), setup.net.clone()));
+    agent
+        .write_all(format!("CONNECT {HOST}:443 HTTP/1.1\r\nHost: {HOST}:443\r\n\r\n").as_bytes())
+        .await
+        .unwrap_or_else(|e| panic!("{e}"));
+    let mut answer = [0u8; 39];
+    agent
+        .read_exact(&mut answer)
+        .await
+        .unwrap_or_else(|e| panic!("{e}"));
+    assert!(answer.starts_with(b"HTTP/1.1 200"));
+    // The host's own certificate, not one from the session CA: the proxy
+    // never sees inside, so it adds nothing.
+    let name = ServerName::try_from(HOST).unwrap_or_else(|e| panic!("{e}"));
+    let tls = TlsConnector::from(setup.agent_tls.clone())
+        .connect(name, agent)
+        .await;
+    assert!(tls.is_err());
+    assert!(received(&setup).is_empty());
+}
+
+#[tokio::test]
+async fn an_answer_that_echoes_the_value_has_it_masked() {
+    let setup = setup(stored());
+    let answer = ask(
+        &setup,
+        b"GET /echo HTTP/1.1\r\nHost: api.example.com\r\n\r\n",
+    )
+    .await;
+    assert!(!answer.contains("ghp_value"), "{answer}");
+    assert!(
+        answer.contains("Authorization: Bearer *********"),
+        "{answer}"
+    );
+}
+
+#[test]
+fn masking_finds_every_copy_and_keeps_the_length() {
+    let hidden = [Zeroizing::new(b"secret-1".to_vec())];
+    let mut bytes = b"a secret-1 b secret-1secret-1 secret-".to_vec();
+    mask(&mut bytes, &hidden);
+    assert_eq!(bytes, b"a ******** b **************** secret-".to_vec());
+}
+
+#[tokio::test]
+async fn a_value_split_between_two_reads_is_masked() {
+    let hidden = [Zeroizing::new(b"ghp_value".to_vec())];
+    let (mut host, mut from) = duplex(8);
+    let (mut to, mut agent) = duplex(1024);
+    tokio::spawn(async move {
+        for part in [&b"one ghp_"[..], b"value two"] {
+            let _ = host.write_all(part).await;
+            let _ = host.flush().await;
+            tokio::task::yield_now().await;
+        }
+    });
+    let moved = AtomicBool::new(false);
+    relay_masked(&mut from, &mut to, &hidden, &moved)
+        .await
+        .unwrap_or_else(|e| panic!("{e}"));
+    let mut out = Vec::new();
+    let _ = agent.read_to_end(&mut out).await;
+    assert_eq!(out, b"one ********* two".to_vec());
 }

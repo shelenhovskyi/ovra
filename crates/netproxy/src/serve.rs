@@ -154,6 +154,18 @@ async fn handle(client: &mut impl Stream, shared: &Shared, session: &SessionNet)
     if request.loopback.is_some() && (local.is_some() || !configured(&request, session)) {
         return loopback::serve(client, request, rest, session).await;
     }
+    // Asked before the host is dialled: the person may take a while, and
+    // a host drops a connection that waits for TLS.
+    let bound = match &session.bound {
+        Some(bound) if request.connect => bound.for_host(&request.host, request.port),
+        _ => Vec::new(),
+    };
+    let mut secrets = Vec::with_capacity(bound.len());
+    for secret in bound {
+        if session.reporter.key_consent(&secret).await {
+            secrets.push(secret);
+        }
+    }
     let opened = open(&request, shared, session).await;
     let (mut server, early) = match opened {
         Ok(opened) => opened,
@@ -163,10 +175,8 @@ async fn handle(client: &mut impl Stream, shared: &Shared, session: &SessionNet)
         }
         Err(Problem::Failed(why)) => return respond(client, 502, &why).await,
     };
-    let secrets = match &session.bound {
-        Some(bound) if request.connect => bound.for_host(&request.host, request.port),
-        _ => Vec::new(),
-    };
+    // Without consent the agent's own header goes as it is: a placeholder
+    // at most, never a key.
     if let (Some(bound), false) = (&session.bound, secrets.is_empty()) {
         if !early.is_empty() || !rest.is_empty() {
             // TLS must start after our answer; anything sooner is not TLS
