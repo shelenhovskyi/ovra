@@ -748,8 +748,12 @@ the sandbox contains it. It is decided in `can_use_tool` only, like an
   (`Read`, `NotebookRead`, `Edit`, `MultiEdit`, `Write`, `NotebookEdit`),
   whatever tool the call is: `Read(.env)` deny keeps a quiet `Grep` or
   `cat .env` asking. Such a rule without a match makes every one of these
-  calls ask. Paths starting with `~` or holding `$` or `%` never count as
-  inside the folder.
+  calls ask. A `search` also asks when it covers the whole folder, or a
+  folder above what such a rule names (`src` for `src/keys/**`, any
+  folder for `**/.env`): it would read the held files. Paths starting
+  with `~` or holding `$` or `%` never count as inside the folder, and a
+  command word with a part that starts with an agent's state name
+  (`.claude-work` too) asks.
 - Keys still ask on first use (`UseKey`), Ovra's pushes keep their own
   rules (`Push`), and Ovra's IDE tools their role rules: quiet mode does
   not decide them.
