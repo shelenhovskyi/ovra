@@ -156,8 +156,18 @@ async fn handle(client: &mut impl Stream, shared: &Shared, session: &SessionNet)
     }
     // Asked before the host is dialled: the person may take a while, and
     // a host drops a connection that waits for TLS.
+    // Only for a host the allowlist lets through: a refused one gets its
+    // 403 below without a question.
+    let allowed = matches!(
+        session
+            .rules
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .verdict(&request.host, request.port),
+        Verdict::Allowed { .. }
+    );
     let bound = match &session.bound {
-        Some(bound) if request.connect => bound.for_host(&request.host, request.port),
+        Some(bound) if request.connect && allowed => bound.for_host(&request.host, request.port),
         _ => Vec::new(),
     };
     let mut secrets = Vec::with_capacity(bound.len());

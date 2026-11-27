@@ -82,11 +82,26 @@ Keep 4.D's delivery and add what is missing:
 - **Keys stay per project** (the 4.D rule against an untrusted repository
   using a token).
 
+- **Details that keep consent exact.** The proxy asks only for a host
+  the allowlist lets through. A session's answer belongs to the key's
+  binding (name, host, header, prefix): a key pointed elsewhere asks
+  again, and the core drops its `UseKey` rules when the key is removed or
+  rebound. A deny from interrupting the turn or stopping the session is
+  not kept. A question asked while the session is idle (a background
+  process) leaves it idle. Requests that waited for an unanswered question
+  go without the key rather than each ask in turn.
+
 Left for later, each its own small task: a "Used GitHub key" line in the
 transcript and "last used" in Settings (the audit log has `SecretUsed`
 now), "Use in another project", a `basic` format (no preset needs it:
 GitHub, GitLab, Stripe, npm and Hugging Face all take a bearer token,
-and pushes go through the person's own `gh`), masking base64 copies.
+and pushes go through the person's own `gh`), masking base64 copies; tests for a worker asking on its own, a resumed
+session keeping its answer, two keys on one host with one allowed, a 4.F
+attack that reads a key back through an echoing host, and an e2e run from
+preset to card to Allow; a mark on the core's own `UseKey` and `Push`
+requests, so an agent tool of that name cannot borrow their card's
+wording (it gets no key and no Always allow); a test across the provider
+crates that no variable an agent's login reads passes the variable check.
 
 Cost: about three days. Protocol: `SecretInfo.variable`, the variables
 in `ProfileNetwork::Proxy`, `KeyConsent` on `NetReporter`; lands first in
@@ -123,7 +138,13 @@ it sees the key. That is exactly what the owner wants to avoid. Rejected.
   outside the sandbox (ADR 0010); a GitHub key here is for the agent's
   own API calls (issues, CI logs).
 
-## Limits (same as 4.D)
+## Limits
+
+- Masking catches whole copies of the value. It misses values under 8
+  bytes, a host that compresses although asked not to, and partial,
+  escaped or encoded copies (a Range answer, JSON escapes, base64).
+
+## Limits from 4.D
 
 - The agent cannot read the key but can use it for anything the key
   allows on its host while consent lasts. Presets link to the narrowest

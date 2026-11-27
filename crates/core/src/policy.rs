@@ -15,6 +15,7 @@ use crate::protocol::permissions::{
 use crate::protocol::policy::{
     Policy, PolicyAction, PolicyEvent, PolicyRequest, PolicyResponse, PolicyRule,
 };
+use crate::protocol::projects::ProjectId;
 use crate::protocol::{ErrorCode, ProtocolError, Response};
 
 /// Rules are written in Claude's syntax (`Bash(git *)`, `Edit(src/**)`,
@@ -507,6 +508,35 @@ pub(crate) fn answer_always(
     core.emit(PermissionsEvent::Resolved {
         id: id.clone(),
         decision,
+    });
+    Ok(())
+}
+
+/// Drops the `UseKey` rules of key `name`, which the person removed or
+/// pointed elsewhere: an "Always allow" given for one binding never carries
+/// over to another (`docs/specs/secrets-consent.md`).
+pub(crate) fn forget_key(
+    core: &Core,
+    project: &ProjectId,
+    name: &str,
+) -> Result<(), ProtocolError> {
+    let store = core.project_store();
+    let _setting = SETTING
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let mut policy = store.policy(project)?;
+    let before = policy.rules.len();
+    policy
+        .rules
+        .retain(|r| !(r.tool == keys::KEY_TOOL && r.pattern.as_deref() == Some(name)));
+    if policy.rules.len() == before {
+        return Ok(());
+    }
+    store.set_policy(project, &policy)?;
+    let event = AuditEvent::PolicyChanged { policy };
+    crate::audit::record(core, project, None, event);
+    core.emit(PolicyEvent::Changed {
+        project: project.clone(),
     });
     Ok(())
 }

@@ -26,6 +26,7 @@ use crate::protocol::permissions::{
 };
 use crate::protocol::policy::{PolicyAction, PolicyRule};
 use crate::protocol::projects::ProjectId;
+use crate::protocol::secrets::SecretInfo;
 use crate::protocol::{ErrorCode, ProtocolError};
 use crate::services::{
     AgentImage, AgentRuntime, EventSink, IdeTools, NetProxy, ProfileNetwork, RunningAgent,
@@ -86,7 +87,7 @@ struct Session {
     images: Vec<AgentImage>,
     /// The person's answers about keys, by name, for this session's runs
     /// (`docs/specs/secrets-consent.md`): `true` allowed.
-    keys: std::collections::HashMap<String, bool>,
+    keys: std::collections::HashMap<SecretInfo, bool>,
 }
 
 /// A session that has not ended, as the resource monitor sees it.
@@ -500,12 +501,13 @@ impl SessionView<'_> {
     pub(crate) fn launch(&self) -> Option<Launch> {
         self.session.launch.clone()
     }
-    /// The person's answer about key `name` in this session, if any.
-    pub(crate) fn key_answer(&self, name: &str) -> Option<bool> {
-        self.session.keys.get(name).copied()
+    /// The person's answer about `key` in this session, if any: for this
+    /// binding, so a key rebound since asks again.
+    pub(crate) fn key_answer(&self, key: &SecretInfo) -> Option<bool> {
+        self.session.keys.get(key).copied()
     }
-    pub(crate) fn set_key_answer(&mut self, name: &str, allowed: bool) {
-        self.session.keys.insert(name.to_owned(), allowed);
+    pub(crate) fn set_key_answer(&mut self, key: &SecretInfo, allowed: bool) {
+        self.session.keys.insert(key.clone(), allowed);
     }
     pub(crate) fn set_launch(&mut self, launch: Launch) {
         self.session.launch = Some(launch);
@@ -1012,7 +1014,20 @@ impl AgentHost {
         reason: Option<PermissionReason>,
         always: impl FnOnce(Option<&Path>, Option<&SandboxReport>) -> Option<PolicyRule>,
     ) -> PermissionAnswer {
+        self.ask_person_by(tool, title, reason, always).await.0
+    }
+
+    /// [`Self::ask_person`], with who answered. An idle session (a key a
+    /// background process wants) stays idle while it waits.
+    pub(crate) async fn ask_person_by(
+        &self,
+        tool: &ToolRequest,
+        title: Option<String>,
+        reason: Option<PermissionReason>,
+        always: impl FnOnce(Option<&Path>, Option<&SandboxReport>) -> Option<PolicyRule>,
+    ) -> (PermissionAnswer, DecidedBy) {
         let tool = tool.clone();
+        let mut idle = false;
         let registered = self.sessions.find(&self.session, |s| {
             if s.stopping() {
                 return Err(PermissionAnswer::deny("the session was stopped"));
@@ -1020,6 +1035,7 @@ impl AgentHost {
             if s.status().is_ended() {
                 return Err(PermissionAnswer::deny("the session ended"));
             }
+            idle = *s.status() == AgentStatus::Idle;
             let cwd = s.launch().map(|l| l.cwd);
             let sandbox = s.info().sandbox;
             let always = always(cwd.as_deref(), sandbox.as_ref());
@@ -1039,23 +1055,28 @@ impl AgentHost {
         let (request, answer) = match registered {
             Ok(Ok(registered)) => registered,
             Ok(Err(answer)) => {
-                return self.decided(&tool, answer, DecidedBy::SessionEnded).await;
+                let by = DecidedBy::SessionEnded;
+                return (self.decided(&tool, answer, by.clone()).await, by);
             }
             Err(_) => {
                 let answer = PermissionAnswer::deny("the session ended");
-                return self.decided(&tool, answer, DecidedBy::SessionEnded).await;
+                let by = DecidedBy::SessionEnded;
+                return (self.decided(&tool, answer, by.clone()).await, by);
             }
         };
         let mut waiting = Waiting {
             host: self,
             id: Some(request.id.clone()),
             settled: false,
+            idle,
         };
         let direct = &self.sessions.direct;
         direct.tool_waiting(&self.session, &tool).await;
         self.sink
             .emit(PermissionsEvent::Requested(Box::new(request)));
-        self.set_status(AgentStatus::WaitingForApproval);
+        if !idle {
+            self.set_status(AgentStatus::WaitingForApproval);
+        }
         let (answer, by) = answer.await.unwrap_or_else(|_| {
             (
                 PermissionAnswer::deny("the session ended"),
@@ -1065,13 +1086,15 @@ impl AgentHost {
         waiting.id = None;
         // Queued at once, so the entry survives the future being dropped.
         let allowed = answer.decision == Decision::Allow;
-        let recorded = self.audit_tool(&tool, allowed, by);
+        let recorded = self.audit_tool(&tool, allowed, by.clone());
         direct.tool_answered(&self.session, &tool, allowed).await;
         // Ignored while other requests of the session still wait.
-        self.set_status(AgentStatus::Working);
+        if !idle {
+            self.set_status(AgentStatus::Working);
+        }
         waiting.settled = true;
         recorded.await;
-        answer
+        (answer, by)
     }
 }
 
@@ -1167,6 +1190,8 @@ struct Waiting<'a> {
     host: &'a AgentHost,
     id: Option<PermissionId>,
     settled: bool,
+    /// The session was idle when asked: it stays so.
+    idle: bool,
 }
 
 impl Drop for Waiting<'_> {
@@ -1175,10 +1200,12 @@ impl Drop for Waiting<'_> {
             Some(id) => {
                 if self.host.sessions.permissions.withdraw(&id) {
                     self.host.resolved(vec![id], Decision::Deny);
-                    self.host.set_status(AgentStatus::Working);
+                    if !self.idle {
+                        self.host.set_status(AgentStatus::Working);
+                    }
                 }
             }
-            None if !self.settled => {
+            None if !self.settled && !self.idle => {
                 self.host.set_status(AgentStatus::Working);
             }
             None => {}

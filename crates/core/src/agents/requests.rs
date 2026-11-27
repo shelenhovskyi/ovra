@@ -223,7 +223,7 @@ pub(crate) async fn agents(
             // The person interrupted the turn, which refuses what it asked.
             let denied = sessions.permissions.deny_session(
                 &session,
-                &PermissionAnswer::deny("the turn was interrupted"),
+                &PermissionAnswer::deny(INTERRUPTED),
                 &by,
             );
             AgentHost::new(session, project, sessions.clone(), ctx.sink.clone())
@@ -1155,6 +1155,10 @@ pub(crate) fn check_text(text: &str) -> Result<()> {
 fn conflict(message: &str) -> ProtocolError {
     ProtocolError::new(ErrorCode::Conflict, message)
 }
+
+/// Why an interrupt denies what the turn asked; a key's answer is not kept
+/// from it (`keys.rs`).
+pub(crate) const INTERRUPTED: &str = "the turn was interrupted";
 
 /// `by`: who answers, for the audit log.
 pub(crate) fn permissions(

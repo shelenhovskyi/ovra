@@ -50,12 +50,12 @@ function isKeyRule(rule: PolicyRule, name: string): boolean {
   return rule.tool === "UseKey" && rule.match === name;
 }
 
-/** What the project's UseKey rules say about `name`: deny wins, as in the core. */
+/** What the project's UseKey rules say about `name`: deny wins, then ask, as in the core; a rule without a match is every key's. */
 function consentOf(name: string): Consent {
-  const rules = (policy.rules ?? []).filter((r) => isKeyRule(r, name));
+  const rules = (policy.rules ?? []).filter((r) => r.tool === "UseKey" && (r.match === undefined || r.match === name));
   if (rules.some((r) => r.action === "deny")) return "off";
   if (rules.some((r) => r.action === "ask")) return "ask";
-  return rules.some((r) => r.action === "auto") ? "always" : "ask";
+  return rules.some((r) => r.action === "auto" && r.match === name) ? "always" : "ask";
 }
 
 /** Replaces `name`'s UseKey rules: none asks, `auto` always allows, `deny` is off. */
@@ -123,14 +123,8 @@ async function remove(name: string): Promise<void> {
   if (busy) return;
   busy = true;
   try {
+    // The core drops the key's UseKey rules with it.
     await access.removeSecret(name);
-    const current = policy.rules;
-    if (current?.some((r) => isKeyRule(r, name))) {
-      await policy.save(
-        current.filter((r) => !isKeyRule(r, name)),
-        current,
-      );
-    }
     error = null;
   } catch (err) {
     error = message(err);

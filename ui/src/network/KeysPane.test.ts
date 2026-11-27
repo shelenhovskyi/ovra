@@ -131,6 +131,14 @@ describe("KeysPane", () => {
     expect(core.rules).toEqual([other]);
   });
 
+  it("shows a project-wide UseKey deny as Off for every key", async () => {
+    const core = new FakeAccessCore();
+    core.secrets = [github];
+    core.rules = [{ tool: "UseKey", action: "deny" }];
+    await open(core);
+    expect($<HTMLSelectElement>("[data-testid=key-consent]")?.value).toBe("off");
+  });
+
   it("says why keys do nothing for agents without a sandbox", async () => {
     const core = new FakeAccessCore();
     const bare: SessionInfo = {

@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use super::projects::ProjectId;
 
 /// A secret without its value.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct SecretInfo {
     /// 1 to 64 of `A-Z a-z 0-9 _ . -`, starting with a letter or digit.
     pub name: String,

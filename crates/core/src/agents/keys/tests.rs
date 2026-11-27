@@ -4,7 +4,7 @@ use serde_json::json;
 
 use crate::Core;
 use crate::fakes::{FakeNetProxy, MemoryProjects, MemorySecrets, ScriptedAgent, Step};
-use crate::protocol::agents::{SandboxNetwork, SandboxReport, SessionId};
+use crate::protocol::agents::{AgentStatus, SandboxNetwork, SandboxReport, SessionId};
 use crate::protocol::permissions::{Decision, PermissionRequest, PermissionsEvent};
 use crate::protocol::policy::{Policy, PolicyAction, PolicyRule};
 use crate::protocol::projects::ProjectId;
@@ -275,4 +275,103 @@ async fn without_a_core_no_key_is_added() {
     let core = Core::builder("test").build();
     let reporter = NetReporter::new(p1(), SessionId("s1".into()), core.sink());
     assert!(!reporter.key_consent(&gh()).await);
+}
+
+#[tokio::test]
+async fn an_interrupt_refuses_the_key_once_and_the_next_request_asks_again() {
+    let w = world(Some(SandboxNetwork::Proxy)).await;
+    let mut rx = w.core.subscribe();
+    let reporter = w.reporter();
+    let asked = tokio::spawn(reporter.key_consent(&gh()));
+    requested(&mut rx).await;
+    call(
+        &w.core,
+        json!({"method": "agents.interrupt", "params": {"session": "s1"}}),
+    )
+    .await
+    .unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(asked.await.ok(), Some(false));
+    let again = tokio::spawn(reporter.key_consent(&gh()));
+    let request = requested(&mut rx).await;
+    w.answer(&request, "allow", false).await;
+    assert_eq!(again.await.ok(), Some(true));
+}
+
+#[tokio::test]
+async fn an_idle_session_stays_idle_while_a_key_is_asked_about() {
+    let w = world(Some(SandboxNetwork::Proxy)).await;
+    let status = || {
+        w.core
+            .sessions()
+            .find(&SessionId("s1".into()), |s| s.status().clone())
+            .unwrap_or_else(|e| panic!("{e}"))
+    };
+    // The scripted turn ends: the session waits for a message.
+    for _ in 0..100 {
+        if status() == AgentStatus::Idle {
+            break;
+        }
+        tokio::task::yield_now().await;
+    }
+    assert_eq!(status(), AgentStatus::Idle);
+    let mut rx = w.core.subscribe();
+    let asked = tokio::spawn(w.reporter().key_consent(&gh()));
+    let request = requested(&mut rx).await;
+    assert_eq!(status(), AgentStatus::Idle);
+    w.answer(&request, "allow", false).await;
+    assert_eq!(asked.await.ok(), Some(true));
+    assert_eq!(status(), AgentStatus::Idle);
+}
+
+#[tokio::test]
+async fn pointing_a_key_elsewhere_drops_its_rules_and_asks_again() {
+    let w = world(Some(SandboxNetwork::Proxy)).await;
+    w.rule(PolicyAction::Auto);
+    let set = |host: &str| {
+        json!({"method": "secrets.set", "params": {"project": "p1",
+            "secret": {"name": "github", "host": host, "header": "Authorization", "prefix": "Bearer "},
+            "value": "ghp_value2"}})
+    };
+    // A new value for the same binding keeps the rule.
+    call(&w.core, set("api.github.com"))
+        .await
+        .unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(
+        w.projects.policy(&p1()).map(|p| p.rules.len()).ok(),
+        Some(1)
+    );
+    call(&w.core, set("uploads.github.com"))
+        .await
+        .unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(
+        w.projects.policy(&p1()).map(|p| p.rules.len()).ok(),
+        Some(0)
+    );
+    w.rule(PolicyAction::Auto);
+    call(
+        &w.core,
+        json!({"method": "secrets.remove", "params": {"project": "p1", "name": "github"}}),
+    )
+    .await
+    .unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(
+        w.projects.policy(&p1()).map(|p| p.rules.len()).ok(),
+        Some(0)
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn requests_that_waited_for_an_unanswered_question_do_not_ask_in_turn() {
+    let w = world(Some(SandboxNetwork::Proxy)).await;
+    let mut rx = w.core.subscribe();
+    let reporter = w.reporter();
+    let (first, second) = (reporter.key_consent(&gh()), reporter.key_consent(&gh()));
+    let both = tokio::spawn(async move { tokio::join!(first, second) });
+    requested(&mut rx).await;
+    assert_eq!(both.await.ok(), Some((false, false)));
+    assert_eq!(pending(&w.core), 0);
+    while let Ok(event) = rx.try_recv() {
+        let asked = matches!(event, Event::Permissions(PermissionsEvent::Requested(_)));
+        assert!(!asked, "the second request asked again");
+    }
 }

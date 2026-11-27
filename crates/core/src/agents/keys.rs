@@ -23,7 +23,8 @@ use super::{AgentHost, ToolRequest, lock};
 pub(crate) const ASK_TIMEOUT: Duration = Duration::from_secs(5 * 60);
 
 /// The questions being asked, by session and key.
-pub(crate) type Asking = Mutex<HashMap<(SessionId, String), Arc<tokio::sync::Mutex<()>>>>;
+/// Each gate holds whether its last question went unanswered.
+pub(crate) type Asking = Mutex<HashMap<(SessionId, String), Arc<tokio::sync::Mutex<bool>>>>;
 
 /// The consent the netproxy of `session` asks.
 pub(crate) fn consent(
@@ -93,27 +94,56 @@ impl AgentHost {
             .entry(key.clone())
             .or_default()
             .clone();
-        let _held = gate.lock().await;
-        if let Ok(Some(answer)) = self.sessions.find(&self.session, |s| s.key_answer(name)) {
+        let mut unanswered = gate.lock().await;
+        if let Ok(Some(answer)) = self.sessions.find(&self.session, |s| s.key_answer(secret)) {
             return answer;
         }
+        // The question before this one went unanswered: requests that
+        // waited for it go without the key rather than ask in turn.
+        if *unanswered {
+            return false;
+        }
+        let _asking = Asked {
+            asking: &self.sessions.asking_keys,
+            key,
+        };
         let title = format!("Use your {name} key on {}", secret.host);
         let always =
             |_: Option<&std::path::Path>, sandbox: Option<&_>| rules::always(name, sandbox);
         let asked = tokio::time::timeout(
             ASK_TIMEOUT,
-            self.ask_person(&tool, Some(title), None, always),
+            self.ask_person_by(&tool, Some(title), None, always),
         )
         .await;
-        lock(&self.sessions.asking_keys).remove(&key);
-        let Ok(answer) = asked else {
+        let Ok((answer, by)) = asked else {
+            *unanswered = true;
             return false;
         };
         let allowed = answer.decision == Decision::Allow;
-        let _ = self
-            .sessions
-            .find(&self.session, |s| s.set_key_answer(name, allowed));
+        // Only a person's answer on the card holds for the session: a deny
+        // because the turn was interrupted or the session stopped asks
+        // again next time.
+        let interrupted = answer.message.as_deref() == Some(super::requests::INTERRUPTED);
+        if matches!(by, DecidedBy::Person | DecidedBy::Phone { .. }) && !interrupted {
+            let _ = self
+                .sessions
+                .find(&self.session, |s| s.set_key_answer(secret, allowed));
+        }
         allowed
+    }
+}
+
+/// Takes a finished question out of [`Asking`], also when the request that
+/// asked it is dropped. The answer is kept first, so a request that comes
+/// after finds it.
+struct Asked<'a> {
+    asking: &'a Asking,
+    key: (SessionId, String),
+}
+
+impl Drop for Asked<'_> {
+    fn drop(&mut self) {
+        lock(self.asking).remove(&self.key);
     }
 }
 

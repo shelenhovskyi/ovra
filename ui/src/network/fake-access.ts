@@ -55,6 +55,8 @@ export class FakeAccessCore implements Transport {
         return { type: "policy.policy", data: { rules: [...this.rules] } } as ResponseFor<R>;
       case "secrets.remove":
         this.secrets = this.secrets.filter((s) => s.name !== request.params.name);
+        // As the core: the key's UseKey rules go with it.
+        this.rules = this.rules.filter((r) => !(r.tool === "UseKey" && r.match === request.params.name));
         return { type: "ok" } as ResponseFor<R>;
       default:
         throw new Error(`unexpected ${request.method}`);
