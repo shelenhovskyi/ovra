@@ -23,6 +23,7 @@ import Icon from "../shell/Icon.svelte";
 import { mainView } from "../shell/main-view.svelte";
 import ViewFrame from "../shell/ViewFrame.svelte";
 import PatchView from "../viewers/PatchView.svelte";
+import AfterKeep from "./AfterKeep.svelte";
 import BehindNotice from "./BehindNotice.svelte";
 import {
   approveDetail,
@@ -154,6 +155,12 @@ const groups = $derived.by(() => {
   return out;
 });
 const outcome = $derived(inbox.outcome && inbox.outcome.id === item?.id ? inbox.outcome : null);
+/** The item just kept, while its keep can be undone and another item is shown: one line offers the undo. */
+const lastKept = $derived.by(() => {
+  const last = inbox.outcome;
+  if (last?.action !== "approved" || last.id === item?.id) return null;
+  return inbox.items.find((i) => i.id === last.id && i.can_undo_keep) ?? null;
+});
 /** The item is one of several attempts at one task: which was kept, which are left. */
 const attempts = $derived(
   item
@@ -543,6 +550,14 @@ async function undoReject(review: ReviewItem): Promise<void> {
   }
 }
 
+async function undoKeep(review: ReviewItem): Promise<void> {
+  if ((await inbox.undoKeep(review.id)) && inbox.outcome) {
+    select(review.id);
+    announcement = outcomeText(inbox.outcome);
+    await refocus();
+  }
+}
+
 async function take(review: ReviewItem): Promise<void> {
   if (looks.takeUnseen(review).length > 0) return;
   // Each protected file left was seen: replacing copies them too.
@@ -614,6 +629,18 @@ function outcomeText(outcome: Outcome): string {
     const committed = outcome.commit ? ` Committed as “${outcome.commit}”.` : "";
     return `${what}${committed}${left}`;
   }
+  if (outcome.action === "unkept") {
+    const back = outcome.restored.length > 0 ? ` Your versions are back: ${outcome.restored.join(", ")}.` : "";
+    const stayed =
+      outcome.conflicts.length > 0
+        ? ` Not put back, because you changed them after the keep: ${outcome.conflicts.join(", ")}.`
+        : "";
+    const after =
+      of?.state === "rejected"
+        ? " The worker's copy was already removed, so these changes now count as discarded."
+        : " The changes wait for you again.";
+    return `Keep undone.${back}${stayed}${after}`;
+  }
   if (outcome.action === "undone") {
     const back =
       outcome.restored.length === 0 ? " Nothing needed putting back." : ` Put back: ${outcome.restored.join(", ")}.`;
@@ -653,6 +680,12 @@ function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
         </p>
       {/if}
       <p class="visually-hidden" role="status">{announcement}</p>
+      {#if lastKept}
+        <p class="kept-line" data-testid="inbox-kept-line">
+          Kept {shortTitle(lastKept, sessions.name(lastKept.session))}.
+          <button type="button" class="quiet" onclick={() => lastKept && void undoKeep(lastKept)}>Undo keep</button>
+        </p>
+      {/if}
 
       {#if !workspace.project}
         <p class="empty">Open a project to review its agents' changes.</p>
@@ -937,6 +970,15 @@ function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
                 </div>
               {/if}
 
+              {#if (item.state === "approved" || item.state === "partly_approved") && !item.can_undo_take}
+                <AfterKeep
+                  {inbox}
+                  {item}
+                  task={taskOf(item, sessions.name(item.session)) ?? sessions.name(item.session)}
+                  onundo={() => void undoKeep(item)}
+                />
+              {/if}
+
               {#if item.can_undo_take}
                 <div class="actions" role="group" aria-label="Undo the copy">
                   <p class="hint">Puts back your versions from just before you replaced them.</p>
@@ -1181,6 +1223,14 @@ function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
   .error {
     color: var(--danger);
     margin: 4px 20px;
+  }
+  .kept-line {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 4px 20px;
+    color: var(--text-2);
+    font-size: 13px;
   }
   .body {
     flex: 1;

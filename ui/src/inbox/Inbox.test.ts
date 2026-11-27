@@ -458,6 +458,57 @@ describe("Inbox", () => {
     expect(document.activeElement?.id).toBe("inbox-item-title");
   });
 
+  it("undoes a keep in one press, from the kept item or from the next one", async () => {
+    const core = await setup([review("r1"), review("r2", { session: "s2" })]);
+    await open();
+    button(/^Keep changes$/)?.click();
+    await settle();
+    // On to r2: one line still offers to take the keep of r1 back.
+    expect($("[data-testid=inbox-kept-line]")?.textContent).toMatch(/^\s*Kept .*\.\s*Undo keep\s*$/);
+    button(/^Undo keep$/)?.click();
+    await settle();
+    expect(core.sent("review.undo_keep").map((c) => c.params)).toEqual([{ id: "r1" }]);
+    expect($("[data-item][aria-current=true]")?.getAttribute("data-item")).toBe("r1");
+    expect($("[data-testid=inbox-outcome]")?.textContent?.trim()).toBe("Keep undone. The changes wait for you again.");
+    expect(button(/^Keep changes$/)).toBeDefined();
+    expect($("[data-testid=inbox-kept-line]")).toBeNull();
+
+    // Kept again, and undone from the item itself.
+    button(/^Keep changes$/)?.click();
+    await settle();
+    $("[data-item=r1]")?.click();
+    await settle();
+    expect($("[data-testid=inbox-kept-line]")).toBeNull();
+    $<HTMLButtonElement>("[data-testid=inbox-undo-keep]")?.click();
+    await settle();
+    expect(core.sent("review.undo_keep")).toHaveLength(2);
+  });
+
+  it("offers no undo for a keep that committed", async () => {
+    await setup([review("r1", { summary: "Fix the typo" })]);
+    await open();
+    $<HTMLInputElement>("[data-testid=inbox] input[type=checkbox]")?.click();
+    flushSync();
+    button(/^Keep and commit$/)?.click();
+    await settle();
+    expect($("[data-testid=inbox-undo-keep]")).toBeNull();
+    expect($("[data-testid=inbox-write-tests]")).not.toBeNull();
+  });
+
+  it("starts an agent that writes tests for the kept files, and shows it", async () => {
+    const core = await setup([review("r1", { files: [change("src/a.ts"), change("old.ts", { kind: "deleted" })] })]);
+    await open();
+    button(/^Keep changes$/)?.click();
+    await settle();
+    $<HTMLButtonElement>("[data-testid=inbox-write-tests]")?.click();
+    await settle();
+    const [start] = core.sent("agents.start");
+    expect(start?.params).toMatchObject({ project: "p1", mode: "direct" });
+    expect(start?.params.prompt).toContain("- src/a.ts");
+    expect(start?.params.prompt).not.toContain("old.ts");
+    expect(mainView.current).toBeNull();
+  });
+
   it("says an item is one of several attempts, and after Keep discards the others", async () => {
     const solo = (id: string, session: string, attempt_of?: string): Task => ({
       id,
