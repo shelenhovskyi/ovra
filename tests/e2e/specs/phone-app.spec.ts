@@ -119,8 +119,11 @@ test("pair a phone, answer an agent's requests, reply and stop it", async ({ pag
     location.hash = "#/";
   });
   await mine.filter({ hasText: "Edit README.md" }).tap();
+  // The buttons arm half a second after the screen appears, not after the tap.
+  const withReason = approval.getByRole("button", { name: "Deny with a reason…" });
+  await expect(withReason).toBeVisible();
   await page.clock.fastForward(600);
-  await approval.getByRole("button", { name: "Deny with a reason…" }).tap();
+  await withReason.tap();
   await approval.getByRole("textbox", { name: "Tell the agent why (optional)" }).fill("Not now");
   await approval.getByRole("button", { name: "Deny" }).tap();
   await expect(page.getByRole("heading", { name: "Ovra" })).toBeVisible();

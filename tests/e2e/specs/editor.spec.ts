@@ -9,6 +9,7 @@ test("edit a file with highlighting and save it to disk", async ({ page }) => {
   const dir = mkdtempSync(join(tmpdir(), "ovra-editor-"));
   writeFileSync(join(dir, "main.rs"), "fn main() {\n    run();\n}\n");
 
+  await page.clock.install();
   await loadProject(page, dir, url);
   await page.getByRole("treeitem", { name: /main\.rs/ }).click();
   await page.keyboard.press("ControlOrMeta+E");
@@ -27,6 +28,8 @@ test("edit a file with highlighting and save it to disk", async ({ page }) => {
 
   // The breadcrumbs name the function around the cursor; its body folds and unfolds.
   await page.keyboard.press("ControlOrMeta+Home");
+  // The symbols are read again 0.3 s after the last change.
+  await page.clock.fastForward(300);
   await expect(page.getByRole("navigation", { name: "Breadcrumbs" }).locator(".symbol")).toHaveText("main");
   await page.keyboard.press("Control+Shift+BracketLeft");
   await expect(editor.locator(".cm-foldPlaceholder")).toBeVisible();

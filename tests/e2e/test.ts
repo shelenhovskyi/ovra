@@ -158,7 +158,26 @@ export async function expectAccessible(page: Page, where: string): Promise<void>
     const { axe } = window as unknown as {
       axe: { run: (context: Document, options: RunOptions) => Promise<AxeResults> };
     };
-    const { violations } = await axe.run(document, given);
+    // axe settles each rule on a zero-delay timer. Under the page clock of
+    // `page.clock.install()` those fire one after another, about 0.4 s per
+    // run on an agent screen; a message is a task of its own that the clock
+    // does not hold. Pages without the clock keep the browser's timers.
+    const timer = window.setTimeout;
+    const clocked = !/\[native code\]/.test(Function.prototype.toString.call(timer));
+    const channel = new MessageChannel();
+    const due: (() => void)[] = [];
+    channel.port1.onmessage = () => due.shift()?.();
+    if (clocked)
+      window.setTimeout = ((handler: TimerHandler, delay?: number, ...args: unknown[]) => {
+        if (delay || typeof handler !== "function") return timer(handler, delay, ...args);
+        due.push(() => handler(...args));
+        channel.port2.postMessage(null);
+        return 0;
+      }) as typeof window.setTimeout;
+    const { violations } = await axe.run(document, given).finally(() => {
+      window.setTimeout = timer;
+      channel.port1.close();
+    });
     return violations.map(({ id, impact, help, nodes }) => ({ id, impact, help, nodes: nodes.map((n) => n.target) }));
   }, options);
   const found = violations.map(

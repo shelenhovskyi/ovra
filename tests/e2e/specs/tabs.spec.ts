@@ -261,19 +261,19 @@ test("the viewer shows unsaved text, and binary files explain why they cannot be
   await expect(content).toBeHidden();
 });
 
-for (const width of [640, 512]) {
-  test(`at 200% zoom (${width} px wide) the main area keeps a usable width`, async ({ page }) => {
-    const dir = project({ "a.txt": "alpha\n" });
-    // Open first: in a window this small, approvals other tests' agents wait
-    // on (they share the daemon) can cover the start page's form.
-    await open(page, dir);
+test("at 200% zoom (640 and 512 px wide) the main area keeps a usable width", async ({ page }) => {
+  const dir = project({ "a.txt": "alpha\n" });
+  // Open first: in a window this small, approvals other tests' agents wait
+  // on (they share the daemon) can cover the start page's form.
+  await open(page, dir);
+  for (const width of [640, 512]) {
     await page.setViewportSize({ width, height: 400 });
     await page.getByRole("treeitem", { name: /a\.txt/ }).click();
     const main = await page.getByTestId("main").boundingBox();
-    expect(main?.width).toBeGreaterThanOrEqual(300);
+    expect(main?.width, `${width} px`).toBeGreaterThanOrEqual(300);
     const scroll = await page.evaluate(
       () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
     );
-    expect(scroll).toBeLessThanOrEqual(0);
-  });
-}
+    expect(scroll, `${width} px`).toBeLessThanOrEqual(0);
+  }
+});

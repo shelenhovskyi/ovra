@@ -9,19 +9,19 @@ function daemonUrl(): URL {
   return new URL(raw);
 }
 
-test("UI connects to the headless core", async ({ page }) => {
+test("UI connects to the headless core, shows the start screen and refuses a wrong token", async ({ page }) => {
   await page.goto(daemonUrl().href);
   await expect(page.getByRole("heading", { name: "Ovra" })).toBeVisible();
   await expect(page.getByTestId("status")).toHaveText("Connected");
   await expect(page.getByTestId("status")).toHaveAttribute("title", /^ovra \d+\.\d+\.\d+ \(headless\)$/);
-});
-
-test("the shell shows its panels", async ({ page }) => {
-  await page.goto(daemonUrl().href);
   await expect(page.getByTestId("sidebar")).toContainText("File tree");
   // On the start screen the start page takes the main area's place, and there is no rail.
   await expect(page.getByTestId("main")).toBeHidden();
-  await expect(page.getByRole("heading", { name: "Open a project" })).toBeVisible();
+  // The sidebar starts on the project list.
+  const projects = page.getByTestId("project-list");
+  await expect(projects.getByRole("heading", { name: "Open a project" })).toBeVisible();
+  await expect(projects.getByRole("textbox", { name: "Open a folder" })).toBeVisible();
+  await expect(projects.getByRole("button", { name: "Open", exact: true })).toBeEnabled();
   await expect(page.getByRole("navigation", { name: "Views" })).toBeHidden();
   // Whether Claude is ready shows before any project is open.
   // Ready is plain facts with quiet actions, not a repair form.
@@ -29,6 +29,14 @@ test("the shell shows its panels", async ({ page }) => {
   await expect(claude).toContainText("is ready");
   await expect(claude.getByRole("button", { name: "Set path…" })).toBeVisible();
   await expect(claude).not.toContainText("How to fix");
+
+  // A wrong token is refused.
+  const wrong = daemonUrl();
+  wrong.searchParams.set("token", "wrong");
+  await page.goto(wrong.href);
+  await expect(page.getByTestId("status")).toHaveText(/^Core unavailable/);
+  // The server answers but refuses the token, as after a restart: say so and stop retrying.
+  await expect(page.getByRole("heading", { name: "Ovra was restarted" })).toBeVisible();
 });
 
 test("with no file open, the main area offers the next steps", async ({ page }) => {
@@ -147,13 +155,4 @@ test("a view keeps the open tabs in sight, and the open file's tab, Ctrl+, or th
   await expect(settings).toBeHidden();
   await expect(tabs.getByRole("tab", { name: /b\.txt/ })).toHaveAttribute("aria-selected", "true");
   await expect(page.locator("#ovra-tabpanel")).toBeFocused();
-});
-
-test("a wrong token is refused", async ({ page }) => {
-  const url = daemonUrl();
-  url.searchParams.set("token", "wrong");
-  await page.goto(url.href);
-  await expect(page.getByTestId("status")).toHaveText(/^Core unavailable/);
-  // The server answers but refuses the token, as after a restart: say so and stop retrying.
-  await expect(page.getByRole("heading", { name: "Ovra was restarted" })).toBeVisible();
 });

@@ -86,7 +86,9 @@ test("side panels resize, fold and swap, and the layout survives a reload", asyn
   await expect(page.getByRole("separator", { name: "Resize Files" })).toHaveAttribute("aria-valuenow", "316");
 });
 
-test("the window never scrolls, whatever a panel scrolls into view", async ({ page }) => {
+test("the window never scrolls, whatever a panel scrolls into view, and icon buttons centre their icons", async ({
+  page,
+}) => {
   await page.setViewportSize({ width: 1280, height: 600 });
   await openProject(page, "ovra-noscroll-", 80);
   // The tree only renders rows near its viewport: End scrolls the last one in.
@@ -97,10 +99,8 @@ test("the window never scrolls, whatever a panel scrolls into view", async ({ pa
   await page.getByRole("treeitem", { name: /file-079\.txt/ }).focus();
   expect(await page.evaluate(() => document.scrollingElement?.scrollTop)).toBe(0);
   expect((await page.locator("header.title").boundingBox())?.y).toBe(0);
-});
 
-test("an icon-only button centres its icon, whichever panel styles it", async ({ page }) => {
-  await openProject(page, "ovra-layout-icons-");
+  // An icon-only button centres its icon, whichever panel styles it.
   /** How far the icon's middle is from its button's middle, in px. */
   const off = (button: ReturnType<Page["getByRole"]>) =>
     button.evaluate((b) => {

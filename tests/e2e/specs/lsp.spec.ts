@@ -54,8 +54,11 @@ test("a trusted project's rust file gets diagnostics and hover from its language
   await page.keyboard.press("ControlOrMeta+Period");
   await page.getByRole("menuitem", { name: "Replace TODO with DONE" }).click();
   await expect(editor.locator(".cm-content")).toContainText("// DONE: greet");
+  // The editor sends its changes to the server half a second after an edit; skip the wait.
+  await page.clock.fastForward(500);
   await expect(editor.locator(".cm-lintRange-error")).toHaveCount(0);
   await page.keyboard.press("ControlOrMeta+Z");
+  await page.clock.fastForward(500);
   await expect(editor.locator(".cm-lintRange-error")).toHaveCount(1);
 
   // A hover only asks once the pointer moves onto the word; until the
@@ -64,6 +67,8 @@ test("a trusted project's rust file gets diagnostics and hover from its language
   await expect(async () => {
     await page.mouse.move(0, 0);
     await word.hover();
+    // The editor asks once the pointer rested 0.3 s on the word.
+    await page.clock.fastForward(300);
     await expect(page.locator(".cm-tooltip-hover")).toContainText("fake hover", { timeout: 1000 });
   }).toPass({ timeout: 8000 });
 

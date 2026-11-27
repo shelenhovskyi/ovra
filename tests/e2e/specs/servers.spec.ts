@@ -3,29 +3,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, loadProject, test } from "../test";
 
-test("the servers tab of the dock opens with its shortcut and says what runs", async ({ page }) => {
-  const url = process.env.OVRA_URL;
-  if (!url) throw new Error("OVRA_URL is not set; globalSetup did not run");
-  const dir = mkdtempSync(join(tmpdir(), "ovra-servers-"));
-  writeFileSync(join(dir, "README.md"), "readme\n");
-  mkdirSync(join(dir, ".ovra"));
-  writeFileSync(
-    join(dir, ".ovra/servers.json"),
-    JSON.stringify({ servers: [{ name: "web", command: ["ready"], port: 5173 }] }),
-  );
-  await loadProject(page, dir, url);
-  await expect(page.getByRole("treeitem", { name: /README\.md/ })).toBeVisible();
-
-  await page.keyboard.press("ControlOrMeta+Alt+KeyS");
-  const dock = page.getByTestId("servers");
-  await expect(dock.getByRole("heading", { name: "Servers", exact: true })).toBeFocused();
-  // Nothing runs yet (or there is no Linux sandbox): the tab says so.
-  await expect(dock.getByText("No servers running").or(dock.getByTestId("servers-unavailable"))).toBeVisible();
-  await page.keyboard.press("Escape");
-  await expect(dock).toBeHidden();
-});
-
-test("a defined server starts, gets ready, shows its output and stops", async ({ page }) => {
+test("the servers tab opens with its shortcut; a defined server starts, gets ready, shows its output and stops", async ({
+  page,
+}) => {
   const url = process.env.OVRA_URL;
   if (!url) throw new Error("OVRA_URL is not set; globalSetup did not run");
   const dir = mkdtempSync(join(tmpdir(), "ovra-servers-"));
@@ -38,6 +18,15 @@ test("a defined server starts, gets ready, shows its output and stops", async ({
   );
   await loadProject(page, dir, url);
   await expect(page.getByRole("treeitem", { name: /README\.md/ })).toBeVisible();
+
+  // The dock's Servers tab opens with its shortcut. Nothing runs yet (or
+  // there is no Linux sandbox): the tab says so.
+  await page.keyboard.press("ControlOrMeta+Alt+KeyS");
+  const dock = page.getByTestId("servers");
+  await expect(dock.getByRole("heading", { name: "Servers", exact: true })).toBeFocused();
+  await expect(dock.getByText("No servers running").or(dock.getByTestId("servers-unavailable"))).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(dock).toBeHidden();
 
   // Defined and started in Settings > Servers; it runs in the dock's Servers tab.
   await page.keyboard.press("ControlOrMeta+K");

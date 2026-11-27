@@ -35,6 +35,8 @@ test("the start screen, an open file and the palette pass axe in every look; for
   await expectAccessible(page, "with a file open, dark, increased contrast");
   await page.keyboard.press("Alt+P");
   await expect(page.getByRole("dialog", { name: "Command palette" })).toBeVisible();
+  // Checked once the files are listed, not while the list is still empty.
+  await expect(page.getByRole("option").first()).toBeVisible();
   await expectAccessible(page, "with the palette open");
   await page.keyboard.press("Escape");
 

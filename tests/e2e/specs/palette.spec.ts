@@ -22,7 +22,9 @@ async function ready(page: Page): Promise<void> {
 
 const palette = (page: Page) => page.getByRole("dialog", { name: "Command palette" });
 
-test("the command palette opens on Mod+Shift+P, filters and closes", async ({ page }) => {
+test("the command palette opens on Mod+Shift+P, filters and closes, and forced colours keep its selection visible", async ({
+  page,
+}) => {
   await ready(page);
 
   await page.keyboard.press("ControlOrMeta+Shift+P");
@@ -46,6 +48,18 @@ test("the command palette opens on Mod+Shift+P, filters and closes", async ({ pa
   await expect(palette(page)).toBeVisible();
   await page.mouse.click(5, 5);
   await expect(palette(page)).toBeHidden();
+
+  // Forced colours keep the selected option visible.
+  await page.emulateMedia({ forcedColors: "active" });
+  await page.keyboard.press("ControlOrMeta+Shift+P");
+  const option = page.locator("[role=option][aria-selected=true]");
+  await expect(option).toBeVisible();
+  const style = await option.evaluate((el) => {
+    const s = getComputedStyle(el);
+    return { outline: s.outlineStyle, background: s.backgroundColor, color: s.color };
+  });
+  expect(style.outline).toBe("solid");
+  expect(style.background).not.toBe(style.color);
 });
 
 test("Alt+P goes to a file; the palette switches and closes projects", async ({ page }) => {
@@ -105,18 +119,4 @@ test("Alt+P goes to a file; the palette switches and closes projects", async ({ 
   await expect(page.getByRole("option", { selected: true })).toContainText(name);
   await page.keyboard.press("Enter");
   await expect(page.getByRole("treeitem", { name: /README\.md/ })).toBeVisible();
-});
-
-test("forced colours keep the selected option visible", async ({ page }) => {
-  await page.emulateMedia({ forcedColors: "active" });
-  await ready(page);
-  await page.keyboard.press("ControlOrMeta+Shift+P");
-  const option = page.locator("[role=option][aria-selected=true]");
-  await expect(option).toBeVisible();
-  const style = await option.evaluate((el) => {
-    const s = getComputedStyle(el);
-    return { outline: s.outlineStyle, background: s.backgroundColor, color: s.color };
-  });
-  expect(style.outline).toBe("solid");
-  expect(style.background).not.toBe(style.color);
 });

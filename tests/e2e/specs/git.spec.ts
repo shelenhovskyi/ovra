@@ -129,6 +129,7 @@ test("stage a file and one hunk, commit, and switch to a new branch", async ({ p
 
 test("the editor marks changed lines against the index", async ({ page }) => {
   const dir = repo();
+  await page.clock.install();
   await open(page, dir);
   await page.getByRole("treeitem", { name: /notes\.txt/ }).click();
   await page.keyboard.press("ControlOrMeta+E");
@@ -138,6 +139,9 @@ test("the editor marks changed lines against the index", async ({ page }) => {
   await text.click();
   await page.keyboard.press("ControlOrMeta+Home");
   await page.keyboard.type("added line\n");
+  // Markers follow 0.2 s after the last edit, and the inline blame once the
+  // cursor rested 0.5 s: skip both waits.
+  await page.clock.fastForward(200);
   const marker = main.locator('[data-testid="git-marker"][data-change="added"]');
   await expect(marker).toHaveCount(1);
   await expect(marker).toBeVisible();
@@ -150,8 +154,10 @@ test("the editor marks changed lines against the index", async ({ page }) => {
       return copy.textContent;
     });
   // The cursor is on line 2; the next change wraps around to line 1.
+  await page.clock.fastForward(500);
   await expect.poll(activeLine).toBe("line 1");
   await page.keyboard.press("Alt+F5");
+  await page.clock.fastForward(500);
   await expect.poll(activeLine).toBe("added line");
 });
 

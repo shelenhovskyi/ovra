@@ -18,6 +18,7 @@ test("Mod+Shift+F searches the project's files and opens a result at its match",
   writeFileSync(join(dir, "README.md"), "Nothing to see.\n");
   writeFileSync(join(dir, "ignored/skip.txt"), "needle\n");
 
+  await page.clock.install();
   await loadProject(page, dir, daemonUrl());
   await expect(page.getByRole("treeitem", { name: /README\.md/ })).toBeVisible();
 
@@ -25,6 +26,8 @@ test("Mod+Shift+F searches the project's files and opens a result at its match",
   const search = page.getByTestId("search");
   await expect(search.getByRole("searchbox", { name: "Search text" })).toBeFocused();
   await page.keyboard.type("NEEDLE");
+  // The search starts once typing pauses for a quarter of a second.
+  await page.clock.fastForward(250);
   await expect(page.getByTestId("search-summary")).toHaveText("1 matching line in 1 file.");
 
   await search.getByRole("button", { name: /src\/main\.rs line 2/ }).click();
@@ -44,11 +47,13 @@ test("Mod+Shift+H replaces in files: open files stay unsaved, others are written
   writeFileSync(join(dir, "open.txt"), "old\n");
   writeFileSync(join(dir, "closed.txt"), "an old (old)\n");
 
+  await page.clock.install();
   await loadProject(page, dir, daemonUrl());
   await expect(page.getByRole("treeitem", { name: /open\.txt/ })).toBeVisible();
 
   await page.keyboard.press("ControlOrMeta+Shift+F");
   await page.keyboard.type("old");
+  await page.clock.fastForward(250);
   const search = page.getByTestId("search");
   await search.getByRole("button", { name: /open\.txt line 1/ }).click();
   await expect(page.getByRole("tab", { name: "open.txt" })).toHaveAttribute("aria-selected", "true");
