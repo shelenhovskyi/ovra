@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import type { Page } from "@playwright/test";
+import { startDaemon } from "../daemon";
 import { addProject, clickWhenArmed, expect, expectAccessible, loadProject, stopAgents, tabTo, test } from "../test";
 
 // The daemon runs with --fake-agent: every session asks to run `ls -la` and to
@@ -20,8 +21,7 @@ async function arm(page: Page): Promise<void> {
   await page.clock.fastForward(600);
 }
 
-async function openProject(page: Page, prefix: string): Promise<void> {
-  const url = process.env.OVRA_URL;
+async function openProject(page: Page, prefix: string, url = process.env.OVRA_URL): Promise<void> {
   if (!url) throw new Error("OVRA_URL is not set; globalSetup did not run");
   const dir = mkdtempSync(join(tmpdir(), prefix));
   writeFileSync(join(dir, "README.md"), "teh readme\n");
@@ -736,7 +736,21 @@ test("keep the computer awake while an agent works", async ({ page }) => {
 });
 
 test("Focus shows only the agents' work and answers approvals there", async ({ page }) => {
-  await openProject(page, "ovra-agents-focus-");
+  // Its own daemon: Focus shows the approvals of every project, and agents
+  // of other files' tests ask on the shared one meanwhile.
+  const own = await startDaemon(["--fake-agent"]);
+  try {
+    await focusFlow(page, own.url);
+    await stopAgents(page, own.url);
+    // The shared daemon's afterEach has nothing of this project to stop.
+    await page.evaluate(() => localStorage.removeItem("ovra.project"));
+  } finally {
+    own.stop();
+  }
+});
+
+async function focusFlow(page: Page, url: string): Promise<void> {
+  await openProject(page, "ovra-agents-focus-", url);
   await page.getByRole("textbox", { name: "Describe a task" }).fill("Fix the typo");
   await page.keyboard.press("ControlOrMeta+Enter");
   const approvals = page.getByTestId("approvals");
@@ -771,7 +785,7 @@ test("Focus shows only the agents' work and answers approvals there", async ({ p
   await page.keyboard.press("ControlOrMeta+Shift+Period");
   await expect(page.getByTestId("focus-bar")).toHaveCount(0);
   await expect(page.getByRole("treeitem", { name: /README\.md/ })).toBeVisible();
-});
+}
 
 test("go back to a message: its file is gone, the message is back in the box, and undo brings it back", async ({
   page,
