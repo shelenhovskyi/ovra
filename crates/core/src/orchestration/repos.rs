@@ -1,5 +1,5 @@
 //! A solo task across several repositories (`docs/specs/multi-repo.md`,
-//! ADR 0015): the worker's copies of the linked repositories, made, named
+//! ADR 0017): the worker's copies of the linked repositories, made, named
 //! to the agent and given to its sandbox.
 
 use std::path::{Path, PathBuf};

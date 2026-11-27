@@ -3,7 +3,7 @@
 Status: approved by the owner (2026-11-27). The owner picked the idea
 ("item 13" of the 2026-11-27 list: frontend and backend changed together, in
 one task and one review) and approved the architecture change; this spec
-says how. ADR 0015 records the decision.
+says how. ADR 0017 records the decision.
 
 ## Problem
 
