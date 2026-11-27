@@ -165,7 +165,11 @@ test("a definition outside the project is never opened, only noted", async () =>
   await until(() =>
     expect(notes).toEqual(["/usr/lib/rustlib/src/lib.rs is outside the project and cannot be opened."]),
   );
-  expect(read.mock.calls.filter(([r]) => r.method === "fs.read_file")).toHaveLength(1);
+  // The file itself only; its `.editorconfig` files are read too.
+  const reads = read.mock.calls.filter(
+    ([r]) => r.method === "fs.read_file" && !r.params.path.endsWith(".editorconfig"),
+  );
+  expect(reads).toHaveLength(1);
   expect(view.state.doc.toString()).toBe("const x = 1;\nx;\n");
 });
 

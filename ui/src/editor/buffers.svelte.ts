@@ -39,6 +39,7 @@ import { CoreError, type Transport } from "../lib/transport";
 import type { AutoSaver } from "./autosave";
 import { autoClose, bracketMarks } from "./brackets";
 import type { Drafts } from "./drafts.svelte";
+import { configuredIndent, type EditorConfig, EditorConfigs, saveEdits } from "./editorconfig";
 import { folding, foldKeys, isMarkdown } from "./folding";
 import { gitExtension } from "./git/extension";
 import { GitFile } from "./git/file";
@@ -149,6 +150,8 @@ type Options = {
   highlighter: () => HighlightClient | null;
   /** Told of every change, to save on its own as the preferences say. */
   autoSave?: AutoSaver;
+  /** The project's `.editorconfig` files; Buffers gives each buffer the project's. */
+  editorConfigs?: EditorConfigs;
 };
 
 export class Buffer {
@@ -193,6 +196,10 @@ export class Buffer {
   private readonly prefs = new Compartment();
   /** The file's own indentation when it was read ("Tab", "Spaces: N"); it wins over the preferences. */
   private fileIndent: string | null = null;
+  /** The columns of a tab when `.editorconfig` says, else the preferences'. */
+  private tabWidth: number | null = null;
+  /** What the project's `.editorconfig` files say about this file, read when it opens. */
+  private config: EditorConfig = {};
 
   constructor(
     private readonly options: Options,
@@ -266,7 +273,7 @@ export class Buffer {
 
   /** Follows the editor preferences (word wrap, tab size) as they are now. */
   applyPrefs(): void {
-    const effects = this.prefs.reconfigure(prefsExtension(this.fileIndent, this.language));
+    const effects = this.prefs.reconfigure(prefsExtension(this.fileIndent, this.tabWidth, this.language));
     this.mirror?.dispatch({ effects });
     if (this.view) this.view.dispatch({ effects });
     else if (this.state) this.state = this.state.update({ effects }).state;
@@ -310,9 +317,10 @@ export class Buffer {
    * With format on save, a shown file is formatted first (only a shown one
    * has its language server's plugin).
    */
-  async save(overwrite = false): Promise<boolean> {
+  async save(overwrite = false, automatic = false): Promise<boolean> {
     await this.loaded;
     if (editorPrefs.formatOnSave && this.view && this.status === "ready") await formatBeforeSave(this.view);
+    this.applySaveRules(automatic);
     const doc = this.current?.doc;
     if (!doc) return false;
     try {
@@ -343,6 +351,15 @@ export class Buffer {
       }
       return false;
     }
+  }
+
+  /** Trims line ends and adds the last line break as `.editorconfig` says, as an edit the person can undo. */
+  private applySaveRules(automatic: boolean): void {
+    const state = this.current;
+    if (!state || this.status !== "ready") return;
+    const keep = new Set(automatic ? state.selection.ranges.map((range) => state.doc.lineAt(range.head).number) : []);
+    const changes = saveEdits(this.config, state.doc, keep);
+    if (changes.length) this.edit({ changes, userEvent: "input.save" });
   }
 
   /** Drops unsaved edits and shows the file as it is on disk. */
@@ -389,7 +406,8 @@ export class Buffer {
   }
 
   private async load(): Promise<void> {
-    const file = await this.read();
+    const [file, config] = await Promise.all([this.read(), this.options.editorConfigs?.for(this.path)]);
+    this.config = config ?? {};
     if (!file || this.disposed) return;
     if (file.body.kind !== "text") {
       this.status = file.body.kind;
@@ -476,7 +494,9 @@ export class Buffer {
   private create(text: string, cursor = 0): EditorState {
     this.highlight?.close();
     this.heavy = isHeavy(text);
-    this.fileIndent = detectIndent(text.split("\n", INDENT_SAMPLE), "") || null;
+    const own = configuredIndent(this.config, detectIndent(text.split("\n", INDENT_SAMPLE), "") || null);
+    this.fileIndent = own.label;
+    this.tabWidth = own.tabWidth;
     const highlighter = this.source && !this.heavy && this.options.highlighter();
     this.highlight = this.source && highlighter ? highlighter.open(this.source, text) : null;
     return EditorState.create({
@@ -536,7 +556,7 @@ export class Buffer {
       }),
       // Named, so a screen reader says which file the text box edits.
       this.label.of(this.labelExtension()),
-      this.prefs.of(prefsExtension(this.fileIndent, this.language)),
+      this.prefs.of(prefsExtension(this.fileIndent, this.tabWidth, this.language)),
       commentData(this.language),
       theme,
       searchPhrases,
@@ -554,7 +574,10 @@ export class Buffers {
   private readonly unsubscribe: () => void;
   private readonly unsubscribeStatus: () => void;
 
+  private readonly configs: EditorConfigs;
+
   constructor(private readonly options: Options) {
+    this.configs = new EditorConfigs(options.transport, options.project);
     // After a reconnect, events from the outage are gone: check every buffer again.
     let wasOpen = true;
     this.unsubscribeStatus =
@@ -564,8 +587,10 @@ export class Buffers {
       }) ?? (() => {});
     this.unsubscribe = options.transport.onEvent((event) => {
       if (event.type === "info.resync") {
+        this.configs.forget([".editorconfig"]);
         this.recheck();
       } else if (event.type === "fs.changed" && event.data.project === options.project) {
+        this.configs.forget(event.data.paths);
         for (const path of event.data.paths) void this.buffers.get(path)?.diskChanged();
       } else if (event.type === "fs.git_changed" && event.data.project === options.project) {
         for (const buffer of this.buffers.values()) buffer.git.changed();
@@ -586,7 +611,7 @@ export class Buffers {
   open(path: string): Buffer {
     let buffer = this.buffers.get(path);
     if (!buffer) {
-      buffer = new Buffer(this.options, path);
+      buffer = new Buffer({ ...this.options, editorConfigs: this.configs }, path);
       this.buffers.set(path, buffer);
     }
     return buffer;
@@ -669,12 +694,15 @@ function commentData(language: Language | null): Extension {
   return tokens ? EditorState.languageData.of(() => [{ commentTokens: tokens }]) : [];
 }
 
-/** Word wrap, closing brackets, and the indentation of `fileIndent` (detected at load) or else the preferences. */
-function prefsExtension(fileIndent: string | null, language: Language | null): Extension {
+/**
+ * Word wrap, closing brackets, and the indentation of `fileIndent` (from
+ * `.editorconfig` or detected at load) or else the preferences.
+ */
+function prefsExtension(fileIndent: string | null, tabWidth: number | null, language: Language | null): Extension {
   return [
     editorPrefs.wordWrap ? EditorView.lineWrapping : [],
     editorPrefs.autoCloseBrackets ? autoClose(language) : [],
-    fileIndentation(fileIndent, editorPrefs.tabSize, editorPrefs.insertSpaces),
+    fileIndentation(fileIndent, tabWidth ?? editorPrefs.tabSize, editorPrefs.insertSpaces),
   ];
 }
 

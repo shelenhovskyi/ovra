@@ -17,7 +17,8 @@ export type Saveable = {
   conflict: boolean;
   deleted: boolean;
   error: string | null;
-  save(): Promise<boolean>;
+  /** `automatic`: not asked for by the person, so lines being typed are left as they are. */
+  save(overwrite: boolean, automatic: boolean): Promise<boolean>;
 };
 
 export class AutoSaver {
@@ -61,7 +62,7 @@ export class AutoSaver {
     if (this.saving.has(buffer) || !AutoSaver.ready(buffer)) return;
     this.saving.add(buffer);
     try {
-      await buffer.save();
+      await buffer.save(false, true);
     } finally {
       this.saving.delete(buffer);
     }
