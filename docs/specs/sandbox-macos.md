@@ -103,7 +103,7 @@ Sessions report these (`GAPS` in `src/lib.rs`):
   whose access list trusts `/usr/bin/security`, among them the `gh` login
   (`gh:github.com`), and items can be added, changed and deleted. `claude`
   needs `security` for its own login, so a profile rule cannot close it;
-  the owner must accept this before the sandbox is turned on. A copy of
+  the owner accepted this on 2026-11-27. A copy of
   `git-credential-osxkeychain` the agent downloads (through an allowed
   host) is signed the same and still works, as `security` does;
 - other apps' preferences, read through `cfprefsd` (`defaults read`);
