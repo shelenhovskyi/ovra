@@ -196,7 +196,7 @@ impl Checkout {
         else {
             panic!("{done:?}");
         };
-        (item, conflicts)
+        (*item, conflicts)
     }
 
     /// HEAD, the staged changes and the stash: what direct mode must not
