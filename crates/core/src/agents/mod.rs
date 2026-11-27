@@ -1042,18 +1042,21 @@ impl AgentHost {
             let cwd = s.launch().map(|l| l.cwd);
             let sandbox = s.info().sandbox;
             let always = always(cwd.as_deref(), sandbox.as_ref());
-            Ok(s.permissions.register(PermissionRequest {
-                id: PermissionId(String::new()),
-                session: self.session.clone(),
-                project: s.info().project,
-                cwd: cwd.map(|c| c.to_string_lossy().into_owned()),
-                tool: tool.name.clone(),
-                input: tool.input.clone(),
-                call: tool.call.clone(),
-                title,
-                reason,
-                always,
-            }))
+            Ok(s.permissions.register(
+                PermissionRequest {
+                    id: PermissionId(String::new()),
+                    session: self.session.clone(),
+                    project: s.info().project,
+                    cwd: cwd.map(|c| c.to_string_lossy().into_owned()),
+                    tool: tool.name.clone(),
+                    input: tool.input.clone(),
+                    call: tool.call.clone(),
+                    title,
+                    reason,
+                    always,
+                },
+                !idle,
+            ))
         });
         let (request, answer) = match registered {
             Ok(Ok(registered)) => registered,

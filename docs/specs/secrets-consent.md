@@ -95,8 +95,8 @@ Left for later, each its own small task: a "Used GitHub key" line in the
 transcript and "last used" in Settings (the audit log has `SecretUsed`
 now), "Use in another project", a `basic` format (no preset needs it:
 GitHub, GitLab, Stripe, npm and Hugging Face all take a bearer token,
-and pushes go through the person's own `gh`), masking base64 copies; tests for a worker asking on its own, a resumed
-session keeping its answer, two keys on one host with one allowed, a 4.F
+and pushes go through the person's own `gh`), masking base64 copies;
+tests for a worker asking on its own, a resumed session keeping its answer, two keys on one host with one allowed, a 4.F
 attack that reads a key back through an echoing host, and an e2e run from
 preset to card to Allow; a mark on the core's own `UseKey` and `Push`
 requests, so an agent tool of that name cannot borrow their card's

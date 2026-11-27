@@ -106,6 +106,7 @@ impl AgentHost {
         let _asking = Asked {
             asking: &self.sessions.asking_keys,
             key,
+            gate: gate.clone(),
         };
         let title = format!("Use your {name} key on {}", secret.host);
         let always =
@@ -139,11 +140,19 @@ impl AgentHost {
 struct Asked<'a> {
     asking: &'a Asking,
     key: (SessionId, String),
+    gate: Arc<tokio::sync::Mutex<bool>>,
 }
 
 impl Drop for Asked<'_> {
     fn drop(&mut self) {
-        lock(self.asking).remove(&self.key);
+        let mut asking = lock(self.asking);
+        // A newer question's gate stays.
+        if asking
+            .get(&self.key)
+            .is_some_and(|g| Arc::ptr_eq(g, &self.gate))
+        {
+            asking.remove(&self.key);
+        }
     }
 }
 

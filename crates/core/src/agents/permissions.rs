@@ -20,17 +20,23 @@ struct State {
     pending: Vec<Pending>,
 }
 
-/// A request and where its answer goes, with who gave it.
+/// A request, where its answer goes (with who gave it), and whether it
+/// holds the session's status at `waiting_for_approval` (a key's question
+/// asked while the session was idle does not).
 type Pending = (
     PermissionRequest,
     oneshot::Sender<(PermissionAnswer, DecidedBy)>,
+    bool,
 );
 
 impl Permissions {
     /// Gives `request` its id and keeps it until it is answered.
+    /// `holds`: while it waits, the session shows `waiting_for_approval`
+    /// and no other status but an end.
     pub(crate) fn register(
         &self,
         mut request: PermissionRequest,
+        holds: bool,
     ) -> (
         PermissionRequest,
         oneshot::Receiver<(PermissionAnswer, DecidedBy)>,
@@ -39,7 +45,7 @@ impl Permissions {
         state.asked += 1;
         request.id = PermissionId(format!("perm{}", state.asked));
         let (tx, rx) = oneshot::channel();
-        state.pending.push((request.clone(), tx));
+        state.pending.push((request.clone(), tx, holds));
         (request, rx)
     }
 
@@ -47,15 +53,16 @@ impl Permissions {
         lock(&self.state)
             .pending
             .iter()
-            .map(|(r, _)| r.clone())
+            .map(|(r, _, _)| r.clone())
             .collect()
     }
 
+    /// Whether a request that holds the session's status waits.
     pub(crate) fn has_pending(&self, session: &SessionId) -> bool {
         lock(&self.state)
             .pending
             .iter()
-            .any(|(r, _)| &r.session == session)
+            .any(|(r, _, holds)| *holds && &r.session == session)
     }
 
     /// Passes the person's answer to the waiting agent. `false` if nothing
@@ -67,10 +74,10 @@ impl Permissions {
         by: DecidedBy,
     ) -> bool {
         let mut state = lock(&self.state);
-        let Some(index) = state.pending.iter().position(|(r, _)| &r.id == id) else {
+        let Some(index) = state.pending.iter().position(|(r, _, _)| &r.id == id) else {
             return false;
         };
-        let (_, tx) = state.pending.remove(index);
+        let (_, tx, _) = state.pending.remove(index);
         drop(state);
         // The agent may have stopped waiting; then the answer has no effect.
         let _ = tx.send((answer, by));
@@ -82,12 +89,13 @@ impl Permissions {
     /// [`Taken::answer`], or [`Permissions::put_back`] it.
     pub(crate) fn take(&self, id: &PermissionId) -> Option<Taken> {
         let mut state = lock(&self.state);
-        let index = state.pending.iter().position(|(r, _)| &r.id == id)?;
-        let (request, tx) = state.pending.remove(index);
+        let index = state.pending.iter().position(|(r, _, _)| &r.id == id)?;
+        let (request, tx, holds) = state.pending.remove(index);
         Some(Taken {
             request,
             tx,
             at: index,
+            holds,
         })
     }
 
@@ -106,7 +114,9 @@ impl Permissions {
         }
         let mut state = lock(&self.state);
         let at = taken.at.min(state.pending.len());
-        state.pending.insert(at, (taken.request, taken.tx));
+        state
+            .pending
+            .insert(at, (taken.request, taken.tx, taken.holds));
         true
     }
 
@@ -114,7 +124,7 @@ impl Permissions {
     pub(crate) fn withdraw(&self, id: &PermissionId) -> bool {
         let mut state = lock(&self.state);
         let before = state.pending.len();
-        state.pending.retain(|(r, _)| &r.id != id);
+        state.pending.retain(|(r, _, _)| &r.id != id);
         state.pending.len() != before
     }
 
@@ -128,7 +138,7 @@ impl Permissions {
         let requests = self.drop_requests(session);
         requests
             .into_iter()
-            .map(|(request, tx)| {
+            .map(|(request, tx, _)| {
                 let _ = tx.send((answer.clone(), by.clone()));
                 request.id
             })
@@ -139,7 +149,7 @@ impl Permissions {
     pub(crate) fn drop_session(&self, session: &SessionId) -> Vec<PermissionId> {
         self.drop_requests(session)
             .into_iter()
-            .map(|(request, _)| request.id)
+            .map(|(request, _, _)| request.id)
             .collect()
     }
 
@@ -147,7 +157,7 @@ impl Permissions {
         let mut state = lock(&self.state);
         let (dropped, kept) = std::mem::take(&mut state.pending)
             .into_iter()
-            .partition::<Vec<_>, _>(|(r, _)| &r.session == session);
+            .partition::<Vec<_>, _>(|(r, _, _)| &r.session == session);
         state.pending = kept;
         dropped
     }
@@ -160,6 +170,7 @@ pub(crate) struct Taken {
     tx: oneshot::Sender<(PermissionAnswer, DecidedBy)>,
     /// Its place among the pending requests.
     at: usize,
+    holds: bool,
 }
 
 impl Taken {

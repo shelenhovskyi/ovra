@@ -75,16 +75,25 @@ pub(crate) async fn handle(
             let _changing = core.changing_secrets().await;
             core.project_store().get(&project)?;
             let changed = project.clone();
+            // A key pointed elsewhere loses its UseKey rules first: if
+            // storing the key fails after, only the rule is gone.
+            let (store, listed, name) = (secrets.clone(), project.clone(), secret.name.clone());
+            let old = blocking(move || store.list(&listed)).await?;
+            let rebound = old.iter().any(|o| {
+                o.name == secret.name
+                    && (o.host != secret.host
+                        || o.header != secret.header
+                        || o.prefix != secret.prefix)
+            });
+            if rebound {
+                crate::policy::forget_key(core, &changed, &name)?;
+            }
             let set = blocking(move || {
-                let (same, others): (Vec<SecretInfo>, Vec<SecretInfo>) = secrets
+                let others: Vec<SecretInfo> = secrets
                     .list(&project)?
                     .into_iter()
-                    .partition(|other| other.name == secret.name);
-                let rebound = same.iter().any(|old| {
-                    old.host != secret.host
-                        || old.header != secret.header
-                        || old.prefix != secret.prefix
-                });
+                    .filter(|other| other.name != secret.name)
+                    .collect();
                 let taken = others.iter().find(|other| {
                     same_host(&other.host, &secret.host)
                         && other.header.eq_ignore_ascii_case(&secret.header)
@@ -112,15 +121,11 @@ pub(crate) async fn handle(
                         ),
                     ));
                 }
-                let name = secret.name.clone();
-                secrets.set(&project, secret, value)?;
-                Ok(rebound.then_some(name))
+                secrets.set(&project, secret, value)
             })
             .await;
             crate::audit::forget_secrets(core, &changed);
-            if let Some(name) = set? {
-                crate::policy::forget_key(core, &changed, &name)?;
-            }
+            set?;
             core.emit(SecretsEvent::Changed { project: changed });
             Ok(Response::Ok(OkResponse::Ok))
         }

@@ -375,3 +375,31 @@ async fn requests_that_waited_for_an_unanswered_question_do_not_ask_in_turn() {
         assert!(!asked, "the second request asked again");
     }
 }
+
+#[tokio::test]
+async fn a_turn_started_while_a_key_is_asked_about_shows_working() {
+    let w = world(Some(SandboxNetwork::Proxy)).await;
+    let s1 = SessionId("s1".into());
+    let status = || {
+        w.core
+            .sessions()
+            .find(&s1, |s| s.status().clone())
+            .unwrap_or_else(|e| panic!("{e}"))
+    };
+    for _ in 0..100 {
+        if status() == AgentStatus::Idle {
+            break;
+        }
+        tokio::task::yield_now().await;
+    }
+    let mut rx = w.core.subscribe();
+    let asked = tokio::spawn(w.reporter().key_consent(&gh()));
+    let request = requested(&mut rx).await;
+    // The person's message starts a turn although the card still waits.
+    let host = super::AgentHost::new(s1.clone(), p1(), w.core.sessions().clone(), w.core.sink());
+    assert!(host.set_status(AgentStatus::Working));
+    w.answer(&request, "allow", false).await;
+    assert_eq!(asked.await.ok(), Some(true));
+    assert_eq!(status(), AgentStatus::Working);
+    assert!(host.set_status(AgentStatus::Idle), "the turn's end is seen");
+}
