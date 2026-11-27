@@ -1,6 +1,7 @@
 # Agents on a remote machine over SSH
 
-Status: draft, waiting for the owner's approval. Architecture: ADR 0016.
+Status: approved by the owner on 2026-11-27 as written (agent limit per
+machine). Architecture: ADR 0016.
 Security code: every step that touches `crates/ssh`, the SSH command line,
 the host key pins, the frame bridge or the remote window's capabilities
 gets an independent security review before it lands. The first review

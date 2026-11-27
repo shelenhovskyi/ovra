@@ -1,7 +1,7 @@
 # 0016. Remote machines over the person's own SSH
 
-- Status: proposed (owner approved the feature on 2026-11-27; the spec
-  waits for approval)
+- Status: accepted (owner, 2026-11-27, spec approved as written with a
+  limit of agents per machine)
 - Date: 2026-11-27
 - Amends: ADR 0003 (a second, tokenless entry, `ovra-daemon --stdio`,
   whose authentication is the remote machine's sshd)
