@@ -82,11 +82,19 @@ pub(super) struct Entry {
     /// from them: the next comment tells it.
     #[serde(default)]
     pub(super) discards: BTreeSet<String>,
+    /// The project's last finished check of this item.
+    #[serde(default)]
+    pub(super) check: Option<super::check::Saved>,
 }
 
 /// Open, or published and so still the worker's live work.
-fn live(state: ReviewState) -> bool {
+pub(super) fn live(state: ReviewState) -> bool {
     matches!(state, ReviewState::Open | ReviewState::Published)
+}
+
+/// A decided item's files and the diffs kept of them.
+pub(super) fn decided(entry: &Entry) -> (&[FileChange], &BTreeMap<String, String>) {
+    (&entry.decided, &entry.decided_diffs)
 }
 
 /// What changed in the repository's hooks and config since a session
@@ -157,6 +165,7 @@ pub(crate) fn set_workspace(core: &Core, session: &SessionId, workspace: Workspa
         agent_pushed: None,
         discarded: None,
         discards: BTreeSet::new(),
+        check: None,
     });
     orchestration.save(&state);
 }
@@ -362,6 +371,20 @@ pub(super) async fn handle(core: &Core, request: ReviewRequest) -> Result<Respon
             let lines = super::check::log(core, &entry.session, &id)?;
             Ok(Response::Review(ReviewResponse::CheckLog { lines }))
         }
+        ReviewRequest::RunCheck { id } => {
+            let entry = find(core, &id)?;
+            check_open(&entry)?;
+            if super::tasks::cleaned(core, &entry.session) {
+                return Err(conflict("this agent's copy was removed"));
+            }
+            super::check::start(core, &entry).await;
+            Ok(Response::Ok(OkResponse::Ok))
+        }
+        ReviewRequest::Warnings { id } => {
+            let entry = find(core, &id)?;
+            let warnings = super::warnings::of(core, &entry).await?;
+            Ok(Response::Review(ReviewResponse::Warnings { warnings }))
+        }
     }
 }
 
@@ -479,7 +502,7 @@ async fn current(core: &Core, entry: &Entry) -> Result<(ReviewItem, Option<Strin
         git_changes: git.changes,
         git_unchecked: git.unchecked,
         pull_request: entry.pull_request.clone().map(Box::new),
-        check: super::check::view(core, &entry.session, &entry.id),
+        check: super::check::view(core, entry, tree.as_ref()),
     };
     Ok((item, tree))
 }
@@ -1362,6 +1385,7 @@ fn open_after(core: &Core, decided: &Entry) -> Entry {
         pending_push: None,
         agent_pushed: None,
         discarded: None,
+        check: None,
         ..decided.clone()
     };
     // New work ends the undo of the decided item's last replace.

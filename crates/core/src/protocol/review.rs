@@ -117,8 +117,9 @@ pub struct ReviewItem {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pull_request: Option<Box<PullRequest>>,
     /// The project's check (`.ovra/check.json`) run in a worker's worktree
-    /// when it asked for review (`docs/specs/review-check.md`); `None`
-    /// without a check, or once the worker worked again.
+    /// when it asked for review, or in a person's own session's workspace
+    /// when its turn ended with changes (`docs/specs/review-check.md`);
+    /// `None` without a check.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub check: Option<Box<ReviewCheck>>,
 }
@@ -143,6 +144,46 @@ pub struct ReviewCheck {
     /// Why it failed, in words ("exit code 1", "timed out after 600 s").
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub detail: Option<String>,
+    /// It judged files that changed since: `review.run_check` runs it again.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub stale: bool,
+}
+
+/// What a line or file of an item's diff does to the project's tests and
+/// checks (`review.warnings`). Closed set: the inbox words each one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ReviewWarningKind {
+    /// A test file was deleted.
+    TestDeleted,
+    /// Lines of an existing test file were removed or rewritten.
+    TestEdited,
+    /// An assertion was removed (`old` line).
+    AssertionRemoved,
+    /// A test was skipped, marked to ignore, or narrowed with `only`.
+    TestSkipped,
+    /// A lint, type or compiler check was silenced on a line.
+    CheckSilenced,
+    /// A file that sets up the project's checks changed: CI, lint or test
+    /// runner config.
+    CheckConfig,
+}
+
+/// One thing in an item's diff for the person to look at closely.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReviewWarning {
+    pub kind: ReviewWarningKind,
+    /// Relative to the project root.
+    pub path: String,
+    /// From 1, in the agent's version; with `old`, in the base version.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub line: Option<u32>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub old: bool,
+    /// The line as the agent left it (or removed it), trimmed and cut. It
+    /// comes from the agent: plain text only.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
 }
 
 /// A changed file of the git folder or hooks folder, by the name
@@ -242,6 +283,15 @@ pub enum ReviewRequest {
     /// lines. Answers `review.check_log`.
     #[serde(rename = "review.check_log")]
     CheckLog { id: ReviewId },
+    /// Runs the project's check again for an open item, now if its agent
+    /// is not working, else once its turn ends. Answers `ok`; the item's
+    /// `review.changed` follows.
+    #[serde(rename = "review.run_check")]
+    RunCheck { id: ReviewId },
+    /// What the agent's changes in the item do to the project's tests and
+    /// checks. Answers `review.warnings`.
+    #[serde(rename = "review.warnings")]
+    Warnings { id: ReviewId },
 }
 
 /// The person's comment on one line of a file's diff (`review.comment`).
@@ -285,6 +335,9 @@ pub enum ReviewResponse {
     /// Stdout and stderr merged, oldest first, without line endings.
     #[serde(rename = "review.check_log")]
     CheckLog { lines: Vec<String> },
+    /// In file order, then line order; at most a few per file.
+    #[serde(rename = "review.warnings")]
+    Warnings { warnings: Vec<ReviewWarning> },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

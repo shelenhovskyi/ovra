@@ -23,6 +23,7 @@ mod saved;
 mod setup;
 mod slots;
 mod tasks;
+mod warnings;
 mod watch;
 
 use std::collections::{BTreeMap, BTreeSet};

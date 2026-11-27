@@ -65,7 +65,7 @@ export type ReviewItem = {
   git_unchecked: boolean;
   /** The pull request a worker's item was published as; absent without one. */
   pull_request?: PullRequest;
-  /** The project's check, run in a worker's worktree when it asked for review; absent without one. */
+  /** The project's check, run when a worker asked for review or a person's own agent ended a turn with changes; absent without one. */
   check?: ReviewCheck;
 };
 
@@ -79,6 +79,26 @@ export type ReviewCheck = {
   command: string;
   /** Why it failed, in words. */
   detail?: string;
+  /** It judged files that changed since; `review.run_check` runs it again. */
+  stale?: boolean;
+};
+
+/** What a line or file of the agent's diff does to the project's tests and checks. */
+export type ReviewWarningKind =
+  | "test_deleted"
+  | "test_edited"
+  | "assertion_removed"
+  | "test_skipped"
+  | "check_silenced"
+  | "check_config";
+
+/** One thing to look at closely; `line` from 1, in the base version with `old`. `text` comes from the agent: plain text only. */
+export type ReviewWarning = {
+  kind: ReviewWarningKind;
+  path: string;
+  line?: number;
+  old?: boolean;
+  text?: string;
 };
 
 /** A changed file of the git folder or hooks folder, such as `.git/hooks/pre-commit`. */
@@ -130,7 +150,11 @@ export type ReviewRequest =
    */
   | { method: "review.comment"; params: { id: ReviewId; text: string; lines?: LineComment[] } }
   /** The last lines of the item's check output. */
-  | { method: "review.check_log"; params: { id: ReviewId } };
+  | { method: "review.check_log"; params: { id: ReviewId } }
+  /** Runs the project's check again for an open item (once its agent's turn ends). Answers `ok`. */
+  | { method: "review.run_check"; params: { id: ReviewId } }
+  /** What the agent's changes do to the project's tests and checks. */
+  | { method: "review.warnings"; params: { id: ReviewId } };
 
 export type ReviewResponse =
   | { type: "review.list"; data: ReviewItem[] }
@@ -139,7 +163,8 @@ export type ReviewResponse =
   /** After approve, reject or undo; `conflicts` are files left for the person, `restored` what a reject restored or an undo put back. */
   | { type: "review.done"; data: { item: ReviewItem; conflicts: string[]; restored: string[] } }
   /** Stdout and stderr merged, oldest first. */
-  | { type: "review.check_log"; data: { lines: string[] } };
+  | { type: "review.check_log"; data: { lines: string[] } }
+  | { type: "review.warnings"; data: { warnings: ReviewWarning[] } };
 
 export type ReviewEvent =
   /** Re-fetch the list. */

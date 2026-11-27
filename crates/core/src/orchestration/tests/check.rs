@@ -292,3 +292,225 @@ async fn a_request_during_the_turn_runs_once_the_turn_ends() {
     assert_eq!(done, Some(ReviewCheckState::Passed));
     assert_eq!(setups(&f, 1).await, 1);
 }
+
+/// Waits until `f`'s fake pod got `n` runs, then lets them finish.
+async fn passes(f: &Checked, rx: &mut broadcast::Receiver<Event>, n: usize) -> Option<ReviewCheck> {
+    let runs = || f.dev.setups.lock().map(|s| s.len()).unwrap_or(0);
+    loop {
+        if runs() >= n {
+            break;
+        }
+        match Core::next_event(rx).await {
+            Some(_) => {}
+            None => panic!("core closed"),
+        }
+    }
+    settled(&f.core, rx).await
+}
+
+/// A solo task's agent, `s1`, idle after its first turn; its worktree.
+async fn solo(f: &Checked, rx: &mut broadcast::Receiver<Event>) -> String {
+    let start = json!({"method": "orchestration.start", "params": {
+        "project": "p1", "prompt": "fix it", "agent": "claude", "solo": true}});
+    let Response::Orchestration(OrchestrationResponse::Task(task)) = ok(&f.core, start).await
+    else {
+        panic!("no task");
+    };
+    until(rx, "s1", AgentStatus::Idle).await;
+    task.workers[0].worktree.clone()
+}
+
+async fn turn(core: &Core, rx: &mut broadcast::Receiver<Event>, text: &str) {
+    let send = json!({"method": "agents.send", "params": {"session": "s1", "text": text}});
+    ok(core, send).await;
+    until(rx, "s1", AgentStatus::Working).await;
+    until(rx, "s1", AgentStatus::Idle).await;
+}
+
+#[tokio::test]
+async fn a_persons_own_agent_is_checked_when_a_turn_leaves_new_changes() {
+    let f = checked(Some(r#"{"command": ["just", "check"]}"#)).await;
+    let mut rx = f.core.subscribe();
+    let worktree = solo(&f, &mut rx).await;
+    // A turn without changes runs nothing.
+    assert_eq!(check(&f.core).await, None);
+
+    f.wt.put(&worktree, "a.rs", "two\n");
+    turn(&f.core, &mut rx, "go on").await;
+    let done = passes(&f, &mut rx, 1).await.map(|c| (c.state, c.stale));
+    assert_eq!(done, Some((ReviewCheckState::Passed, false)));
+    let pods = f.dev.setups.lock().map(|s| s.clone()).unwrap_or_default();
+    assert_eq!(pods[0].0.work_dir, PathBuf::from(&worktree));
+
+    // A turn that changes nothing keeps the result; the files it judged
+    // are still there.
+    turn(&f.core, &mut rx, "anything else?").await;
+    let kept = check(&f.core).await.map(|c| (c.state, c.stale));
+    assert_eq!(kept, Some((ReviewCheckState::Passed, false)));
+    assert_eq!(f.dev.setups.lock().map(|s| s.len()).unwrap_or(0), 1);
+
+    // Files changed outside a turn: the result is stale until it runs again.
+    f.wt.put(&worktree, "a.rs", "three\n");
+    let stale = check(&f.core).await.map(|c| (c.state, c.stale));
+    assert_eq!(stale, Some((ReviewCheckState::Passed, true)));
+    *f.dev.setup_end.lock().unwrap_or_else(|e| e.into_inner()) = Some(SetupEnd::Failed {
+        step: 0,
+        code: Some(1),
+        reason: None,
+    });
+    ok(
+        &f.core,
+        json!({"method": "review.run_check", "params": {"id": "r1"}}),
+    )
+    .await;
+    let again = passes(&f, &mut rx, 2).await.map(|c| (c.state, c.stale));
+    assert_eq!(again, Some((ReviewCheckState::Failed, false)));
+}
+
+#[tokio::test]
+async fn a_finished_check_is_kept_across_a_restart_without_its_log() {
+    let projects = Arc::new(MemoryProjects::default());
+    let sessions = Arc::new(crate::fakes::MemorySessions::default());
+    let wt = Arc::new(MemoryWorktrees::default());
+    let fs = Arc::new(MemoryFs::default());
+    let dev = Arc::new(FakeDevServers::default());
+    wt.put(ROOT, "a.rs", "one\n");
+    fs.put(
+        std::path::Path::new(ROOT),
+        ".ovra/check.json",
+        r#"{"command": ["just", "check"]}"#,
+    );
+    let build = || {
+        Core::builder("test")
+            .projects(projects.clone())
+            .sessions(sessions.clone())
+            .fs(fs.clone())
+            .agents(Arc::new(ScriptedAgent::new(say())))
+            .worktrees(wt.clone())
+            .worktrees_dir(PathBuf::from(WORKTREES))
+            .dev_servers(dev.clone())
+            .build()
+    };
+    let f = Checked {
+        core: build(),
+        dev: dev.clone(),
+        fs: fs.clone(),
+        wt: wt.clone(),
+    };
+    ok(
+        &f.core,
+        json!({"method": "projects.add", "params": {"root": ROOT}}),
+    )
+    .await;
+    let mut rx = f.core.subscribe();
+    let worktree = solo(&f, &mut rx).await;
+    f.wt.put(&worktree, "a.rs", "two\n");
+    turn(&f.core, &mut rx, "go on").await;
+    assert!(passes(&f, &mut rx, 1).await.is_some());
+    drop(f);
+
+    let after = build();
+    let kept = check(&after).await.map(|c| (c.state, c.stale));
+    assert_eq!(kept, Some((ReviewCheckState::Passed, false)));
+    let lines = log(&after).await.unwrap_or_default();
+    assert_eq!(
+        lines,
+        ["Ovra keeps a check's output only until it restarts."]
+    );
+}
+
+#[tokio::test]
+async fn a_direct_agent_is_checked_in_the_main_checkouts_pod() {
+    let runtime = Arc::new(WithDirect {
+        scripted: ScriptedAgent::new(say()),
+        direct: std::sync::Mutex::new(None),
+    });
+    let wt = Arc::new(MemoryWorktrees::default());
+    let fs = Arc::new(MemoryFs::default());
+    let dev = Arc::new(FakeDevServers::default());
+    wt.put(ROOT, "a.rs", "one\n");
+    fs.put(
+        std::path::Path::new(ROOT),
+        ".ovra/check.json",
+        r#"{"command": ["just", "check"]}"#,
+    );
+    let core = Core::builder("test")
+        .projects(Arc::new(MemoryProjects::default()))
+        .fs(fs.clone())
+        .agents(runtime.clone())
+        .worktrees(wt.clone())
+        .worktrees_dir(PathBuf::from(WORKTREES))
+        .dev_servers(dev.clone())
+        .build();
+    ok(
+        &core,
+        json!({"method": "projects.add", "params": {"root": ROOT}}),
+    )
+    .await;
+    let mut rx = core.subscribe();
+    ok(
+        &core,
+        json!({"method": "agents.start", "params": {
+            "project": "p1", "agent": "claude", "mode": "direct", "prompt": "go"}}),
+    )
+    .await;
+    let fx = DirectFx {
+        core: core.clone(),
+        wt: wt.clone(),
+        runtime: runtime.clone(),
+        worktree: String::new(),
+    };
+    let host = runtime
+        .direct
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .clone()
+        .unwrap_or_else(|| panic!("no direct session"));
+    host.status(AgentStatus::Working);
+    fx.direct_writes("a.rs", "two\n").await;
+    host.status(AgentStatus::Idle);
+    let f = Checked { core, dev, fs, wt };
+    let done = passes(&f, &mut rx, 1).await.map(|c| c.state);
+    assert_eq!(done, Some(ReviewCheckState::Passed));
+    let pods = f.dev.setups.lock().map(|s| s.clone()).unwrap_or_default();
+    let (pod, steps) = &pods[0];
+    assert_eq!(pod.work_dir, PathBuf::from(ROOT));
+    assert_eq!(steps[0].line.cwd, PathBuf::from(ROOT));
+    // The main checkout's own pod, not one for a worker's worktree.
+    assert!(!pod.profile.work_dir_read_only);
+}
+
+#[tokio::test]
+async fn warnings_point_at_the_tests_an_agent_weakened() {
+    let f = checked(None).await;
+    let mut rx = f.core.subscribe();
+    f.wt.put(
+        ROOT,
+        "src/a.test.ts",
+        "it('adds', () => {\n  expect(add(1, 1)).toBe(2);\n});\n",
+    );
+    let worktree = solo(&f, &mut rx).await;
+    f.wt.put(&worktree, "src/a.test.ts", "it.skip('adds', () => {\n});\n");
+    f.wt.put(
+        &worktree,
+        "src/b.ts",
+        "// eslint-disable-next-line\nexport const b = 1;\n",
+    );
+    let request = json!({"method": "review.warnings", "params": {"id": "r1"}});
+    let Response::Review(ReviewResponse::Warnings { warnings }) = ok(&f.core, request).await else {
+        panic!("no warnings");
+    };
+    let found: Vec<_> = warnings
+        .iter()
+        .map(|w| (w.kind, w.path.as_str(), w.line, w.old))
+        .collect();
+    use crate::protocol::review::ReviewWarningKind as K;
+    assert_eq!(
+        found,
+        [
+            (K::AssertionRemoved, "src/a.test.ts", Some(2), true),
+            (K::TestSkipped, "src/a.test.ts", Some(1), false),
+            (K::CheckSilenced, "src/b.ts", Some(1), false),
+        ]
+    );
+}

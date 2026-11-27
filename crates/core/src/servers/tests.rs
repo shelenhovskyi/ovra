@@ -700,7 +700,7 @@ async fn steps_run_once_in_the_work_dirs_pod_and_its_proxy_ends_after() {
     let end = super::run_steps(
         &f.core,
         &ProjectId("p1".into()),
-        &SessionId("s9".into()),
+        Some(&SessionId("s9".into())),
         dir.clone(),
         vec![step],
         Arc::new(Quiet),
@@ -748,7 +748,15 @@ async fn a_dropped_run_of_steps_ends_its_pods_proxy_too() {
     let core = f.core.clone();
     let run = tokio::spawn(async move {
         let (project, session) = (ProjectId("p1".into()), SessionId("s9".into()));
-        super::run_steps(&core, &project, &session, dir, vec![step], Arc::new(Quiet)).await
+        super::run_steps(
+            &core,
+            &project,
+            Some(&session),
+            dir,
+            vec![step],
+            Arc::new(Quiet),
+        )
+        .await
     });
     let proxies = || f.net.running.lock().map(|r| r.len()).unwrap_or_default();
     for _ in 0..100 {

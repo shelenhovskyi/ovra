@@ -72,6 +72,8 @@ pub(crate) fn allows(request: &Request) -> bool {
             ReviewRequest::List { .. } => true,
             ReviewRequest::Diff { .. }
             | ReviewRequest::CheckLog { .. }
+            | ReviewRequest::RunCheck { .. }
+            | ReviewRequest::Warnings { .. }
             | ReviewRequest::Approve { .. }
             | ReviewRequest::Reject { .. }
             | ReviewRequest::UndoReject { .. }

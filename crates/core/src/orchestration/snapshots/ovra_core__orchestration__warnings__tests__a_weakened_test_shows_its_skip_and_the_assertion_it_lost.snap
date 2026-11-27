@@ -1,0 +1,19 @@
+---
+source: crates/core/src/orchestration/warnings.rs
+expression: found
+---
+[
+  {
+    "kind": "assertion_removed",
+    "path": "crates/x/tests/it.rs",
+    "line": 13,
+    "old": true,
+    "text": "assert_eq!(add(2, 2), 4);"
+  },
+  {
+    "kind": "test_skipped",
+    "path": "crates/x/tests/it.rs",
+    "line": 12,
+    "text": "#[ignore]"
+  }
+]

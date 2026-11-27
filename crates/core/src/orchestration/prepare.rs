@@ -430,9 +430,15 @@ async fn run_setup(
         commands: commands.clone(),
         log: Mutex::default(),
     });
-    let end =
-        crate::servers::run_steps(core, project, session, dir.to_owned(), lines, sink.clone())
-            .await;
+    let end = crate::servers::run_steps(
+        core,
+        project,
+        Some(session),
+        dir.to_owned(),
+        lines,
+        sink.clone(),
+    )
+    .await;
     let why = match end {
         Ok(SetupEnd::Done) => None,
         Ok(SetupEnd::Failed { step, code, reason }) => {

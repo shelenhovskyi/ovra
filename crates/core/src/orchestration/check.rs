@@ -1,9 +1,11 @@
 //! The project's check before review (`docs/specs/review-check.md`): when a
-//! worker asks for review, the command in `.ovra/check.json` of the main
-//! checkout runs once in the worker's worktree, in that worktree's pod
-//! ([`crate::servers::run_steps`]), so it gets no more than the worker has.
-//! `.ovra` is protected, so only the person defines what runs. Results stay
-//! in memory with the review item and go once the worker works again.
+//! worker asks for review, or a person's own agent ends a turn with changes
+//! the check has not judged, the command in `.ovra/check.json` of the main
+//! checkout runs once in the agent's workspace, in that workspace's pod
+//! ([`crate::servers::run_steps`]), so it gets no more than the agent has.
+//! `.ovra` is protected, so only the person defines what runs. A finished
+//! result is saved with the review item, with the files it judged; its log
+//! stays in memory.
 
 use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
@@ -12,13 +14,15 @@ use std::time::Duration;
 
 use serde::Deserialize;
 
-use super::review::Entry;
+use super::review::{self, Entry};
 use crate::Core;
 use crate::core::WeakCore;
 use crate::path::RelPath;
-use crate::protocol::agents::{AgentStatus, SessionId};
+use crate::protocol::agents::{AgentStatus, SessionId, SessionMode};
 use crate::protocol::fs::FileBody;
-use crate::protocol::review::{ReviewCheck, ReviewCheckState, ReviewEvent, ReviewId};
+use crate::protocol::review::{
+    ChangedBy, ReviewCheck, ReviewCheckState, ReviewEvent, ReviewId, ReviewState,
+};
 use crate::protocol::{ErrorCode, ProtocolError};
 use crate::services::{CommandLine, FsService, SetupEnd, SetupSink, SetupStep};
 
@@ -51,7 +55,15 @@ struct File {
     timeout: Option<u64>,
 }
 
-/// One run, kept per worker: only its latest request counts.
+/// A finished check, saved with its review item.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub(super) struct Saved {
+    check: ReviewCheck,
+    /// The look of the workspace it judged, if it could be read.
+    tree: Option<String>,
+}
+
+/// One run, kept per session: only its latest request counts.
 #[derive(Debug)]
 pub(super) struct Run {
     review: ReviewId,
@@ -135,10 +147,30 @@ pub(super) async fn start(core: &Core, entry: &Entry) {
         Err(_) => return,
     };
     let def = read(core.fs_service(), &root).await;
+    // An ended session's workspace waits for the person: nothing changes it.
     let idle = core
         .sessions()
-        .find(&session, |s| *s.status() == AgentStatus::Idle)
+        .find(&session, |s| {
+            *s.status() == AgentStatus::Idle || s.status().is_ended()
+        })
         .unwrap_or(false);
+    let cleared = if !matches!(def, Ok(Some(_))) {
+        let saved = match &def {
+            Err(_) => Some(Saved {
+                check: ReviewCheck {
+                    state: ReviewCheckState::Failed,
+                    command: FILE.to_owned(),
+                    detail: Some("the check file is broken".to_owned()),
+                    stale: false,
+                },
+                tree: None,
+            }),
+            _ => None,
+        };
+        save(core, &entry.id, saved)
+    } else {
+        false
+    };
     let state = core.orchestration_state();
     let launch_now = {
         let mut guard = state.lock();
@@ -186,7 +218,7 @@ pub(super) async fn start(core: &Core, entry: &Entry) {
             Some(new) => guard.checks.insert(session.clone(), new).is_some(),
             None => guard.checks.remove(&session).is_some(),
         };
-        if !shown && !had {
+        if !shown && !had && !cleared {
             return;
         }
         launch_now
@@ -218,16 +250,23 @@ fn launch(core: &Core, entry: &Entry, def: Def, generation: u64) {
     });
     let (core2, entry2) = (core.clone(), entry.clone());
     let task = runtime.spawn(async move {
+        // What it judges: the workspace as the turn left it.
+        let tree = review::listed(&core2, &entry2, None)
+            .await
+            .ok()
+            .and_then(|(_, _, tree)| tree);
+        // A direct session works in the main checkout, which has its own pod.
+        let session = (entry2.mode != SessionMode::Direct).then_some(&entry2.session);
         let end = crate::servers::run_steps(
             &core2,
             &entry2.project,
-            &entry2.session,
+            session,
             entry2.workspace.dir.clone(),
             vec![step],
             sink,
         )
         .await;
-        finish(&core2, &entry2, generation, end, def.timeout);
+        finish(&core2, &entry2, generation, end, def.timeout, tree);
     });
     let state = core.orchestration_state();
     let mut guard = state.lock();
@@ -247,6 +286,7 @@ fn finish(
     generation: u64,
     end: Result<SetupEnd, ProtocolError>,
     timeout: Duration,
+    tree: Option<String>,
 ) {
     let (state, detail) = match end {
         Ok(SetupEnd::Done) => (ReviewCheckState::Passed, None),
@@ -283,11 +323,38 @@ fn finish(
             return;
         }
         run.state = state;
-        run.detail = detail;
+        run.detail = detail.clone();
         // Finished: nothing left to abort.
         run.task = None;
+        let saved = Saved {
+            check: ReviewCheck {
+                state,
+                command: run.command.clone(),
+                detail,
+                stale: false,
+            },
+            tree,
+        };
+        drop(guard);
+        save(core, &entry.id, Some(saved));
     }
     changed(core, entry);
+}
+
+/// Saves the item's finished check, or forgets it; whether that changed
+/// anything. The caller tells the clients.
+fn save(core: &Core, review: &ReviewId, saved: Option<Saved>) -> bool {
+    let orchestration = core.orchestration_state();
+    let mut state = orchestration.lock();
+    let Some(entry) = state.reviews.iter_mut().find(|r| &r.id == review) else {
+        return false;
+    };
+    if entry.check.is_none() && saved.is_none() {
+        return false;
+    }
+    entry.check = saved;
+    orchestration.save(&state);
+    true
 }
 
 fn changed(core: &Core, entry: &Entry) {
@@ -297,19 +364,31 @@ fn changed(core: &Core, entry: &Entry) {
     });
 }
 
-/// What the item `review` shows of its worker's latest check.
-pub(super) fn view(
-    core: &Core,
-    session: &SessionId,
-    review: &ReviewId,
-) -> Option<Box<ReviewCheck>> {
-    let state = core.orchestration_state();
-    let guard = state.lock();
-    let run = guard.checks.get(session).filter(|r| &r.review == review)?;
+/// What `entry`'s item shows of its latest check: a run in progress, else
+/// the saved result, stale when the workspace's look `now` is not the one
+/// it judged.
+pub(super) fn view(core: &Core, entry: &Entry, now: Option<&String>) -> Option<Box<ReviewCheck>> {
+    {
+        let state = core.orchestration_state();
+        let guard = state.lock();
+        if let Some(run) = guard
+            .checks
+            .get(&entry.session)
+            .filter(|r| r.review == entry.id && r.unfinished())
+        {
+            return Some(Box::new(ReviewCheck {
+                state: run.state,
+                command: run.command.clone(),
+                detail: run.detail.clone(),
+                stale: false,
+            }));
+        }
+    }
+    let saved = entry.check.as_ref()?;
+    let stale = matches!((&saved.tree, now), (Some(then), Some(now)) if then != now);
     Some(Box::new(ReviewCheck {
-        state: run.state,
-        command: run.command.clone(),
-        detail: run.detail.clone(),
+        stale,
+        ..saved.check.clone()
     }))
 }
 
@@ -321,12 +400,16 @@ pub(super) fn log(
 ) -> Result<Vec<String>, ProtocolError> {
     let state = core.orchestration_state();
     let guard = state.lock();
-    guard
-        .checks
-        .get(session)
-        .filter(|r| &r.review == review)
-        .map(|r| r.log.iter().cloned().collect())
-        .ok_or_else(|| super::not_found(format!("a check of review {}", review.0)))
+    if let Some(run) = guard.checks.get(session).filter(|r| &r.review == review) {
+        return Ok(run.log.iter().cloned().collect());
+    }
+    drop(guard);
+    match review::find(core, review)?.check {
+        Some(_) => Ok(vec![
+            "Ovra keeps a check's output only until it restarts.".to_owned(),
+        ]),
+        None => Err(super::not_found(format!("a check of review {}", review.0))),
+    }
 }
 
 /// Kills the worker's check if it has not finished (its review was
@@ -345,13 +428,23 @@ pub(super) fn forget(core: &Core, session: &SessionId) {
     }
 }
 
-/// A waiting check starts when the worker's turn ends. Once the worker
-/// works again after that, the check judged files that are gone, and goes;
-/// once the worker ends, an unfinished check goes with it.
+/// A waiting check starts when the agent's turn ends. Once the agent works
+/// again after that, an unfinished check judges files that are changing,
+/// and goes (a finished one stays, and shows as stale once the files
+/// differ); once the agent ends, an unfinished check goes with it. A
+/// person's own session's turn that left changes the check has not judged
+/// starts one.
 pub(super) fn on_status(core: &Core, session: &SessionId, status: &AgentStatus) {
     if status.is_ended() {
         forget(core, session);
         return;
+    }
+    if *status == AgentStatus::Idle && own(core, session) {
+        let core = core.clone();
+        let session = session.clone();
+        if let Ok(runtime) = tokio::runtime::Handle::try_current() {
+            runtime.spawn(async move { after_turn(&core, &session).await });
+        }
     }
     let state = core.orchestration_state();
     let (launch_now, dropped) = {
@@ -364,7 +457,9 @@ pub(super) fn on_status(core: &Core, session: &SessionId, status: &AgentStatus) 
                 let generation = run.generation;
                 (run.pending.take().map(|p| (p, generation)), None)
             }
-            AgentStatus::Working | AgentStatus::Starting if run.pending.is_none() => {
+            AgentStatus::Working | AgentStatus::Starting
+                if run.pending.is_none() && run.unfinished() =>
+            {
                 (None, guard.checks.remove(session))
             }
             _ => (None, None),
@@ -375,6 +470,43 @@ pub(super) fn on_status(core: &Core, session: &SessionId, status: &AgentStatus) 
     }
     if let Some(run) = dropped {
         tell(core, session, &run);
+    }
+}
+
+/// A session the person started themselves: not a worker of a task with a
+/// coordinator, which asks for review when its part is done.
+fn own(core: &Core, session: &SessionId) -> bool {
+    super::tasks::of_worker(core, session).is_none_or(|task| task.solo)
+}
+
+/// Runs the check for a person's own session whose turn left changes by the
+/// agent that the check has not judged yet.
+async fn after_turn(core: &Core, session: &SessionId) {
+    let Some(entry) = review::of_session(core, session) else {
+        return;
+    };
+    if entry.state != ReviewState::Open {
+        return;
+    }
+    let busy = {
+        let state = core.orchestration_state();
+        let guard = state.lock();
+        guard.checks.get(session).is_some_and(Run::unfinished)
+    };
+    if busy {
+        return;
+    }
+    let Ok((files, _, tree)) = review::listed(core, &entry, None).await else {
+        return;
+    };
+    if !files.iter().any(|f| f.by != ChangedBy::Outside) {
+        return;
+    }
+    let judged = entry.check.as_ref().is_some_and(|saved| {
+        saved.tree.is_some() && saved.tree == tree && saved.check.state != ReviewCheckState::NotRun
+    });
+    if !judged {
+        start(core, &entry).await;
     }
 }
 

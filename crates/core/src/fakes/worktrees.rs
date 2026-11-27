@@ -112,7 +112,12 @@ fn lines(text: Option<&String>) -> Vec<&str> {
 
 /// Every old line removed, every new line added.
 fn unified(path: &str, old: Option<&String>, new: Option<&String>) -> String {
-    let mut patch = format!("--- a/{path}\n+++ b/{path}\n");
+    let (old_lines, new_lines) = (lines(old).len(), lines(new).len());
+    let mut patch = format!(
+        "--- a/{path}\n+++ b/{path}\n@@ -{},{old_lines} +{},{new_lines} @@\n",
+        old_lines.min(1),
+        new_lines.min(1)
+    );
     for line in lines(old) {
         patch.push_str(&format!("-{line}\n"));
     }
@@ -226,8 +231,19 @@ impl Worktrees for MemoryWorktrees {
         })
     }
 
+    /// Like git's tree of the working tree: the same files, the same id.
     fn look(&self, dir: PathBuf) -> BoxFuture<'_, Result<String>> {
-        self.snapshot(dir)
+        Box::pin(async move {
+            if self.slow_snapshot.load(Ordering::Relaxed) {
+                tokio::task::yield_now().await;
+            }
+            let files = self.tree(&dir)?;
+            let seen = lock(&self.commits).iter().rposition(|c| *c == files);
+            Ok(match seen {
+                Some(i) => format!("c{}", i + 1),
+                None => self.record(files),
+            })
+        })
     }
 
     fn git_files(&self, dir: PathBuf) -> BoxFuture<'_, Result<GitFiles>> {

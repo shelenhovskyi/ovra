@@ -257,14 +257,15 @@ async fn list(core: &Core, place: &Place) -> ServerList {
 }
 
 /// Runs `steps` once, in order, in the pod of the work dir `dir` (the
-/// worker `session`'s worktree), for a worktree's setup
+/// worker `session`'s worktree, or with `None` the main checkout), for a
+/// worktree's setup
 /// (`docs/specs/worktree-setup.md`): builds the pod's spec, starts its
 /// netproxy if no server runs there, calls [`DevServers::setup`], and ends
 /// the netproxy afterwards unless a server of that pod runs by then.
 pub(crate) async fn run_steps(
     core: &Core,
     project: &ProjectId,
-    session: &SessionId,
+    session: Option<&SessionId>,
     dir: PathBuf,
     steps: Vec<crate::services::SetupStep>,
     sink: Arc<dyn crate::services::SetupSink>,
@@ -275,7 +276,7 @@ pub(crate) async fn run_steps(
     }
     let place = Place {
         project: project.clone(),
-        session: Some(session.clone()),
+        session: session.cloned(),
         dir,
     };
     let pod = {
