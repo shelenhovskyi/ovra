@@ -15,6 +15,7 @@ export type PaneId =
   | "keyboard"
   | "notifications"
   | "phone"
+  | "machines"
   | "accessibility"
   | "about";
 
@@ -109,6 +110,13 @@ export const PANES: Pane[] = [
     line: "See and answer your agents from your phone, on the same Wi-Fi.",
     group: "ovra",
     keywords: ["mobile", "remote", "pair", "qr", "companion"],
+  },
+  {
+    id: "machines",
+    title: "Remote machines",
+    line: "Run agents on another Linux computer you reach over SSH, each in a window of its own.",
+    group: "ovra",
+    keywords: ["ssh", "server", "remote", "connect to remote machine", "host key", "fingerprint"],
   },
   {
     id: "keyboard",

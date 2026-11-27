@@ -32,6 +32,8 @@ import Keybindings from "../keys/Keybindings.svelte";
 import type { CoreInfo, HistoryEntry } from "../lib/protocol";
 import type { ConnectionStatus, Transport } from "../lib/transport";
 import LanguageServers from "../lsp/LanguageServers.svelte";
+import { registerMachineCommands } from "../machines/commands";
+import LinkBanner from "../machines/LinkBanner.svelte";
 import ContextMenu from "../menu/ContextMenu.svelte";
 import Notifications from "../notify/Notifications.svelte";
 import Palette from "../palette/Palette.svelte";
@@ -158,6 +160,7 @@ const status = $derived.by((): { text: string; ok: boolean } => {
 
 $effect(() => {
   const offSettings = registerSettingsCommands();
+  const offMachines = registerMachineCommands();
   const off = [
     registerCommand({
       id: "focus.toggle",
@@ -229,6 +232,7 @@ $effect(() => {
   return () => {
     for (const unregister of off) unregister();
     offSettings();
+    offMachines();
   };
 });
 
@@ -406,6 +410,7 @@ async function showApprovals(): Promise<void> {
   class:start={!workspace.project}
   class:viewing={!workspace.project && !!mainView.current}
   class:solo class:rail-right={layout.swapped} class:focus={focusing} style={grid}>
+  {#if transport.remote}<LinkBanner remote={transport.remote} />{/if}
   <div class="title-area">
     {#if focusing}<FocusBar />{/if}
     <TitleBar {layout} shown={{ side: !folded.side, agents: !folded.agents }} {waiting} {toggle} {showApprovals} inbox={reviews} />

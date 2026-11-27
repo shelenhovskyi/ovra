@@ -9,6 +9,7 @@ import { listCommands } from "../keys/commands";
 import { listContextKeys } from "../keys/context-keys";
 import { formatShortcut, inBrowserTab, isApple, liveKeys } from "../keys/shortcut";
 import type { CoreInfo } from "../lib/protocol";
+import MachinesPane from "../machines/MachinesPane.svelte";
 import KeysPane from "../network/KeysPane.svelte";
 import NetworkPanel from "../network/NetworkPanel.svelte";
 import PolicyPanel from "../policy/PolicyPanel.svelte";
@@ -221,6 +222,8 @@ function onListKeydown(event: KeyboardEvent): void {
           <p class="note">Shown only while Ovra is in the background. Inside the window, toasts say the same.</p>
         {:else if pane.id === "phone"}
           <PhonePane />
+        {:else if pane.id === "machines"}
+          <MachinesPane />
         {:else if pane.id === "keyboard"}
           <input
             type="search"

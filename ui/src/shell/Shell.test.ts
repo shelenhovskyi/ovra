@@ -441,6 +441,7 @@ describe("Shell", () => {
         "Setup check",
         "Notifications",
         "Phone",
+        "Remote machines",
         "Keyboard",
         "Accessibility",
         "About",

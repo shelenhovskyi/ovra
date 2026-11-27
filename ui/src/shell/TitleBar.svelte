@@ -11,6 +11,7 @@ import InboxButton from "../inbox/InboxButton.svelte";
 import type { ReviewInbox } from "../inbox/reviews.svelte";
 import { listCommands } from "../keys/commands";
 import { formatShortcut, inBrowserTab, isApple, liveKeys } from "../keys/shortcut";
+import RemoteChip from "../machines/RemoteChip.svelte";
 import { useOvra } from "./context";
 import Icon from "./Icon.svelte";
 import type { Layout, Panel } from "./layout.svelte";
@@ -128,6 +129,7 @@ function tip(panel: Panel): string {
       </svg>
       <span class="visually-hidden">Ovra</span>
     </h1>
+    {#if transport.remote}<RemoteChip remote={transport.remote} />{/if}
     {#if workspace.project}
       {@render panelToggle("side")}
       <ProjectSwitcher project={workspace.project} />
