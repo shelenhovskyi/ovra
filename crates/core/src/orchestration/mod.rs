@@ -19,6 +19,7 @@ mod policy;
 mod prepare;
 mod publish;
 mod push;
+mod repos;
 mod review;
 mod saved;
 mod setup;
@@ -35,6 +36,7 @@ pub(crate) use board::claimed_write;
 pub use ide::{Output, WorkerState};
 pub(crate) use policy::{IDE_TOOL_PREFIX, decide};
 pub use push::{PushArgs, Pushed};
+pub(crate) use repos::linked;
 
 use crate::Core;
 use crate::protocol::agents::{AgentStatus, SessionId};
@@ -246,26 +248,26 @@ pub(crate) fn on_status(core: &Core, session: &SessionId, status: &AgentStatus) 
         prepare::count_disk(core, session);
     }
     // A finished turn or session may have changed files or spent money.
-    let (review, task) = {
+    let (reviews, task) = {
         let state = state.lock();
-        let review = state
+        // Its latest item in each repository it works in.
+        let mut seen = BTreeSet::new();
+        let reviews: Vec<_> = state
             .reviews
             .iter()
             .rev()
-            .find(|r| &r.session == session)
-            .map(|r| r.id.clone());
+            .filter(|r| &r.session == session && seen.insert(r.project.clone()))
+            .map(|r| (r.project.clone(), r.id.clone()))
+            .collect();
         let task = state
             .tasks
             .iter()
             .find(|t| t.has_session(session))
             .map(|t| t.id.clone());
-        (review, task)
+        (reviews, task)
     };
-    if let Some(id) = review {
-        core.emit(ReviewEvent::Changed {
-            project: project.clone(),
-            id,
-        });
+    for (project, id) in reviews {
+        core.emit(ReviewEvent::Changed { project, id });
     }
     if let Some(task) = task {
         core.emit(OrchestrationEvent::Changed { project, task });

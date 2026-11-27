@@ -65,6 +65,10 @@ pub(super) struct Prep {
     /// Ovra's words for its first message: what went wrong before it.
     #[serde(default)]
     pub(super) note: Option<String>,
+    /// Its copies of linked repositories (`docs/specs/multi-repo.md`), in
+    /// the order of `Worker::repos`.
+    #[serde(default)]
+    pub(super) linked: Vec<super::repos::Kept>,
     /// When its size was last counted.
     #[serde(skip)]
     counted: Option<Instant>,
@@ -86,6 +90,7 @@ impl Prep {
             made: false,
             ready: false,
             note: None,
+            linked: Vec::new(),
             counted: None,
             disk_checked: None,
             disk_checking: false,

@@ -719,7 +719,11 @@ fn what_acp_sessions_cannot_do_is_refused() {
         config_dir: Some("/home/me/.fake-work".into()),
         ..spec()
     };
-    let refused: Vec<_> = [research, tools, resume, account]
+    let repos = AgentSpec {
+        add_dirs: vec!["/w/api".into()],
+        ..spec()
+    };
+    let refused: Vec<_> = [research, tools, resume, account, repos]
         .iter()
         .map(unsupported)
         .collect();
@@ -730,6 +734,7 @@ fn what_acp_sessions_cannot_do_is_refused() {
             Some("use Ovra's IDE tools"),
             Some("resume a session"),
             Some("run with another account"),
+            Some("work in several repositories"),
         ]
     );
 }

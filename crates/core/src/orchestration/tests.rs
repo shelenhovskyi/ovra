@@ -4138,4 +4138,5 @@ async fn a_discarded_hunk_of_a_direct_agent_keeps_the_file_the_agents() {
     );
 }
 mod interrupted;
+mod repos;
 mod solo;

@@ -127,10 +127,14 @@ pub(super) async fn handle(core: &Core, request: OrchestrationRequest) -> Result
                 ));
             }
             if !repos.is_empty() {
-                return Err(ProtocolError::new(
-                    ErrorCode::Unavailable,
-                    "tasks across several repositories are not built yet",
-                ));
+                if !solo || attempt_of.is_some() {
+                    return Err(ProtocolError::new(
+                        ErrorCode::BadRequest,
+                        "only one agent in its own copy, as a first attempt, works across \
+                         repositories",
+                    ));
+                }
+                super::repos::check(core, &project, &repos, agent).await?;
             }
             if attempt_of.is_some() && !solo {
                 return Err(ProtocolError::new(
@@ -148,6 +152,7 @@ pub(super) async fn handle(core: &Core, request: OrchestrationRequest) -> Result
                     model,
                     plan_first,
                     schedule: None,
+                    repos,
                 };
                 start_solo(core, project, prompt, context, solo).await?
             } else {
@@ -314,6 +319,8 @@ pub(crate) struct Solo {
     pub(crate) plan_first: bool,
     /// The schedule that starts it (ADR 0017).
     pub(crate) schedule: Option<String>,
+    /// Linked repositories it changes too (`docs/specs/multi-repo.md`).
+    pub(crate) repos: Vec<ProjectId>,
 }
 
 /// Starts one agent of `agent`'s provider in its own worktree, without a
@@ -332,6 +339,7 @@ pub(crate) async fn start_solo(
         model,
         plan_first,
         schedule,
+        repos,
     } = solo;
     agents::check_text(&prompt)?;
     if plan_first {
@@ -347,6 +355,9 @@ pub(crate) async fn start_solo(
     };
     let limit = slots::limit(core);
     let low = prepare::low_disk(core, &worktrees_dir).await;
+    if let Some(low) = low.as_ref().filter(|_| !repos.is_empty()) {
+        return Err(conflict(low.clone()));
+    }
     let (entry, queued, port) = {
         let mut guard = state.lock();
         if let Some(first) = &attempt_of {
@@ -398,12 +409,13 @@ pub(crate) async fn start_solo(
         skip_setup: false,
         plan_first,
         schedule,
+        repos: &repos,
     };
     let result = create_worker(core, &entry, &worktrees_dir, new).await;
     {
         let mut guard = state.lock();
         match &result {
-            Ok((worker, _, prep)) => {
+            Ok((worker, _, prep, _)) => {
                 if let Some(task) = guard.tasks.iter_mut().find(|t| t.id == entry.id) {
                     task.starting.clear();
                     task.coordinator = worker.session.clone();
@@ -416,8 +428,11 @@ pub(crate) async fn start_solo(
         }
         state.save(&guard);
     }
-    let (worker, workspace, _) = result?;
+    let (worker, workspace, _, linked) = result?;
     review::set_workspace(core, &worker.session, workspace);
+    for (project, workspace) in linked {
+        review::set_linked_workspace(core, &worker.session, project, workspace);
+    }
     super::watch::start(core, &worker.session);
     let stop_asked = find(core, &entry.id).is_ok_and(|t| t.stop_asked);
     if stop_asked {
@@ -769,6 +784,7 @@ pub(super) async fn spawn(
         skip_setup,
         plan_first: false,
         schedule: None,
+        repos: &[],
     };
     let result = create_worker(core, &entry, &worktrees_dir, new).await;
     {
@@ -777,7 +793,7 @@ pub(super) async fn spawn(
             task.starting.retain(|s| s.name != name);
             task.failed.retain(|f| f.name != name);
             match &result {
-                Ok((worker, _, prep)) => {
+                Ok((worker, _, prep, _)) => {
                     task.workers.push(worker.clone());
                     task.prep.push(prep.clone());
                 }
@@ -796,8 +812,11 @@ pub(super) async fn spawn(
             task: entry.id.clone(),
         });
     }
-    let (worker, workspace, _) = result?;
+    let (worker, workspace, _, linked) = result?;
     review::set_workspace(core, &worker.session, workspace);
+    for (project, workspace) in linked {
+        review::set_linked_workspace(core, &worker.session, project, workspace);
+    }
     super::watch::start(core, &worker.session);
     // The person stopped the task while this worker was set up: it must not
     // work on without its coordinator ([`stop_workers_of`] missed it).
@@ -869,6 +888,8 @@ struct NewWorker<'a> {
     plan_first: bool,
     /// The schedule that starts it (ADR 0017).
     schedule: Option<String>,
+    /// Linked repositories it gets a copy of (`docs/specs/multi-repo.md`).
+    repos: &'a [ProjectId],
 }
 
 /// A worker's session, waiting `preparing` or `queued`, and its worktree
@@ -878,11 +899,16 @@ async fn create_worker(
     task: &Entry,
     worktrees_dir: &std::path::Path,
     new: NewWorker<'_>,
-) -> Result<(Worker, Workspace, prepare::Prep)> {
+) -> Result<(
+    Worker,
+    Workspace,
+    prepare::Prep,
+    Vec<(ProjectId, Workspace)>,
+)> {
     let NewWorker {
         name,
         prompt,
-        context,
+        mut context,
         agent,
         model,
         from,
@@ -892,6 +918,7 @@ async fn create_worker(
         skip_setup,
         plan_first,
         schedule,
+        repos,
     } = new;
     let root = core.root(&task.project)?;
     let worktrees = core.worktrees();
@@ -920,6 +947,28 @@ async fn create_worker(
         Some(made) => (made.path.clone(), made.branch.clone(), made.base.clone()),
         None => (dir, branch, base),
     };
+    // Its copies of the linked repositories, named in its first message.
+    let linked = match super::repos::make(core, task, worktrees_dir, name, repos).await {
+        Ok(linked) => linked,
+        Err(err) => {
+            if let Some(made) = made {
+                let _ = remove(core, &root, made.path, made.included).await;
+            }
+            return Err(err);
+        }
+    };
+    if let Some(note) = super::repos::note(core, &linked) {
+        context = Some(match context {
+            Some(mut c) => {
+                c.text = format!("{}\n\n{note}", c.text);
+                c
+            }
+            None => crate::context::Context {
+                text: note,
+                images: Vec::new(),
+            },
+        });
+    }
     // Before the worker runs: the project's hooks and config at its start.
     let git = worktrees
         .git_files(root.clone())
@@ -960,6 +1009,7 @@ async fn create_worker(
             if let Some(made) = made {
                 let _ = remove(core, &root, made.path, made.included).await;
             }
+            super::repos::remove(core, linked).await;
             return Err(err);
         }
     };
@@ -974,7 +1024,6 @@ async fn create_worker(
         prep.note = made.note;
     }
     let worker = Worker {
-        repos: Vec::new(),
         session,
         name: name.to_owned(),
         branch,
@@ -984,13 +1033,19 @@ async fn create_worker(
         disk: None,
         waiting: low,
         included: prepare::shown(&prep.included),
+        repos: linked.iter().map(|l| l.copy.clone()).collect(),
     };
     let workspace = Workspace {
         dir: path,
         base,
         git,
     };
-    Ok((worker, workspace, prep))
+    prep.linked = linked.iter().map(|l| l.kept.clone()).collect();
+    let linked = linked
+        .into_iter()
+        .map(|l| (l.copy.project, l.workspace))
+        .collect();
+    Ok((worker, workspace, prep, linked))
 }
 
 /// Runs [`clean_up`] again once the worker's worktree is idle.
@@ -1049,7 +1104,7 @@ pub(super) async fn clean_up(core: &Core, project: &ProjectId) {
         }
         let dir = PathBuf::from(&worker.worktree);
         let worktrees = core.worktrees();
-        let settled = match review::settled(core, &worker.session).await {
+        let settled = match review::settled(core, &worker.session, project).await {
             Some(base) if crate::servers::worktree_idle(core, &worker.session).await => Some(base),
             // A server or pod still holds the worktree: tried again once
             // it ended, without making anyone wait.
@@ -1059,9 +1114,23 @@ pub(super) async fn clean_up(core: &Core, project: &ProjectId) {
             }
             None => None,
         };
-        let (removed, kept) = match settled {
-            None => (false, None),
-            Some(base) => match remove(core, &root, dir, included).await {
+        // Its copies of linked repositories go first, once each is settled
+        // too (`docs/specs/multi-repo.md`).
+        let linked = match &settled {
+            Some(_) => super::repos::settled(core, &worker).await,
+            None => None,
+        };
+        let settled = settled.filter(|_| linked.is_some());
+        let linked_kept = match (&settled, linked) {
+            (Some(_), Some(linked)) => {
+                super::repos::remove_settled(core, &task, &worker, linked).await
+            }
+            _ => Ok(()),
+        };
+        let (removed, kept) = match (settled, linked_kept) {
+            (None, _) => (false, None),
+            (Some(_), Err(kept)) => (false, kept),
+            (Some(base), Ok(())) => match remove(core, &root, dir, included).await {
                 Ok(()) => {
                     // Its start is a snapshot and its decisions are kept as
                     // snapshots; a branch with more than that stays.

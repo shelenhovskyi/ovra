@@ -64,12 +64,16 @@ and reviews and lands two unrelated results.
    repositories". Above them, "Keep all" keeps each open item in turn and
    stops at the first one that is refused or conflicts, saying which. A
    comment on any of them goes to the one session.
-8. **Lifecycle.** Watching, the review check (`.ovra/check.json`, in each
-   copy that has one), stop, resume and clean-up treat the linked copies
-   as they treat the worker's worktree: each is removed when its own item
-   is settled, its branch deleted unless it has other commits. Worktree
-   setup (`docs/specs/worktree-setup.md`) runs in the main copy only, and
-   dev servers serve the main copy only.
+8. **Lifecycle.** Stop, resume and clean-up treat the linked copies as
+   they treat the worker's worktree: once the task ended and every item of
+   the worker is settled, each copy is removed and its branch deleted
+   unless it has other commits; a copy git will not remove keeps the
+   worker's worktree too, and the task says why. A copy is made only with
+   enough free disk space; otherwise the start is refused. Worktree setup
+   (`docs/specs/worktree-setup.md`), the review check
+   (`.ovra/check.json`), the agent's own `push`, the live diff while it
+   works and dev servers cover the main copy only; a linked item's diff
+   updates when a turn ends.
 
 ## Phases
 

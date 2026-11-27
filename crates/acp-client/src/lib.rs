@@ -321,6 +321,8 @@ fn unsupported(spec: &AgentSpec) -> Option<&'static str> {
         Some("resume a session")
     } else if spec.config_dir.is_some() {
         Some("run with another account")
+    } else if !spec.add_dirs.is_empty() || !spec.sandbox.more_work_dirs.is_empty() {
+        Some("work in several repositories")
     } else {
         None
     }

@@ -143,19 +143,35 @@ struct Kept {
 /// Records what `session`'s review compares, creating its item. Direct
 /// sessions call it with their baseline (task 3.F), workers when they start.
 pub(crate) fn set_workspace(core: &Core, session: &SessionId, workspace: Workspace) {
+    workspace_in(core, session, None, workspace);
+}
+
+/// The same for `session`'s copy of the linked repository `project`
+/// (`docs/specs/multi-repo.md`): its item is that project's.
+pub(super) fn set_linked_workspace(
+    core: &Core,
+    session: &SessionId,
+    project: ProjectId,
+    workspace: Workspace,
+) {
+    workspace_in(core, session, Some(project), workspace);
+}
+
+fn workspace_in(core: &Core, session: &SessionId, linked: Option<ProjectId>, workspace: Workspace) {
     let Ok((project, mode)) = core.sessions().find(session, |s| {
         let info = s.info();
         (info.project, info.mode)
     }) else {
         return;
     };
+    let project = linked.unwrap_or(project);
     let orchestration = core.orchestration_state();
     let mut state = orchestration.lock();
     if let Some(entry) = state
         .reviews
         .iter_mut()
         .rev()
-        .find(|r| &r.session == session)
+        .find(|r| &r.session == session && r.project == project)
     {
         // A resumed session keeps what its hooks and config were when it
         // first started: what it changed since still shows.
@@ -205,9 +221,9 @@ fn audit(core: &Core, item: &ReviewItem, action: ReviewAction) {
 }
 
 pub(super) async fn handle(core: &Core, request: ReviewRequest) -> Result<Response> {
-    let done = |(item, conflicts, restored)| {
+    let done = |(item, conflicts, restored): (ReviewItem, Vec<String>, Vec<String>)| {
         Response::Review(ReviewResponse::Done {
-            item,
+            item: Box::new(item),
             conflicts,
             restored,
         })
@@ -215,7 +231,16 @@ pub(super) async fn handle(core: &Core, request: ReviewRequest) -> Result<Respon
     match request {
         ReviewRequest::List { project } => {
             core.project_store().get(&project)?;
+            // A worker across repositories shows its items in each of them
+            // (`docs/specs/multi-repo.md`).
+            let linked = super::repos::sessions_with(core, &project);
+            let mut others: BTreeSet<ProjectId> =
+                linked.iter().flat_map(|(_, repos)| repos.clone()).collect();
+            others.remove(&project);
             follow_up(core, &project).await;
+            for other in &others {
+                follow_up(core, other).await;
+            }
             super::publish::resume_polls(core, &project);
             let entries: Vec<Entry> = core
                 .orchestration_state()
@@ -223,7 +248,7 @@ pub(super) async fn handle(core: &Core, request: ReviewRequest) -> Result<Respon
                 .reviews
                 .iter()
                 .rev()
-                .filter(|r| r.project == project)
+                .filter(|r| r.project == project || linked.iter().any(|(s, _)| s == &r.session))
                 .cloned()
                 .collect();
             let mut shown_entries = Vec::new();
@@ -447,25 +472,53 @@ pub(super) fn find(core: &Core, id: &ReviewId) -> Result<Entry> {
         .ok_or_else(|| not_found(format!("review {}", id.0)))
 }
 
-/// The session's latest review item.
+/// The session's latest review item in its own project; a worker across
+/// repositories has more in the others ([`of_session_in`]).
 pub(super) fn of_session(core: &Core, session: &SessionId) -> Option<Entry> {
+    let project = core.sessions().find(session, |s| s.info().project).ok()?;
+    of_session_in(core, session, &project)
+}
+
+/// The session's latest review item in `project`.
+pub(super) fn of_session_in(
+    core: &Core,
+    session: &SessionId,
+    project: &ProjectId,
+) -> Option<Entry> {
     core.orchestration_state()
         .lock()
         .reviews
         .iter()
         .rev()
-        .find(|r| &r.session == session)
+        .find(|r| &r.session == session && &r.project == project)
         .cloned()
+}
+
+/// `entry` is its session's item in the session's own project, not one of
+/// a linked repository. Unknown sessions count as their own.
+fn main_item(core: &Core, entry: &Entry) -> bool {
+    core.sessions()
+        .find(&entry.session, |s| s.info().project)
+        .map_or(true, |p| p == entry.project)
 }
 
 /// The base of `session`'s last decision, if nothing of its work waits for
 /// the person any more: no item of it is partly approved, and its
 /// workspace has no change since. Unknown means no.
-pub(super) async fn settled(core: &Core, session: &SessionId) -> Option<String> {
+pub(super) async fn settled(
+    core: &Core,
+    session: &SessionId,
+    project: &ProjectId,
+) -> Option<String> {
     let (partial, latest) = {
         let state = core.orchestration_state();
         let state = state.lock();
-        let mine = || state.reviews.iter().filter(|r| &r.session == session);
+        let mine = || {
+            state
+                .reviews
+                .iter()
+                .filter(|r| &r.session == session && &r.project == project)
+        };
         // A replace that can still be undone keeps the worker's folder too.
         let partial = mine().any(|r| r.state == ReviewState::PartlyApproved || r.taken.is_some());
         (partial, mine().next_back().cloned())
@@ -558,7 +611,7 @@ async fn current(core: &Core, entry: &Entry) -> Result<(ReviewItem, Option<Strin
             protected_fingerprint(core.worktrees(), &ws.dir, &ws.base, &files, tree).await;
     }
     let item = ReviewItem {
-        task_repos: Vec::new(),
+        task_repos: super::repos::task_repos(core, &entry.session).into(),
         id: entry.id.clone(),
         project: entry.project.clone(),
         session: entry.session.clone(),
@@ -585,7 +638,10 @@ async fn current(core: &Core, entry: &Entry) -> Result<(ReviewItem, Option<Strin
         git_changes: git.changes,
         git_unchecked: git.unchecked,
         pull_request: entry.pull_request.clone().map(Box::new),
-        check: super::check::view(core, entry, tree.as_ref()),
+        // The check runs in the main repository's copy only.
+        check: main_item(core, entry)
+            .then(|| super::check::view(core, entry, tree.as_ref()))
+            .flatten(),
         behind: None,
     };
     Ok((item, tree))
@@ -1600,10 +1656,16 @@ pub(super) fn request(core: &Core, session: &SessionId, summary: String) -> Resu
     }
     let state = entry.state;
     let entry = update(core, &entry.id, |e| {
-        e.summary = Some(summary);
+        e.summary = Some(summary.clone());
         e.requested = true;
         e.state = state;
     })?;
+    // Its open items in linked repositories carry the same summary.
+    for repo in super::repos::task_repos(core, session).iter().skip(1) {
+        if let Some(linked) = of_session_in(core, session, repo).filter(|e| live(e.state)) {
+            let _ = update(core, &linked.id, |e| e.summary = Some(summary.clone()));
+        }
+    }
     core.emit(ReviewEvent::Requested {
         project: entry.project.clone(),
         id: entry.id.clone(),

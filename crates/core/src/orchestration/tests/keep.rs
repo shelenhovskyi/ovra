@@ -16,7 +16,7 @@ async fn undo_keep(core: &Core, id: &str) -> (ReviewItem, Vec<String>, Vec<Strin
     else {
         panic!("unexpected {done:?}");
     };
-    (item, conflicts, restored)
+    (*item, conflicts, restored)
 }
 
 fn item_of(items: &[ReviewItem], id: &str) -> ReviewItem {

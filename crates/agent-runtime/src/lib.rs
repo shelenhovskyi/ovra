@@ -191,7 +191,10 @@ async fn session(
                 spec.model,
             ),
             &spec,
-        ),
+        )
+        .into_iter()
+        .chain(launch::add_dirs(&spec.add_dirs))
+        .collect(),
         &spec.cwd,
         spec.config_dir.as_deref(),
     );

@@ -428,6 +428,7 @@ async fn run(core: &Core, schedule: &Schedule) -> Run {
                 model: None,
                 plan_first: false,
                 schedule: Some(draft.name.clone()),
+                repos: Vec::new(),
             };
             orchestration::start_solo(core, project, draft.prompt.clone(), None, solo)
                 .await

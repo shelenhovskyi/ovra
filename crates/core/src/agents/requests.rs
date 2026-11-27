@@ -1090,6 +1090,16 @@ async fn run(
     sandbox.work_env = core
         .as_ref()
         .and_then(|core| crate::orchestration::work_env(core, &launch.cwd));
+    // A worker's copies of linked repositories (`docs/specs/multi-repo.md`):
+    // work dirs like its own, each reading its repository's git folder.
+    let linked = core
+        .as_ref()
+        .map(|core| crate::orchestration::linked(core, id))
+        .unwrap_or_default();
+    for (dir, git) in &linked {
+        sandbox.more_work_dirs.push(dir.clone());
+        sandbox.read.push(git.clone());
+    }
     sessions.find(id, |s| s.set_network(sandbox.network.clone()))?;
     // The project's own MCP servers the person turned on: not for a
     // coordinator, which only directs workers, nor a research session, which
@@ -1107,7 +1117,7 @@ async fn run(
         agent,
         mode,
         cwd: launch.cwd,
-        add_dirs: Vec::new(),
+        add_dirs: linked.into_iter().map(|(dir, _)| dir).collect(),
         // A provider that cannot reach Ovra's IDE tools works without them
         // in its role (`docs/specs/more-agents.md`).
         tools: launch.tools.filter(|_| {

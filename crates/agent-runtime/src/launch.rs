@@ -295,9 +295,37 @@ pub(crate) fn with_servers(mut args: Vec<OsString>, spec: &AgentSpec) -> Vec<OsS
     args
 }
 
+/// `--add-dir` for each more folder the session works in (a worker's
+/// copies of linked repositories, `docs/specs/multi-repo.md`), one folder
+/// after each flag.
+pub(crate) fn add_dirs(dirs: &[std::path::PathBuf]) -> Vec<OsString> {
+    dirs.iter()
+        .flat_map(|dir| [OsString::from("--add-dir"), dir.clone().into_os_string()])
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn each_more_folder_follows_its_own_add_dir() {
+        let dirs = [
+            std::path::PathBuf::from("/w/api/t1/agent"),
+            std::path::PathBuf::from("/w/web/t1/agent"),
+        ];
+        assert_eq!(
+            add_dirs(&dirs),
+            [
+                "--add-dir",
+                "/w/api/t1/agent",
+                "--add-dir",
+                "/w/web/t1/agent"
+            ]
+            .map(OsString::from)
+        );
+        assert!(add_dirs(&[]).is_empty());
+    }
 
     #[test]
     fn claude_gets_the_login_shells_path_before_a_sandboxs_own() {

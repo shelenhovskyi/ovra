@@ -130,6 +130,16 @@ pub(super) fn worker_item(core: &Core, id: &ReviewId) -> Result<(review::Entry, 
         .find(|w| w.session == entry.session)
         .cloned()
         .ok_or_else(|| not_found("the item's worker"))?;
+    // An item of a linked repository publishes that repository's copy and
+    // branch (`docs/specs/multi-repo.md`).
+    let worker = match worker.repos.iter().find(|c| c.project == entry.project) {
+        Some(copy) => Worker {
+            branch: copy.branch.clone(),
+            worktree: copy.worktree.clone(),
+            ..worker.clone()
+        },
+        None => worker,
+    };
     let root = core.root(&entry.project)?;
     Ok((entry, worker, root))
 }
