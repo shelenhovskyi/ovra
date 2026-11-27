@@ -36,14 +36,19 @@ fn person_said(messages: &[AgentMessage]) -> Vec<String> {
 
 #[tokio::test]
 async fn queued_messages_go_one_by_one_once_a_turn_ends() {
-    let core = core_with(ScriptedAgent::new(vec![
-        vec![Step::Use {
-            tool: "Bash",
-            input: json!({"command": "ls"}),
-        }],
-        vec![Step::Say("two")],
-        vec![Step::Say("three")],
-    ]));
+    let store = Arc::new(MemorySessions::default());
+    let core = restartable(
+        ScriptedAgent::new(vec![
+            vec![Step::Use {
+                tool: "Bash",
+                input: json!({"command": "ls"}),
+            }],
+            vec![Step::Say("two")],
+            vec![Step::Say("three")],
+        ]),
+        &Arc::new(MemoryProjects::default()),
+        &store,
+    );
     project(&core).await;
     let mut rx = core.subscribe();
     ok(&core, start("go")).await;
@@ -51,6 +56,11 @@ async fn queued_messages_go_one_by_one_once_a_turn_ends() {
 
     ok(&core, queue("next")).await;
     assert_eq!(next_queue(&mut rx).await, ["next"]);
+    // Shown, but not kept across a restart.
+    host(&core).billing(crate::protocol::agents::Billing::Subscription);
+    let kept = crate::services::SessionStore::load(store.as_ref(), 100).unwrap_or_default();
+    assert!(kept.iter().all(|(s, _)| s.info.queue.is_empty()));
+    assert_eq!(sessions(&core).await[0].queue.len(), 1);
     ok(&core, queue("dropped")).await;
     ok(&core, queue("last")).await;
     let unqueue =

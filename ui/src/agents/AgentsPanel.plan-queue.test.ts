@@ -104,6 +104,9 @@ it("offers Plan first only once turned on, and approves the plan when it is read
   expect(start?.params).toMatchObject({ plan_first: true });
 
   const bar = () => target.querySelector("[data-testid=plan-bar]")?.textContent?.replace(/\s+/g, " ").trim();
+  // Not started yet: no plan to approve.
+  expect(bar()).toBe("Planning. The agent changes no files until you approve its plan.");
+  expect(button("Approve plan")).toBeUndefined();
   core.status("s1", { state: "working" });
   await settle();
   expect(bar()).toBe("Planning. The agent changes no files until you approve its plan.");

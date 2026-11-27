@@ -297,9 +297,6 @@ async fn needs_git(core: &Core, project: &ProjectId, what: &str) -> Result<()> {
 /// The name of a solo task's one worker, and so of its branch.
 const SOLO: &str = "agent";
 
-/// Starts one agent of `agent`'s provider in its own worktree, without a
-/// coordinator: the task's only worker, with the person's prompt. Past the
-/// project's cap it waits `queued`, like a person's start.
 /// How a solo task's agent works.
 struct Solo {
     agent: AgentKind,
@@ -308,6 +305,9 @@ struct Solo {
     plan_first: bool,
 }
 
+/// Starts one agent of `agent`'s provider in its own worktree, without a
+/// coordinator: the task's only worker, with the person's prompt. Past the
+/// project's cap it waits `queued`, like a person's start.
 async fn start_solo(
     core: &Core,
     project: ProjectId,

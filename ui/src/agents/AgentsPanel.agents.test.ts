@@ -151,6 +151,7 @@ it("starts the picked agent in this folder when it can run there", async () => {
 
 it("starts several attempts at one task, each agent in its own copy, once Settings offers them", async () => {
   agentPrefs.attempts = true;
+  agentPrefs.planFirst = true;
   const core = new FakeAgentCore();
   core.providers = [...core.providers, GEMINI];
   core.setups.gemini = { ...core.setup, executable: "/usr/bin/gemini", version: "0.71.1", billing: null };
@@ -168,6 +169,8 @@ it("starts several attempts at one task, each agent in its own copy, once Settin
     tries.dispatchEvent(new Event("change", { bubbles: true }));
     await settle();
     expect(target.querySelector("#agent-mode-hint")?.textContent).toContain("3 attempts (Claude, Gemini, Claude)");
+    // Ovra cannot hold Gemini's changes, so no Plan first with it among them.
+    expect(target.querySelector("[data-testid=plan-first]")).toBeNull();
 
     const field = target.querySelector<HTMLTextAreaElement>("#agent-prompt");
     if (!field) throw new Error("no field");
@@ -186,5 +189,6 @@ it("starts several attempts at one task, each agent in its own copy, once Settin
     expect(target.textContent).toContain("Attempt 1 (Claude) · Fix the typo");
   } finally {
     agentPrefs.attempts = false;
+    agentPrefs.planFirst = false;
   }
 });
