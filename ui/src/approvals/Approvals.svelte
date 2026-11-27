@@ -43,7 +43,7 @@ import type { Decision, PermissionId, PermissionRequest, Project, ProjectId, Ses
 import { useOvra } from "../shell/context";
 import { typed } from "../shell/menu";
 import { cardBody } from "./body";
-import { describeTool, PUSH_TOOL, pushScope, type ToolSummary } from "./describe";
+import { describeTool, KEY_TOOL, PUSH_TOOL, pushScope, type ToolSummary } from "./describe";
 import { ARM_MS, approvalQueue, HOLD_MS } from "./queue.svelte";
 import { type PathScope, pathScopes, sameFolder } from "./scope";
 
@@ -650,6 +650,9 @@ function shared(requests: PermissionRequest[]): { warnings: string[]; sandboxed:
   };
 }
 
+/** Beside "Always allow" for a key: what it means, and where it is undone. */
+const ALWAYS_KEY_NOTE = "Every agent in this project will use this key without asking. You can turn this off in Settings > Keys.";
+
 /** Beside "Always allow" for a command: the rule covers the command, not what it runs. */
 const ALWAYS_BASH_NOTE = "Runs what this project's scripts say; the sandbox still applies.";
 
@@ -883,7 +886,7 @@ function verbAndObject(summary: ToolSummary): { verb: string; object: string } {
               aria-disabled={!allowable(request.id)}
               aria-keyshortcuts="Y"
               onclick={(event) => answerByClick(event, request, "allow")}
-              >Allow once <kbd aria-hidden="true" class:off={keysOn !== request.id}>Y</kbd>{#if !ready}{#key armedAt(request.id)}<span
+              >{request.tool === KEY_TOOL ? "Allow for this task" : "Allow once"} <kbd aria-hidden="true" class:off={keysOn !== request.id}>Y</kbd>{#if !ready}{#key armedAt(request.id)}<span
                     class="fill"
                     aria-hidden="true"
                     data-testid="approval-arming"
@@ -901,14 +904,20 @@ function verbAndObject(summary: ToolSummary): { verb: string; object: string } {
                 type="button"
                 class="quiet always"
                 aria-disabled={!allowable(request.id)}
-                aria-describedby={request.call?.kind === "execute" ? `approval-always-note-${request.id}` : undefined}
+                aria-describedby={request.call?.kind === "execute" || request.tool === KEY_TOOL
+                  ? `approval-always-note-${request.id}`
+                  : undefined}
                 data-testid="approval-always"
                 onclick={(event) => answerByClick(event, request, "allow", true)}
                 >{#if request.tool === PUSH_TOOL && pushScope(always)}{@const scope = pushScope(always)}Always allow pushes to <code
                     >{scope?.branches}</code
-                  > on {scope?.remote}{:else}Always allow <code>{always}</code> here{/if}</button
+                  > on {scope?.remote}{:else if request.tool === KEY_TOOL}Always allow{:else}Always allow <code>{always}</code> here{/if}</button
               >
-              {#if request.call?.kind === "execute"}
+              {#if request.tool === KEY_TOOL}
+                <span class="always-note" id={`approval-always-note-${request.id}`} data-testid="approval-always-note"
+                  >{ALWAYS_KEY_NOTE}</span
+                >
+              {:else if request.call?.kind === "execute"}
                 <!-- The command is exact, but what it runs is not: npm test runs package.json's scripts. -->
                 <span class="always-note" id={`approval-always-note-${request.id}`} data-testid="approval-always-note"
                   >{ALWAYS_BASH_NOTE}</span

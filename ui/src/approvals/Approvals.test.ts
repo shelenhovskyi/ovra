@@ -1021,6 +1021,27 @@ describe("Always allow", () => {
     expect(always()?.querySelector("code")?.textContent).toBe("ovra/…");
   });
 
+  it("asks about a key for the task, with Always allow and what it means", async () => {
+    const core = await setup();
+    core.ask({
+      ...bash("perm1"),
+      tool: "UseKey",
+      input: { key: "github", host: "api.github.com" },
+      call: { kind: "other" },
+      title: "Use your github key on api.github.com",
+      always: { tool: "UseKey", match: "github", action: "auto", from_approval: true },
+    });
+    await settle();
+    const card = cards()[0];
+    expect(words(card?.querySelector("h3") ?? undefined)).toBe("Use your github key on api.github.com");
+    expect(words(card?.querySelector(".allow") ?? undefined)).toContain("Allow for this task");
+    expect(words(always() ?? undefined)).toBe("Always allow");
+    const note = card?.querySelector("[data-testid=approval-always-note]");
+    expect(note?.textContent).toContain("Every agent in this project will use this key without asking.");
+    expect(always()?.getAttribute("aria-describedby")).toBe(note?.id);
+    expect(card?.querySelector("[data-testid=approval-extra]")).toBeNull();
+  });
+
   it("is not offered in Focus, which says where it is", async () => {
     const core = await setup(() => {}, false);
     core.ask({ ...bash("perm1", "npm test"), always: rule });

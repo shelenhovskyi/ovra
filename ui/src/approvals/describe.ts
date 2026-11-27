@@ -60,6 +60,22 @@ export function describeTool(tool: string, input: unknown, call: ToolCall | unde
     const push = describePush(input);
     if (push) return push;
   }
+  if (tool === KEY_TOOL) {
+    const key = str(input, "key");
+    const host = str(input, "host");
+    if (key !== undefined && host !== undefined) {
+      return {
+        action: `Use your ${key} key on ${host}`,
+        object: "",
+        details: [
+          {
+            label: "what happens",
+            text: `Ovra adds the key to the agent's requests to ${host}. The agent never sees it.`,
+          },
+        ],
+      };
+    }
+  }
   const ide = isIdeTool(tool) ? describeIdeTool(tool.slice(IDE_PREFIX.length), input) : null;
   if (ide) return { action: ide, object: "", details: pick("task", "text", "summary", "path") };
   if (kind === "execute" && call?.command !== undefined) {
@@ -94,6 +110,12 @@ export function describeTool(tool: string, input: unknown, call: ToolCall | unde
 
 /** The tool name of a worker's push put to the person (`docs/specs/agent-push.md`); its input is a `PushPlan`. */
 export const PUSH_TOOL = "Push";
+
+/**
+ * The tool name of a key the netproxy would add to a session's requests (`docs/specs/secrets-consent.md`); its input
+ * is `{ key, host }`, and an allow holds for the session.
+ */
+export const KEY_TOOL = "UseKey";
 
 const KIND_LETTER: Record<string, string> = { added: "A", modified: "M", deleted: "D", renamed: "R" };
 
