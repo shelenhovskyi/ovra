@@ -99,7 +99,8 @@ the CLI directly, without the SDK:
   (subscription, API key or cloud provider, from `apiKeySource` in
   `system/init`), with a warning when `ANTHROPIC_API_KEY` is set, because it
   silently wins over the subscription. Parallel agents are capped (3 by
-  default, configurable), and agents start only from a person's action.
+  default, configurable), and agents start only from a person's action
+  or from a schedule the person made and turned on (ADR 0015).
 - Branding: features and menus say "Claude", "Claude Agent" or "Powered by
   Claude"; "Claude Code" never appears in a product, feature or panel name,
   only as a plain factual description ("Install Claude Code", "Ovra runs

@@ -13,6 +13,9 @@
 - **Attempt** - one of up to three agents that try the same task, each as
   "One agent, own copy"; the person keeps the best in Reviews
   (`docs/specs/attempts.md`). Off until turned on in Settings > Agents.
+- **Schedule** - a prompt that starts a research session or one agent in its
+  own copy at set days and times, while Ovra runs (ADR 0015). Off until
+  turned on in Settings > Agents.
 - **Inbox** - the review queue (Reviews in the UI) where a person keeps or
   discards diffs.
 - **Keep / Discard** - what a person does with a review item. The UI never

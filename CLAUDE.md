@@ -142,7 +142,8 @@ Ask the owner only before:
   Run the binary unmodified: no `--bare`; `CLAUDE_CONFIG_DIR` only for an
   account the user added, set to that account's own folder.
 - Show where usage is billed and warn when `ANTHROPIC_API_KEY` is set.
-- Cap parallel agents (3 by default); agents start only from a person's action.
+- Cap parallel agents (3 by default); agents start only from a person's action,
+  or from a schedule the person made and turned on (ADR 0015, opt-in).
 - "Claude Code" is never part of a product, feature or panel name; plain
   facts like "Install Claude Code" are fine. No Claude or Anthropic logos.
 - Keep the interactive-terminal fallback possible behind `AgentRuntime`, in
