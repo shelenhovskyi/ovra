@@ -23,7 +23,7 @@ test("a project's allowed hosts are added in Settings and kept, and keys sit nex
   await expect(dialog.getByTestId("allowed-host")).toHaveText(/registry\.npmjs\.org/);
   // Keys sit next: a preset asks only for the value. Whether a keychain
   // exists depends on the machine; either way the pane says which.
-  await page.keyboard.press("ArrowDown");
+  await settings.getByRole("navigation", { name: "Settings panes" }).getByRole("button", { name: "Keys" }).click();
   const keys = settings.getByRole("region", { name: "Keys" });
   await keys.getByRole("button", { name: "GitHub" }).click();
   const available = keys.getByTestId("store-available");
