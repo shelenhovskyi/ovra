@@ -50,6 +50,7 @@ one may.
 
 ## Not done
 
+- The model picker in Focus mode's task box: it starts with the default.
 - Saving the box's text as a template from the task form; for now
   templates are made in Settings.
 - Claude's built-in commands (`/compact`, `/context`): they belong to an

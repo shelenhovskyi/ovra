@@ -261,7 +261,8 @@ describe("accounts in the agents panel", () => {
     const [own] = core.accounts;
     if (own) own.setup = { ...own.setup, state: { state: "signed_out" } };
     core.accounts = [...core.accounts, work()];
-    core.addSession("p1", "Fix it", { state: "idle" });
+    // It asked for a model: the new start asks for the same one.
+    core.addSession("p1", "Fix it", { state: "idle" }).model = "sonnet";
     const AUTH = "Failed to authenticate: OAuth session expired and could not be refreshed";
     core.transcripts.set("s1", [
       { kind: "user_text", text: "Fix it", from: "person" },
@@ -283,8 +284,8 @@ describe("accounts in the agents panel", () => {
     expect(target.querySelector("#agent-reply")).toBeNull();
     button("Use Work")?.click();
     await settle();
-    expect(core.sent("agents.start").map((c) => [c.params.prompt, c.params.account])).toEqual([
-      ["Fix it", "account-1"],
+    expect(core.sent("agents.start").map((c) => [c.params.prompt, c.params.account, c.params.model])).toEqual([
+      ["Fix it", "account-1", "sonnet"],
     ]);
     // The old one is stopped and closed; the new one is open.
     expect(core.sent("agents.stop").map((c) => c.params.session)).toEqual(["s1"]);

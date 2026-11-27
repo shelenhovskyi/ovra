@@ -184,6 +184,20 @@ async fn a_tasks_workers_ask_for_its_coordinators_model() {
         .map(|s| s.iter().map(|spec| spec.model).collect())
         .unwrap_or_default();
     assert_eq!(models, [Some(AgentModel::Haiku), Some(AgentModel::Haiku)]);
+    // One agent in its own copy asks for its own.
+    ok(
+        &f.core,
+        json!({"method": "orchestration.start", "params": {
+            "project": "p1", "prompt": "x", "solo": true, "model": "opus"}}),
+    )
+    .await;
+    let last = f
+        .agent
+        .started
+        .lock()
+        .map(|s| s.last().and_then(|spec| spec.model))
+        .unwrap_or_default();
+    assert_eq!(last, Some(AgentModel::Opus));
     let other = json!({"method": "orchestration.start", "params": {
         "project": "p1", "prompt": "x", "agent": "gemini", "solo": true, "model": "opus"}});
     assert_eq!(code(call(&f.core, other).await), ErrorCode::BadRequest);

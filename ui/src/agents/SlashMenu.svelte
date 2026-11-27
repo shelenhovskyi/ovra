@@ -57,24 +57,34 @@ const rows = $derived.by((): Row[] => {
 
 const open = $derived(query !== null);
 
+/** Counts the reads, so only the latest one, for the open menu, lands. */
+let reads = 0;
+
 // Read the project's commands each time the menu opens, so a new one shows.
 $effect(() => {
-  if (open && withCommands && found === null && !loading) {
-    loading = true;
-    void transport.call({ method: "catalog.list", params: { project } }).then(
-      ({ data }) => {
-        found = slashCommands(data.items);
-        loading = false;
-      },
-      () => {
-        found = [];
-        loading = false;
-      },
-    );
-  }
-});
-$effect(() => {
-  if (!open) found = null;
+  if (!open || !withCommands) return;
+  const read = ++reads;
+  const asked = project;
+  found = null;
+  loading = true;
+  const mine = () => read === reads && open && asked === project;
+  void transport.call({ method: "catalog.list", params: { project: asked } }).then(
+    ({ data }) => {
+      if (!mine()) return;
+      found = slashCommands(data.items);
+      loading = false;
+    },
+    () => {
+      if (!mine()) return;
+      found = [];
+      loading = false;
+    },
+  );
+  return () => {
+    // Closed or moved to another project: the read on its way is dropped.
+    reads++;
+    loading = false;
+  };
 });
 
 // As in the @ menu: the field points at the menu and its active option.

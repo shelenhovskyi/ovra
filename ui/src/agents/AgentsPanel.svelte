@@ -910,7 +910,7 @@ function retry(old: SessionInfo, use: AccountState): Promise<void> {
   const how: TaskMode =
     role === "coordinator" ? "split" : role === "worker" ? "own" : old.mode === "research" ? "research" : "here";
   return run(async () => {
-    await begin(body, how, use.account.id, [], old.agent);
+    await begin(body, how, use.account.id, [], old.agent, [old.agent], old.model ?? null);
     await sessions.close(old.id);
   });
 }
