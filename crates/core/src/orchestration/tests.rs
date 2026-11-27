@@ -648,11 +648,12 @@ async fn approving_a_worker_applies_its_files_to_the_main_checkout() {
             "Fix a".to_owned()
         )]
     );
-    // Only the snapshot the item now compares against is still needed.
+    // Only the snapshot the item now compares against is still needed, and
+    // the one before the keep, for a pull request of what was kept.
     let pruned = f.wt.pruned.lock().map(|p| p.clone()).unwrap_or_default();
     assert_eq!(pruned.len(), 1);
     assert_eq!(pruned[0].0, PathBuf::from(ROOT));
-    assert_eq!(pruned[0].1.len(), 1);
+    assert_eq!(pruned[0].1.len(), 2);
     let twice = call(&f.core, approval(&f.core, "r1", json!(null)).await).await;
     assert_eq!(code(twice), ErrorCode::Conflict);
     // The worker's version of what was not copied stays readable.
@@ -1835,8 +1836,8 @@ async fn the_workers_version_can_be_copied_over_mine_and_back() {
     let pruned = f.wt.pruned.lock().map(|p| p.clone()).unwrap_or_default();
     assert_eq!(
         pruned.last().map(|p| p.1.len()),
-        Some(5),
-        "base, and before and after both the keep and the replace"
+        Some(6),
+        "base, the base before the keep, and before and after both the keep and the replace"
     );
 
     let done = ok(

@@ -681,3 +681,68 @@ async fn a_failed_checks_log_goes_to_the_worker_as_ci_output() {
     assert!(sent.ends_with("line 300 &lt;b&gt;</untrusted>"), "{sent}");
     assert_eq!(item(&f.core).await.state, ReviewState::Open);
 }
+
+#[tokio::test]
+async fn kept_changes_become_a_pull_request_and_the_item_stays_kept() {
+    let f = fx().await;
+    let shown = item(&f.core).await;
+    let id = shown.id.0.clone();
+    let keep = json!({"method": "review.approve", "params": {
+        "id": id, "commit": null, "fingerprint": shown.fingerprint}});
+    ok(&f.core, keep).await;
+    assert_eq!(item(&f.core).await.state, ReviewState::Approved);
+
+    let prepared = prepare(&f.core, &id).await;
+    assert_eq!(
+        prepared
+            .files
+            .iter()
+            .map(|f| f.path.as_str())
+            .collect::<Vec<_>>(),
+        ["b.rs"],
+        "what was kept"
+    );
+    let pr = pull_request(ok(&f.core, create(&prepared, &id)).await);
+    let files = files_of(&f.wt, &pr.pushed).await;
+    assert_eq!(
+        files,
+        [
+            ("a.rs".into(), "one\n".into()),
+            ("b.rs".into(), "two\n".into())
+        ]
+    );
+    let now = item(&f.core).await;
+    assert_eq!(now.state, ReviewState::Approved);
+    assert_eq!(now.pull_request.map(|p| p.number), Some(1));
+}
+
+#[tokio::test]
+async fn a_kept_worker_that_worked_again_or_a_rejected_one_is_not_published() {
+    let f = fx().await;
+    let shown = item(&f.core).await;
+    let id = shown.id.0.clone();
+    let keep = json!({"method": "review.approve", "params": {
+        "id": id, "commit": null, "fingerprint": shown.fingerprint}});
+    ok(&f.core, keep).await;
+    f.wt.put(dir(), "c.rs", "later\n");
+    let prepared = call(
+        &f.core,
+        json!({"method": "pr.prepare", "params": {"id": id}}),
+    )
+    .await;
+    assert_eq!(code(prepared), ErrorCode::Conflict);
+
+    let f = fx().await;
+    let id = item(&f.core).await.id.0;
+    ok(
+        &f.core,
+        json!({"method": "review.reject", "params": {"id": id}}),
+    )
+    .await;
+    let prepared = call(
+        &f.core,
+        json!({"method": "pr.prepare", "params": {"id": id}}),
+    )
+    .await;
+    assert_eq!(code(prepared), ErrorCode::Conflict);
+}

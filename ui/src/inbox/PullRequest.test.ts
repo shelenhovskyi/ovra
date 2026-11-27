@@ -135,6 +135,22 @@ describe("Pull requests in Reviews", () => {
     expect(document.activeElement).toBe($("[data-testid=pr-chip]"));
   });
 
+  it("opens a pull request of a worker's kept changes, and the item stays kept", async () => {
+    const core = await setup([worker()]);
+    button(/^Keep changes$/)?.click();
+    await settle();
+    const dialog = await openDialog();
+    expect(dialog.querySelector("[aria-label='Files in the pull request']")?.textContent).toContain("NOTES.md");
+    type(field(/^New branch/), "notes");
+    await settle();
+    button(/^Create pull request$/, dialog)?.click();
+    await settle();
+    expect(core.sent("pr.create")[0]?.params).toMatchObject({ id: "r1", fingerprint: "kept" });
+    expect($("[data-item=r1]")?.textContent).toContain("Kept");
+    expect($("[data-testid=pr-chip]")?.textContent).toBe("PR #7");
+    expect(button(/^Open pull request/)).toBeUndefined();
+  });
+
   it("publishes protected files and workflows only once the person ticks the box under a plain warning", async () => {
     const files = [change("NOTES.md"), change(".github/workflows/ci.yml", { protected: true })];
     const core = await setup([worker({ files })]);

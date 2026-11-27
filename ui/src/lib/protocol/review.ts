@@ -53,6 +53,8 @@ export type ReviewItem = {
    * neither the agent nor another keep in the project came after it.
    */
   can_undo_keep: boolean;
+  /** A worker's kept changes can still become a pull request (`pr.create`): its folder still holds them. */
+  can_publish_kept: boolean;
   /**
    * An open worker item's files as listed here; `review.approve` sends it
    * back and is refused if the worker's files changed since. For an open

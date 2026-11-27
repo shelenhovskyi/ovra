@@ -98,6 +98,10 @@ pub struct ReviewItem {
     /// neither the agent nor another keep in the project came after it.
     #[serde(default)]
     pub can_undo_keep: bool,
+    /// A worker's kept changes can still become a pull request
+    /// (`pr.create`): its folder still holds them.
+    #[serde(default)]
+    pub can_publish_kept: bool,
     /// An open worker item's files as listed here (paths and contents);
     /// `review.approve` sends it back and is refused if the worker's files
     /// changed since. For an open direct item with protected files: those

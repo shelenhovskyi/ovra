@@ -16,6 +16,10 @@ branch, commit, push, open the PR in a browser, then watch CI there.
 - From a worker's review item: **Open pull request**. Ovra makes a commit
   of exactly what the person reviewed, on top of the remote's base branch,
   pushes it and opens a PR with the person's installed `gh`.
+- After a keep, the same from the kept item, while the worker's folder
+  still holds what was kept and nothing since: the PR compares from the
+  base before the keep, with the same fingerprint and protected-file
+  checks, and the item stays kept.
 - The item then shows the PR and its checks, and a failed check's log can
   be sent to the worker as a comment.
 - Ovra never has a GitHub login of its own and never touches the person's.

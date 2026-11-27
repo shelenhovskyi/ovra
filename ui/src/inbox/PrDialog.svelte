@@ -34,9 +34,12 @@ let body = $state("");
 let draft = $state(true);
 /** The person chose to publish the protected files listed too. */
 let includeProtected = $state(false);
-/** The files the person looked at in Reviews: what Create sends. */
+/**
+ * The files the person looked at in Reviews: what Create sends. Kept
+ * changes were looked at before the keep; what the dialog first lists is them.
+ */
 // svelte-ignore state_referenced_locally
-const reviewed = item.fingerprint;
+let reviewed = $state(item.fingerprint);
 
 const problem = $derived(prepared ? ghProblem(prepared.gh) : null);
 const account = $derived(prepared ? ghAccount(prepared.gh) : null);
@@ -68,6 +71,7 @@ async function load(asked: string | null, fill: boolean): Promise<void> {
     const next = await inbox.preparePr(item.id, asked);
     prepared = next;
     error = null;
+    if (fill && reviewed === null) reviewed = next.fingerprint;
     if (fill) {
       ({ base, branch, title, body } = next);
       await tick();

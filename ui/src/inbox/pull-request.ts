@@ -18,6 +18,11 @@ export function canOpenPr(item: ReviewItem): boolean {
   return item.mode === "isolated" && item.state === "open" && !item.pull_request && item.files.length > 0;
 }
 
+/** A worker's kept changes that can still go out as a pull request. */
+export function canOpenKeptPr(item: ReviewItem): boolean {
+  return item.can_publish_kept && !item.pull_request && item.files.length > 0;
+}
+
 /** A comment reopened a published item and the worker's new work waits: it can be pushed to the same pull request. */
 /** GitHub runs these on a push, with the repository's secrets. */
 export function isWorkflow(path: string): boolean {

@@ -317,9 +317,7 @@ async fn prepare(
             "this item has a pull request already; update it instead",
         ));
     }
-    if entry.state != ReviewState::Open {
-        return Err(conflict("only an open review can become a pull request"));
-    }
+    let (entry, _) = review::kept_view(core, entry).await?;
     let remote = crate::pr::remote_name(remote)?;
     let gh = core.forge().status(root.clone(), remote.clone()).await?;
     let base = match base {
@@ -374,9 +372,8 @@ async fn create(core: &Core, id: &ReviewId, draft: PrDraft, seen: Seen) -> Resul
             "this item has a pull request already; update it instead",
         ));
     }
-    if entry.state != ReviewState::Open {
-        return Err(conflict("only an open review can become a pull request"));
-    }
+    // A kept item is pushed as it was kept, and stays kept.
+    let (entry, kept) = review::kept_view(core, entry).await?;
     let remote = crate::pr::remote_name(Some(draft.remote.clone()))?;
     let (base, branch) = (
         crate::pr::ref_name(&draft.base)?,
@@ -499,7 +496,9 @@ async fn create(core: &Core, id: &ReviewId, draft: PrDraft, seen: Seen) -> Resul
         status: None,
     };
     let entry = review::update(core, id, |e| {
-        e.state = ReviewState::Published;
+        if !kept {
+            e.state = ReviewState::Published;
+        }
         e.pull_request = Some(pr.clone());
         e.published_from = Some(snapshot);
         e.pending_push = None;

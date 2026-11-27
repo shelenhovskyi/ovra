@@ -986,7 +986,11 @@ function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
                   {item}
                   task={taskOf(item, sessions.name(item.session)) ?? sessions.name(item.session)}
                   onundo={() => void undoKeep(item)}
+                  onpr={() => (prFor = item.id)}
                 />
+                {#if prFor === item.id}
+                  <PrDialog {inbox} {item} onclose={(said) => void closePr(said)} />
+                {/if}
               {/if}
 
               {#if item.can_undo_take}

@@ -1,8 +1,8 @@
 <script lang="ts">
 // What comes after Keep, on a kept item: take the keep back in one press
-// while that is still possible, and the usual next step, an agent that
-// writes tests for what was kept. Each is a person's press; nothing here
-// starts on its own.
+// while that is still possible, open a pull request of a worker's kept
+// changes, and an agent that writes tests for what was kept. Each is a
+// person's press; nothing here starts on its own.
 
 import { reveal } from "../agents/reveal.svelte";
 import { agentSessions } from "../agents/sessions.svelte";
@@ -10,10 +10,16 @@ import type { ReviewItem } from "../lib/protocol";
 import { useOvra } from "../shell/context";
 import { mainView } from "../shell/main-view.svelte";
 import { testsPrompt } from "./after-keep";
+import { canOpenKeptPr } from "./pull-request";
 import { message as errorText, type ReviewInbox } from "./reviews.svelte";
 
-let { inbox, item, task, onundo }: { inbox: ReviewInbox; item: ReviewItem; task: string; onundo: () => void } =
-  $props();
+let {
+  inbox,
+  item,
+  task,
+  onundo,
+  onpr,
+}: { inbox: ReviewInbox; item: ReviewItem; task: string; onundo: () => void; onpr: () => void } = $props();
 
 const { transport } = useOvra();
 const sessions = agentSessions(transport);
@@ -57,6 +63,18 @@ async function writeTests(): Promise<void> {
         onclick={() => {
           if (!busy) onundo();
         }}>Undo keep</button
+      >
+    {/if}
+    {#if canOpenKeptPr(item)}
+      <button
+        type="button"
+        class="quiet"
+        data-open-pr
+        title="Pushes the worker's kept changes to a new branch and opens a pull request with your gh."
+        aria-disabled={busy}
+        onclick={() => {
+          if (!busy) onpr();
+        }}>Open pull request…</button
       >
     {/if}
     {#if files.length > 0}

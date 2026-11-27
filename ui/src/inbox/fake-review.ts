@@ -41,6 +41,7 @@ export const review = (id: string, extra: Partial<ReviewItem> = {}): ReviewItem 
   can_undo_take: false,
   can_undo_discard: false,
   can_undo_keep: false,
+  can_publish_kept: false,
   fingerprint: null,
   git_changes: [],
   git_unchecked: false,
@@ -169,6 +170,9 @@ export class FakeReviewCore implements Transport {
         // Like the core: only a keep without a commit, and only the latest, can be undone.
         if (request.method === "review.approve") for (const other of this.items) other.can_undo_keep = false;
         item.can_undo_keep = request.method === "review.approve" && request.params.commit === null;
+        item.can_publish_kept = request.method === "review.approve" && item.mode === "isolated";
+        // Like the core: a decided item has no fingerprint.
+        if (request.method === "review.approve" && item.state !== "partly_approved") item.fingerprint = null;
         const restored = request.method === "review.approve" ? [] : [...this.restored];
         return { type: "review.done", data: { item: structuredClone(item), conflicts: [...this.conflicts], restored } };
       }
@@ -251,7 +255,8 @@ export class FakeReviewCore implements Transport {
           body: item.summary ?? "",
           files: structuredClone(item.files),
           conflicts: [...this.prConflicts],
-          fingerprint: item.fingerprint,
+          // A kept item lists none; the core reads the kept files' then.
+          fingerprint: item.fingerprint ?? "kept",
           gh: { ...this.gh },
         };
         return { type: "pr.prepared", data };
@@ -261,7 +266,9 @@ export class FakeReviewCore implements Transport {
         this.publishable(item, request.params.include_protected === true);
         const { remote, base, branch } = request.params.draft;
         const url = "https://github.com/o/r/pull/7";
-        item.state = "published";
+        // A kept item stays kept.
+        if (item.state === "open") item.state = "published";
+        item.can_publish_kept = false;
         item.pull_request = { number: 7, url, remote, base, branch, pushed: "c1", status: null };
         return { type: "pr.pull_request", data: structuredClone(item.pull_request) };
       }
