@@ -312,7 +312,6 @@ pub(crate) struct Solo {
 /// Starts one agent of `agent`'s provider in its own worktree, without a
 /// coordinator: the task's only worker, with the person's prompt. Past the
 /// project's cap it waits `queued`, like a person's start.
-
 pub(crate) async fn start_solo(
     core: &Core,
     project: ProjectId,
