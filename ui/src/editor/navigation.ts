@@ -75,6 +75,16 @@ export class NavigationHistory {
     this.#index = this.#places.length - 1;
   }
 
+  /**
+   * The window is going to show `place`, a spot asked for (a search result,
+   * a definition, a line in Go to file): a visit, and until the cursor
+   * gets there, the cursor the file shows first is not a jump of its own.
+   */
+  arrive(place: Place): void {
+    this.visit(place);
+    if (place.line !== undefined) this.#arriving = { ...place };
+  }
+
   /** The place before the current one, now current; null at the oldest. */
   back(): Place | null {
     return this.#go(-1);

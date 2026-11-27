@@ -89,11 +89,14 @@ test("reopens the file that was open when the project was left", async ({ page }
   await expect(page.getByTestId("main")).toContainText("Notes");
 });
 
-test("the editor's context menu finds in the file, and Ctrl+G goes to a line", async ({ page }) => {
+test("the editor's context menu finds in the file, Ctrl+G and file:line go to a line, and Go back returns", async ({
+  page,
+}) => {
   const url = process.env.OVRA_URL;
   if (!url) throw new Error("OVRA_URL is not set; globalSetup did not run");
   const dir = mkdtempSync(join(tmpdir(), "ovra-menu-"));
   writeFileSync(join(dir, "main.rs"), "fn main() {}\n");
+  writeFileSync(join(dir, "long.rs"), Array.from({ length: 80 }, (_, i) => `// line ${i + 1}`).join("\n"));
 
   await loadProject(page, dir, url);
   await page.getByRole("treeitem", { name: /main\.rs/ }).click();
@@ -129,4 +132,19 @@ test("the editor's context menu finds in the file, and Ctrl+G goes to a line", a
   await expect(facts.getByRole("button")).toHaveText("Ln 1, Col 13 (12 selected)");
   await facts.getByRole("button").click();
   await expect(page.locator(".cm-goto-line input")).toBeFocused();
+
+  // Go to file with a line, then back and forward; in the text, the editor's own Alt+Left gives way.
+  await page.keyboard.press("Escape");
+  await page.keyboard.press("Alt+P");
+  await page.getByRole("combobox").fill("long.rs:60:4");
+  await expect(page.getByRole("option", { selected: true })).toContainText("long.rs Line 60, column 4");
+  await page.keyboard.press("Enter");
+  await expect(facts).toContainText("Ln 60, Col 4");
+  await expect(content).toBeFocused();
+  const [back, forward] =
+    process.platform === "darwin" ? ["Control+Minus", "Control+Shift+Minus"] : ["Alt+ArrowLeft", "Alt+ArrowRight"];
+  await page.keyboard.press(back);
+  await expect(content).toHaveText("fn main() {}");
+  await page.keyboard.press(forward);
+  await expect(facts).toContainText("Ln 60, Col 4");
 });

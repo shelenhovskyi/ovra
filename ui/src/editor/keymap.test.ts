@@ -111,6 +111,22 @@ describe("editor keymaps", () => {
     expect([...new Set(clashes)]).toEqual([]);
   });
 
+  // Their keys differ by platform, so the scan above does not find them.
+  it("leave Go back and Go forward their keys", () => {
+    const keys = { mac: ["Ctrl+-", "Ctrl+Shift+-"], linux: ["Alt+ArrowLeft", "Alt+ArrowRight"] } as const;
+    const clashes: string[] = [];
+    for (const platform of ["mac", "linux", "win"] as const) {
+      for (const text of keys[platform === "mac" ? "mac" : "linux"]) {
+        const shortcut = parseShortcut(text, platform === "mac");
+        for (const binding of editorBindings()) {
+          if (shortcut && firstPresses(binding, platform).some((press) => same(press, shortcut)))
+            clashes.push(`${binding[platform] ?? binding.key} takes ${text} on ${platform}`);
+        }
+      }
+    }
+    expect(clashes).toEqual([]);
+  });
+
   it("save on exactly Mod+S, leaving Mod+Shift+S to Save all", () => {
     const save = vi.fn();
     const view = new EditorView({

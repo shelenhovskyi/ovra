@@ -11,6 +11,7 @@ import { editorReady, goToChange, readBlame, showChangeAtCursor, toggleBlame } f
 import { showLocalHistory } from "./history-list";
 import type { LspAction } from "./lsp/actions";
 import { modeMemory } from "./mode-memory";
+import { registerNavigation } from "./navigation.svelte";
 import {
   closeOtherTabs,
   closeSavedTabs,
@@ -31,7 +32,17 @@ import { symbolSource } from "./symbols";
 
 type Target = Pick<
   Workspace,
-  "openPath" | "mode" | "openFile" | "paletteOpen" | "other" | "group" | "focusGroup" | "split" | "closeGroup"
+  | "project"
+  | "reveal"
+  | "openPath"
+  | "mode"
+  | "openFile"
+  | "paletteOpen"
+  | "other"
+  | "group"
+  | "focusGroup"
+  | "split"
+  | "closeGroup"
 >;
 
 /** Lists the shown file's symbols in the palette; Enter jumps to one. */
@@ -149,6 +160,7 @@ export function registerEditorCommands(workspace: Target): () => void {
   const showChange = inEditor(workspace, showChangeAtCursor);
   const unregister = [
     registerEditorContext(workspace),
+    registerNavigation(workspace),
     registerCommand({
       id: "editor.toggle",
       title: "Toggle editing the open file",

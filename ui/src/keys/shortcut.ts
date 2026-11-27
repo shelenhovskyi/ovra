@@ -135,7 +135,9 @@ export function formatShortcut(text: string, apple: boolean): string {
 function formatPress(text: string, apple: boolean): string {
   const shortcut = parseShortcut(text, apple);
   if (!shortcut) return text;
-  const key = shortcut.key.length === 1 ? shortcut.key.toUpperCase() : (text.split("+").pop() ?? "");
+  // Arrow keys as people name them: Alt+Left.
+  const key =
+    shortcut.key.length === 1 ? shortcut.key.toUpperCase() : (text.split("+").pop() ?? "").replace(/^Arrow/, "");
   if (apple) {
     return `${shortcut.ctrl ? "⌃" : ""}${shortcut.alt ? "⌥" : ""}${shortcut.shift ? "⇧" : ""}${shortcut.meta ? "⌘" : ""}${key}`;
   }

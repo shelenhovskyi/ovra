@@ -34,6 +34,7 @@ import Breadcrumbs from "./Breadcrumbs.svelte";
 import { editorMenu } from "./context-menu";
 import { answerClose, tabs } from "./open-files.svelte";
 import { editorPrefs } from "./prefs.svelte";
+import { noteCursor } from "./navigation.svelte";
 import { hideView, showView } from "./search";
 import { indentLabel } from "./indent";
 import { clearFacts, cursorOf, type FileFacts, publishFacts } from "./status.svelte";
@@ -132,6 +133,8 @@ let revision = $state(0);
 function track(target: EditorView, docChanged: boolean): void {
   cursor = target.state.selection.main.head;
   if (docChanged) revision++;
+  // Far jumps in the focused group are places to go back to.
+  if (workspace.focused && shown) noteCursor(shown.path, target.state, docChanged);
 }
 $effect(() => {
   if (shownView) untrack(() => shownView && track(shownView, false));

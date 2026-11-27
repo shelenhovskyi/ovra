@@ -48,6 +48,8 @@ describe("shortcuts", () => {
     expect(formatShortcut("Mod+Shift+P", true)).toBe("⇧⌘P");
     expect(formatShortcut("Mod+Shift+P", false)).toBe("Ctrl+Shift+P");
     expect(formatShortcut("Alt+F1", false)).toBe("Alt+F1");
+    expect(formatShortcut("Alt+ArrowLeft", false)).toBe("Alt+Left");
+    expect(formatShortcut("Ctrl+Shift+-", true)).toBe("⌃⇧-");
     expect(formatShortcut("Mod+K Mod+I", false)).toBe("Ctrl+K Ctrl+I");
     expect(formatShortcut("Mod+K Mod+I", true)).toBe("⌘K ⌘I");
     // A chord never matches a single keydown.

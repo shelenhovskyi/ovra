@@ -74,6 +74,20 @@ describe("NavigationHistory", () => {
     expect(history.places).toEqual([at("a.ts", 50), at("a.ts", 120)]);
   });
 
+  it("takes a file opened at a spot as one place, whatever cursor it shows first", () => {
+    const history = new NavigationHistory();
+    history.visit(at("a.ts", 1));
+    history.arrive(at("b.ts", 60, 3));
+    history.visit(at("b.ts", 1));
+    history.visit(at("b.ts", 60, 3));
+    expect(history.places).toEqual([at("a.ts", 1), at("b.ts", 60, 3)]);
+    // A spot far away in the same file is a jump.
+    history.arrive(at("b.ts", 5));
+    history.visit(at("b.ts", 5));
+    expect(history.places).toEqual([at("a.ts", 1), at("b.ts", 60, 3), at("b.ts", 5)]);
+    expect(history.back()).toEqual(at("b.ts", 60, 3));
+  });
+
   it("goes back within one file", () => {
     const history = new NavigationHistory();
     history.visit(at("a.ts", 10));

@@ -9,6 +9,8 @@
 // (CodeMirror's split-view pattern).
 
 import {
+  cursorSyntaxLeft,
+  cursorSyntaxRight,
   defaultKeymap,
   history,
   historyKeymap,
@@ -69,6 +71,8 @@ export function exactKey(keys: string, run: (view: EditorView) => boolean): KeyB
  * would take a global shortcut keep only their Mac key: block comment
  * (Alt+Shift+A goes to approvals in a browser tab) and find previous on
  * Mod-Shift-g (Ctrl+Shift+G shows Git; Shift-F3 still finds previous).
+ * Moving by syntax keeps its Mac keys only: Alt+Left and Alt+Right go back
+ * and forward elsewhere (./navigation.svelte.ts).
  * Indenting and Enter follow the tab size preferences (`./indent`); go to
  * line names its field (`./search`).
  */
@@ -82,6 +86,7 @@ export function editorKeymap(save: () => void): KeyBinding[] {
   ]);
   const ownKey = (binding: KeyBinding): KeyBinding[] => {
     if (binding.run === toggleBlockComment) return [macOnly(binding)];
+    if (binding.run === cursorSyntaxLeft || binding.run === cursorSyntaxRight) return [{ ...binding, key: undefined }];
     const run = binding.run && ownRun.get(binding.run);
     if (run) return [{ ...binding, run }];
     if (binding.key !== "Mod-g") return [binding];
