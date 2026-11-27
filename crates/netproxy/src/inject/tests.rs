@@ -34,6 +34,7 @@ fn gh() -> SecretInfo {
         host: HOST.into(),
         header: "Authorization".into(),
         prefix: "Bearer ".into(),
+        variable: None,
     }
 }
 

@@ -25,8 +25,9 @@ pub struct PolicyRule {
     /// `Bash` (the whole command with `exact`), a glob on the path relative
     /// to the session's folder for the file tools, the URL's host for
     /// `WebFetch`, `<remote> <branch>` (or `<remote> <prefix>/*`) for
-    /// `Push`, a worker's push (`docs/specs/agent-push.md`). `None`
-    /// matches every call of the tool.
+    /// `Push`, a worker's push (`docs/specs/agent-push.md`), a key's name
+    /// for `UseKey`, the netproxy adding a key (`docs/specs/secrets-consent.md`).
+    /// `None` matches every call of the tool.
     #[serde(default, rename = "match", skip_serializing_if = "Option::is_none")]
     pub pattern: Option<String>,
     pub action: PolicyAction,

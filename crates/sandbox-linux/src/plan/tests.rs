@@ -211,6 +211,7 @@ fn a_worker_reads_its_git_folder_behind_a_proxy() {
     profile.network = ProfileNetwork::Proxy {
         address: socket.display().to_string(),
         ca_bundle: Some(bundle),
+        variables: Vec::new(),
     };
     profile.work_env = Some(WorkEnv {
         port: 41010,
@@ -664,6 +665,7 @@ fn proxied(root: &Root, work_dir: &Path) -> SandboxProfile {
     profile.network = ProfileNetwork::Proxy {
         address: root.file("data/proxy/s.sock").display().to_string(),
         ca_bundle: None,
+        variables: Vec::new(),
     };
     profile
 }

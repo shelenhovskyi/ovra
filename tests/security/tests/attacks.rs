@@ -747,6 +747,7 @@ fn the_netproxy_is_the_only_way_out_and_holds() {
     let profile = world.profile(ProfileNetwork::Proxy {
         address: address.clone(),
         ca_bundle: None,
+        variables: Vec::new(),
     });
     let out = run(&sandbox, &profile, &script, &[]);
     let out = out.replace(&port.to_string(), "<port>");
@@ -1018,6 +1019,7 @@ fn secret_proxy() {
         host: BOUND.into(),
         header: "Authorization".into(),
         prefix: "Bearer ".into(),
+        variable: None,
     };
     let secrets = std::sync::Arc::new(ovra_core::fakes::MemorySecrets::default());
     secrets
@@ -1114,6 +1116,7 @@ fn a_bound_secret_never_enters_the_sandbox() {
     let profile = world.profile(ProfileNetwork::Proxy {
         address,
         ca_bundle: Some(ca.clone()),
+        variables: Vec::new(),
     });
     let checks = format!(
         "find the value in the environment: env | grep -q {pattern}
@@ -1327,6 +1330,7 @@ fn a_name_in_the_hosts_file_never_reaches_the_users_proxy() {
     let profile = world.profile(ProfileNetwork::Proxy {
         address,
         ca_bundle: None,
+        variables: Vec::new(),
     });
     let script = format!(
         "exec 3<>/dev/tcp/127.0.0.1/${{HTTPS_PROXY##*:}} && printf 'CONNECT {name}:443 HTTP/1.1\\r\\nHost: {name}:443\\r\\n\\r\\n' >&3 && echo \"tunnel to a listed name from /etc/hosts: $(head -n1 <&3 | tr -d '\\r')\"\n"

@@ -75,6 +75,7 @@ impl Sessions {
         Ok(ProfileNetwork::Proxy {
             address: started.address,
             ca_bundle: started.ca_bundle,
+            variables: Vec::new(),
         })
     }
 

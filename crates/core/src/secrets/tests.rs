@@ -18,6 +18,7 @@ fn info(name: &str, host: &str, header: &str, prefix: &str) -> SecretInfo {
         host: host.into(),
         header: header.into(),
         prefix: prefix.into(),
+        variable: None,
     }
 }
 

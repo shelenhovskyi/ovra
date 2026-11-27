@@ -28,6 +28,7 @@ fn info(name: &str, host: &str) -> SecretInfo {
         host: host.into(),
         header: "Authorization".into(),
         prefix: "Bearer ".into(),
+        variable: None,
     }
 }
 

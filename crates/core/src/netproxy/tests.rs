@@ -258,6 +258,7 @@ async fn each_session_runs_behind_its_own_proxy_until_it_ends() {
         ProfileNetwork::Proxy {
             address: "fake-proxy:s1".into(),
             ca_bundle: None,
+            variables: Vec::new(),
         }
     );
     let allowed = |net: &FakeNetProxy| {
@@ -484,6 +485,7 @@ async fn the_proxy_gets_the_projects_secret_bindings_and_logs_their_use() {
         host: "api.github.com".into(),
         header: "Authorization".into(),
         prefix: "Bearer ".into(),
+        variable: None,
     };
     secrets
         .set(&p1, gh.clone(), SecretValue::new("ghp_value"))
@@ -496,6 +498,7 @@ async fn the_proxy_gets_the_projects_secret_bindings_and_logs_their_use() {
         ProfileNetwork::Proxy {
             address: "fake-proxy:s1".into(),
             ca_bundle: Some("/fake-proxy/ca.pem".into()),
+            variables: Vec::new(),
         }
     );
     let (bound, reporter) = net

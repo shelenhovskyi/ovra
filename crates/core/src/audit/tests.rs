@@ -719,6 +719,7 @@ mod recording {
             host: "api.example.com".into(),
             header: "X-Token".into(),
             prefix: String::new(),
+            variable: None,
         }
     }
 
@@ -876,6 +877,7 @@ mod keychain {
             host: "api.example.com".into(),
             header: "X-Token".into(),
             prefix: String::new(),
+            variable: None,
         }
     }
 

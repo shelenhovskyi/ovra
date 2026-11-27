@@ -12,6 +12,8 @@ export type SecretInfo = {
   header: string;
   /** Text before the value, such as `Bearer `. */
   prefix: string;
+  /** The variable that holds a placeholder in the sandbox, such as `GH_TOKEN`, so tools start. */
+  variable?: string;
 };
 
 /** Whether values can be stored; there is no fallback to a file. */

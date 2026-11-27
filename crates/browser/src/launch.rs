@@ -259,6 +259,7 @@ mod tests {
             network: ProfileNetwork::Proxy {
                 address: "/t/proxy.sock".into(),
                 ca_bundle: None,
+                variables: Vec::new(),
             },
         };
         let line = chromium

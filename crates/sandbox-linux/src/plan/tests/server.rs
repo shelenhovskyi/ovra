@@ -191,6 +191,7 @@ fn a_language_server_gets_no_network_and_no_folder_it_could_misuse() {
         ProfileNetwork::Proxy {
             address: socket.display().to_string(),
             ca_bundle: None,
+            variables: Vec::new(),
         },
     ] {
         let mut profile = server(&project, &cache);

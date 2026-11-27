@@ -496,6 +496,7 @@ async fn a_secret_bound_to_localhost_is_never_added() {
             host: host.into(),
             header: "Authorization".into(),
             prefix: String::new(),
+            variable: None,
         };
         store
             .set(&project, info, SecretValue::new("dev-value"))

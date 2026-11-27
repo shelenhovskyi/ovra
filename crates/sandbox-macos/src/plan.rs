@@ -331,7 +331,9 @@ impl Plan {
         match &profile.network {
             ProfileNetwork::Blocked => {}
             ProfileNetwork::Open => plan.net = Net::Open,
-            ProfileNetwork::Proxy { address, ca_bundle } => {
+            ProfileNetwork::Proxy {
+                address, ca_bundle, ..
+            } => {
                 plan.net = Net::Bridge(real(Path::new(address))?);
                 if let Some(bundle) = ca_bundle {
                     plan.trust(real(bundle)?);

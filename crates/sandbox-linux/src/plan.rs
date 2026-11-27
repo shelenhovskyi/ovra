@@ -399,7 +399,10 @@ impl Plan {
                 plan.mounts.push(Mount::Tmpfs(hidden));
             }
         }
-        if let ProfileNetwork::Proxy { address, ca_bundle } = &profile.network {
+        if let ProfileNetwork::Proxy {
+            address, ca_bundle, ..
+        } = &profile.network
+        {
             plan.mounts.push(Mount::Ro(real(Path::new(address))?));
             if let Some(bundle) = ca_bundle {
                 plan.mounts.push(Mount::Ro(real(bundle)?));
@@ -805,7 +808,10 @@ impl Plan {
             Kind::Agent | Kind::Pod | Kind::Browser => (line.env, Vec::new()),
             Kind::Server { .. } => (Vec::new(), line.env),
         };
-        if let ProfileNetwork::Proxy { address, ca_bundle } = &self.network {
+        if let ProfileNetwork::Proxy {
+            address, ca_bundle, ..
+        } = &self.network
+        {
             args.extend([os("--bridge"), os(real(Path::new(address))?)]);
             args.push(os(PROXY_PORT.to_string()));
             for port in &self.forward {

@@ -431,6 +431,9 @@ pub enum ProfileNetwork {
         /// (`docs/specs/secrets.md`). The sandbox makes it readable and
         /// points `SSL_CERT_FILE` and the like at it.
         ca_bundle: Option<PathBuf>,
+        /// Variables the sandbox sets, each to a key's placeholder
+        /// (`docs/specs/secrets-consent.md`): never a value.
+        variables: Vec<(String, String)>,
     },
     /// Not limited: no netproxy is wired in.
     Open,
@@ -610,6 +613,27 @@ pub struct NetReporter {
     core: Option<crate::core::WeakCore>,
     /// Shared by the clones of one session's reporter.
     limit: Arc<std::sync::Mutex<RefusalWindow>>,
+    /// Whether the person lets the session use a key; `None` refuses.
+    consent: Option<KeyConsent>,
+}
+
+/// Asks whether a session may use a key, by the project's `UseKey` rules
+/// or the person (`docs/specs/secrets-consent.md`). `true`: add it.
+#[derive(Clone)]
+pub struct KeyConsent(Arc<dyn Fn(&SecretInfo) -> BoxFuture<'static, bool> + Send + Sync>);
+
+impl KeyConsent {
+    pub fn new(
+        ask: impl Fn(&SecretInfo) -> BoxFuture<'static, bool> + Send + Sync + 'static,
+    ) -> Self {
+        Self(Arc::new(ask))
+    }
+}
+
+impl Debug for KeyConsent {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("KeyConsent")
+    }
 }
 
 /// Refusals recorded in the current minute, and those left out.
@@ -638,6 +662,22 @@ impl NetReporter {
                 recorded: 0,
                 left_out: 0,
             })),
+            consent: None,
+        }
+    }
+
+    /// Who decides whether the session may use a key.
+    pub fn with_key_consent(mut self, consent: KeyConsent) -> Self {
+        self.consent = Some(consent);
+        self
+    }
+
+    /// Whether the proxy may add `secret` to a request now. Waits while
+    /// the person is asked; without a [`KeyConsent`] it refuses.
+    pub fn key_consent(&self, secret: &SecretInfo) -> BoxFuture<'static, bool> {
+        match &self.consent {
+            Some(consent) => (consent.0)(secret),
+            None => Box::pin(std::future::ready(false)),
         }
     }
 

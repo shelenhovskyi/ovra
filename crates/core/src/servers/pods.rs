@@ -84,6 +84,7 @@ async fn start_proxy(core: &Core, project: &ProjectId) -> Result<(SessionId, Pro
     let network = ProfileNetwork::Proxy {
         address: started.address,
         ca_bundle: started.ca_bundle,
+        variables: Vec::new(),
     };
     Ok((session, network))
 }

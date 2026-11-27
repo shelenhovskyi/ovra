@@ -162,6 +162,7 @@ fn an_agent_session() {
     profile.network = ProfileNetwork::Proxy {
         address: socket.display().to_string(),
         ca_bundle: Some(bundle),
+        variables: Vec::new(),
     };
     profile.work_env = Some(WorkEnv {
         port: 41000,

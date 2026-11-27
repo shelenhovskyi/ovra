@@ -238,7 +238,10 @@ impl Plan {
         plan.program(&home, &setup.helper);
         plan.path = plan.path_entries(&home, &setup.path);
         plan.private(setup, &work_dir)?;
-        if let ProfileNetwork::Proxy { address, ca_bundle } = &profile.network {
+        if let ProfileNetwork::Proxy {
+            address, ca_bundle, ..
+        } = &profile.network
+        {
             let proxy = OsString::from(format!("http://{address}"));
             // Names are one to Windows whatever their case.
             for name in ["HTTP_PROXY", "HTTPS_PROXY"] {

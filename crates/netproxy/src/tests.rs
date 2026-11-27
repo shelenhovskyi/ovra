@@ -888,6 +888,7 @@ async fn a_session_with_secrets_gets_a_private_bundle_and_never_binds_claudes_ho
         host: host.into(),
         header: "Authorization".into(),
         prefix: String::new(),
+        variable: None,
     };
     let reporter =
         |s: &str| NetReporter::new(ProjectId("p1".into()), SessionId(s.into()), core.sink());

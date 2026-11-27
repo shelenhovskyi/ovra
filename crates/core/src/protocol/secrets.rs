@@ -18,6 +18,18 @@ pub struct SecretInfo {
     /// Text before the value in the header, such as `Bearer `.
     #[serde(default)]
     pub prefix: String,
+    /// The environment variable that holds a placeholder inside the
+    /// sandbox, such as `GH_TOKEN`, so tools that need one start; the
+    /// proxy replaces the header they send (`docs/specs/secrets-consent.md`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub variable: Option<String>,
+}
+
+impl SecretInfo {
+    /// What the sandbox puts in [`SecretInfo::variable`]: not secret.
+    pub fn placeholder(&self) -> String {
+        format!("ovra-key-{}", self.name)
+    }
 }
 
 /// A secret's value. `Debug` never shows it, so a logged request does not
