@@ -57,7 +57,7 @@ pub(super) async fn of(core: &Core, entry: &Entry) -> Result<Vec<ReviewWarning>,
 
 /// The warnings for `files`, each with its unified diff (`None` when it
 /// could not be read). Only the agent's changes count.
-pub(super) fn scan<'a>(
+fn scan<'a>(
     files: impl IntoIterator<Item = (&'a FileChange, Option<&'a str>)>,
 ) -> Vec<ReviewWarning> {
     let mut out = Vec::new();
@@ -216,20 +216,21 @@ fn diff_lines(patch: &str) -> Vec<Line> {
 
 /// A test file by the usual names: a `tests` folder, `*.test.*`,
 /// `*_test.*`, `test_*.py` and the like.
-pub(super) fn is_test(path: &str) -> bool {
+fn is_test(path: &str) -> bool {
     let lower = path.to_ascii_lowercase();
     let mut parts = lower.split('/').collect::<Vec<_>>();
     let name = parts.pop().unwrap_or_default();
     if parts.iter().any(|p| {
         matches!(
             *p,
-            "test" | "tests" | "__tests__" | "spec" | "specs" | "e2e" | "testdata"
+            "test" | "tests" | "__tests__" | "__snapshots__" | "e2e" | "testdata"
         )
     }) {
         return true;
     }
     let stem = name.split('.').next().unwrap_or_default();
-    name.contains(".test.")
+    name.ends_with(".snap")
+        || name.contains(".test.")
         || name.contains(".spec.")
         || stem.ends_with("_test")
         || stem.ends_with("_spec")
@@ -243,7 +244,7 @@ pub(super) fn is_test(path: &str) -> bool {
 
 /// A file that sets up what the project checks: CI, lint, format, type and
 /// test runner config.
-pub(super) fn is_check_config(path: &str) -> bool {
+fn is_check_config(path: &str) -> bool {
     let lower = path.to_ascii_lowercase();
     let name = lower.rsplit('/').next().unwrap_or_default();
     if lower.starts_with(".github/workflows/")
@@ -296,12 +297,20 @@ pub(super) fn is_check_config(path: &str) -> bool {
 /// A test switched off, or the others switched off with `only`.
 fn is_skip(text: &str) -> bool {
     let t = text.trim_start();
-    const CALLS: [&str; 14] = [
-        ".skip(",
-        ".only(",
-        ".todo(",
-        ".fixme(",
-        ".skipIf(",
+    // On a test runner's own receiver only: `iter().skip(1)` is no test.
+    const RECEIVERS: [&str; 6] = ["it", "test", "describe", "suite", "context", "bench"];
+    const MODIFIERS: [&str; 5] = [".skip", ".only", ".todo", ".fixme", ".skipIf"];
+    let runner = RECEIVERS.iter().any(|r| {
+        t.match_indices(r).any(|(at, _)| {
+            let before = t[..at].chars().next_back();
+            let after = &t[at + r.len()..];
+            before.is_none_or(|b| !b.is_alphanumeric() && b != '_' && b != '.')
+                && MODIFIERS
+                    .iter()
+                    .any(|m| after.starts_with(m) && after[m.len()..].starts_with(['(', '.']))
+        })
+    });
+    const CALLS: [&str; 9] = [
         "xit(",
         "xdescribe(",
         "xtest(",
@@ -323,7 +332,8 @@ fn is_skip(text: &str) -> bool {
         "[Ignore",
         "[Fact(Skip",
     ];
-    MARKS.iter().any(|m| t.starts_with(m))
+    runner
+        || MARKS.iter().any(|m| t.starts_with(m))
         || CALLS.iter().any(|c| {
             t.match_indices(c).any(|(at, _)| {
                 // `xit(`, `fit(` only as whole words: not `exit(` or `profit(`.
@@ -376,9 +386,17 @@ fn is_assertion(text: &str) -> bool {
     if t.starts_with("//") || t.starts_with('#') && !t.starts_with("#[") {
         return false;
     }
+    // Rust's `.expect("msg")` unwraps; only a bare `expect(` asserts.
+    let bare_expect = t.match_indices("expect(").any(|(at, _)| {
+        t[..at]
+            .chars()
+            .next_back()
+            .is_none_or(|b| !b.is_alphanumeric() && b != '_' && b != '.')
+    });
     t.contains("assert")
-        || t.contains("expect(")
-        || t.contains(".should")
+        || bare_expect
+        || t.contains(".should(")
+        || t.contains(".should.")
         || t.contains(".to_be(")
         || t.contains("XCTAssert")
 }
@@ -417,6 +435,7 @@ mod tests {
             "src/test/java/FooTest.java",
             "spec/user_spec.rb",
             "src/__tests__/x.js",
+            "src/snapshots/ovra__a.snap",
         ] {
             assert!(is_test(path), "{path}");
         }
@@ -425,6 +444,7 @@ mod tests {
             "src/contest.ts",
             "testing.md",
             "src/Test.java",
+            "docs/specs/review-check.md",
         ] {
             assert!(!is_test(path), "{path}");
         }
@@ -466,6 +486,9 @@ mod tests {
         }
         for line in [
             "std::process::exit(1)",
+            "for l in lines.iter().skip(1) {",
+            "query.only(fields)",
+            "latest.skip(2)",
             "let profit(x) = 1",
             "skip(3)",
             "fn only()",
@@ -515,6 +538,8 @@ diff --git a/crates/x/tests/it.rs b/crates/x/tests/it.rs
  }
 ";
         assert_eq!(scan_one("src/lib.rs", ChangeKind::Modified, patch), vec![]);
+        let unwrap = "@@ -1,1 +1,1 @@\n-    let x = y.expect(\"set\");\n+    let x = y?;\n";
+        assert_eq!(scan_one("src/lib.rs", ChangeKind::Modified, unwrap), vec![]);
         let added = "@@ -0,0 +1,2 @@\n+it('works', () => {\n+});\n";
         assert_eq!(scan_one("src/a.test.ts", ChangeKind::Added, added), vec![]);
     }

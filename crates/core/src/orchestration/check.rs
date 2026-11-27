@@ -147,13 +147,14 @@ pub(super) async fn start(core: &Core, entry: &Entry) {
         Err(_) => return,
     };
     let def = read(core.fs_service(), &root).await;
-    // An ended session's workspace waits for the person: nothing changes it.
+    // An ended or forgotten session no longer works on its files: no turn
+    // end is coming to wait for.
     let idle = core
         .sessions()
         .find(&session, |s| {
             *s.status() == AgentStatus::Idle || s.status().is_ended()
         })
-        .unwrap_or(false);
+        .unwrap_or(true);
     let cleared = if !matches!(def, Ok(Some(_))) {
         let saved = match &def {
             Err(_) => Some(Saved {
@@ -335,8 +336,10 @@ fn finish(
             },
             tree,
         };
-        drop(guard);
-        save(core, &entry.id, Some(saved));
+        if let Some(e) = guard.reviews.iter_mut().find(|r| r.id == entry.id) {
+            e.check = Some(saved);
+            orchestration.save(&guard);
+        }
     }
     changed(core, entry);
 }
@@ -486,6 +489,13 @@ async fn after_turn(core: &Core, session: &SessionId) {
         return;
     };
     if entry.state != ReviewState::Open {
+        return;
+    }
+    // Without a check, no diff to read; a broken file shows once asked.
+    let Ok(root) = core.root(&entry.project) else {
+        return;
+    };
+    if matches!(read(core.fs_service(), &root).await, Ok(None)) {
         return;
     }
     let busy = {

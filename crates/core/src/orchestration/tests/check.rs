@@ -476,8 +476,8 @@ async fn a_direct_agent_is_checked_in_the_main_checkouts_pod() {
     let (pod, steps) = &pods[0];
     assert_eq!(pod.work_dir, PathBuf::from(ROOT));
     assert_eq!(steps[0].line.cwd, PathBuf::from(ROOT));
-    // The main checkout's own pod, not one for a worker's worktree.
-    assert!(!pod.profile.work_dir_read_only);
+    // The main checkout's own pod: a worker's would also read `<root>/.git`.
+    assert!(pod.profile.read.is_empty(), "{:?}", pod.profile.read);
 }
 
 #[tokio::test]
@@ -513,4 +513,39 @@ async fn warnings_point_at_the_tests_an_agent_weakened() {
             (K::CheckSilenced, "src/b.ts", Some(1), false),
         ]
     );
+}
+
+#[tokio::test]
+async fn a_coordinators_worker_is_checked_only_when_review_is_asked() {
+    let f = checked(Some(r#"{"command": ["just", "check"]}"#)).await;
+    let mut rx = f.core.subscribe();
+    let _me = worker(&f, &mut rx).await;
+    let boss = caller("s1", ToolRole::Coordinator);
+    assert!(f.core.send_message(&boss, &sid("s2"), "go on").is_ok());
+    until(&mut rx, "s2", AgentStatus::Working).await;
+    until(&mut rx, "s2", AgentStatus::Idle).await;
+    for _ in 0..20 {
+        tokio::task::yield_now().await;
+    }
+    assert_eq!(f.dev.setups.lock().map(|s| s.len()).unwrap_or(0), 0);
+    assert_eq!(check(&f.core).await, None);
+}
+
+#[tokio::test]
+async fn run_again_works_for_an_ended_agent_and_not_for_a_decided_item() {
+    let f = checked(Some(r#"{"command": ["just", "check"]}"#)).await;
+    let mut rx = f.core.subscribe();
+    let worktree = solo(&f, &mut rx).await;
+    f.wt.put(&worktree, "a.rs", "two\n");
+    let stop = json!({"method": "agents.stop", "params": {"session": "s1"}});
+    ok(&f.core, stop).await;
+    until(&mut rx, "s1", AgentStatus::Stopped).await;
+    let run = json!({"method": "review.run_check", "params": {"id": "r1"}});
+    ok(&f.core, run.clone()).await;
+    let done = passes(&f, &mut rx, 1).await.map(|c| c.state);
+    assert_eq!(done, Some(ReviewCheckState::Passed));
+
+    let reject = json!({"method": "review.reject", "params": {"id": "r1"}});
+    ok(&f.core, reject).await;
+    assert_eq!(code(call(&f.core, run).await), ErrorCode::Conflict);
 }

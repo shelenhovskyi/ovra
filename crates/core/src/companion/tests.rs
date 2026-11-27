@@ -62,6 +62,8 @@ fn a_phone_reads_answers_replies_and_stops_but_changes_nothing_else() {
         json!({"method": "netproxy.get_allowlist", "params": p}),
         json!({"method": "review.diff", "params": {"id": "v1", "path": "a"}}),
         json!({"method": "review.reject", "params": {"id": "v1"}}),
+        json!({"method": "review.run_check", "params": {"id": "v1"}}),
+        json!({"method": "review.warnings", "params": {"id": "v1"}}),
         json!({"method": "orchestration.start", "params": {"project": "p1", "prompt": "x"}}),
         json!({"method": "audit.list", "params": p}),
     ];
