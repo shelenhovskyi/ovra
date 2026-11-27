@@ -1014,17 +1014,20 @@ impl AgentHost {
         reason: Option<PermissionReason>,
         always: impl FnOnce(Option<&Path>, Option<&SandboxReport>) -> Option<PolicyRule>,
     ) -> PermissionAnswer {
-        self.ask_person_by(tool, title, reason, always).await.0
+        self.ask_person_by(tool, title, reason, always, false)
+            .await
+            .0
     }
 
-    /// [`Self::ask_person`], with who answered. An idle session (a key a
-    /// background process wants) stays idle while it waits.
+    /// [`Self::ask_person`], with who answered. With `keep_idle`, an idle
+    /// session (a key a background process wants) stays idle while it waits.
     pub(crate) async fn ask_person_by(
         &self,
         tool: &ToolRequest,
         title: Option<String>,
         reason: Option<PermissionReason>,
         always: impl FnOnce(Option<&Path>, Option<&SandboxReport>) -> Option<PolicyRule>,
+        keep_idle: bool,
     ) -> (PermissionAnswer, DecidedBy) {
         let tool = tool.clone();
         let mut idle = false;
@@ -1035,7 +1038,7 @@ impl AgentHost {
             if s.status().is_ended() {
                 return Err(PermissionAnswer::deny("the session ended"));
             }
-            idle = *s.status() == AgentStatus::Idle;
+            idle = keep_idle && *s.status() == AgentStatus::Idle;
             let cwd = s.launch().map(|l| l.cwd);
             let sandbox = s.info().sandbox;
             let always = always(cwd.as_deref(), sandbox.as_ref());

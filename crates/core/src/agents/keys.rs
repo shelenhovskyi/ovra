@@ -112,7 +112,7 @@ impl AgentHost {
             |_: Option<&std::path::Path>, sandbox: Option<&_>| rules::always(name, sandbox);
         let asked = tokio::time::timeout(
             ASK_TIMEOUT,
-            self.ask_person_by(&tool, Some(title), None, always),
+            self.ask_person_by(&tool, Some(title), None, always, true),
         )
         .await;
         let Ok((answer, by)) = asked else {
