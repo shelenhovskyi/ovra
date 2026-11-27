@@ -11,6 +11,7 @@ mod plan;
 mod queue;
 mod requests;
 mod state;
+mod stuck;
 mod transcript;
 
 use std::path::{Path, PathBuf};
@@ -93,6 +94,8 @@ struct Session {
     keys: std::collections::HashMap<SecretInfo, bool>,
     /// What the person queued for after the running turn.
     later: queue::Later,
+    /// Whether its current turn looks stuck.
+    watch: stuck::Watch,
 }
 
 /// A session that has not ended, as the resource monitor sees it.
@@ -135,6 +138,8 @@ pub(crate) struct Sessions {
     /// One question at a time per session and key: requests that would
     /// carry the key meanwhile wait for its answer.
     asking_keys: keys::Asking,
+    /// Whether a loop looks for silent sessions ([`stuck::wake`]).
+    silence_watch: Mutex<bool>,
 }
 
 /// Where sessions' IDE tool calls go; set once when the core is built.
@@ -188,11 +193,18 @@ impl Sessions {
                 images: Vec::new(),
                 keys: Default::default(),
                 later: queue::Later::default(),
+                watch: stuck::Watch::default(),
             };
             // What a go-back restored is kept with the checkpoints, if it
             // still can be undone.
             session.info.can_undo_go_back = direct.can_undo_go_back(&session.info.id);
+            session.info.stuck = None;
             if !session.info.status.is_ended() {
+                // Cut off in the middle of its work: it can go on from there.
+                session.info.interrupted = matches!(
+                    session.info.status,
+                    AgentStatus::Starting | AgentStatus::Working | AgentStatus::WaitingForApproval
+                ) && session.agent_session.is_some();
                 session.info.status = AgentStatus::Stopped;
                 let _ = store.save(&session.stored());
             }
@@ -212,6 +224,7 @@ impl Sessions {
             net,
             allowlists: Mutex::new(()),
             asking_keys: Mutex::default(),
+            silence_watch: Mutex::new(false),
         }
     }
 
@@ -256,6 +269,7 @@ impl Sessions {
             images,
             keys: Default::default(),
             later: queue::Later::default(),
+            watch: stuck::Watch::default(),
         };
         let _ = self.store.save(&session.stored());
         list.push(session);
@@ -442,6 +456,39 @@ impl Sessions {
         }
     }
 
+    /// Marks working sessions that showed nothing for [`stuck::SILENT`]:
+    /// answers those whose hint changed, and when to look again (`None`:
+    /// no session works).
+    pub(crate) fn silence(
+        &self,
+        now: tokio::time::Instant,
+    ) -> (
+        Vec<(SessionId, Option<crate::protocol::agents::Stuck>)>,
+        Option<tokio::time::Instant>,
+    ) {
+        let mut changed = Vec::new();
+        let mut next: Option<tokio::time::Instant> = None;
+        let mut working = false;
+        for s in lock(&self.list).iter_mut() {
+            if s.info.status != AgentStatus::Working {
+                continue;
+            }
+            working = true;
+            if let Some(due) = s.watch.silence(now) {
+                next = Some(next.map_or(due, |n| n.min(due)));
+            }
+            if let Some(stuck) = s.watch.changed() {
+                changed.push((s.info.id.clone(), stuck));
+            }
+        }
+        // A silent session still works: look again when it may have
+        // spoken, so the watch stops once nothing works.
+        if working && next.is_none() {
+            next = Some(now + stuck::SILENT);
+        }
+        (changed, next)
+    }
+
     /// Sessions of `project` that have not ended.
     pub(crate) fn running(&self, project: &ProjectId) -> Vec<SessionId> {
         lock(&self.list)
@@ -454,10 +501,16 @@ impl Sessions {
 
 impl Session {
     fn info(&self) -> SessionInfo {
+        let ended = self.info.status.is_ended();
         SessionInfo {
             usage: self.transcript.usage().clone(),
-            resumable: self.info.status.is_ended() && self.agent_session.is_some(),
+            resumable: ended && self.agent_session.is_some(),
             queue: self.later.shown(),
+            stuck: if ended {
+                None
+            } else {
+                self.watch.hint().map(Box::new)
+            },
             ..self.info.clone()
         }
     }
@@ -499,6 +552,7 @@ impl SessionView<'_> {
     /// Adds a message and returns it as kept (long texts cut), with its number.
     pub(crate) fn push(&mut self, message: AgentMessage) -> (AgentMessage, u64) {
         let kept = self.session.transcript.push(message);
+        self.session.watch.see(&kept);
         // Kept with the session's next save: not a write per message.
         self.session.info.active_ms = Some(now_ms());
         let _ = self.store.append(&self.session.info.id, &kept);
@@ -589,6 +643,8 @@ impl SessionView<'_> {
         self.session.run += 1;
         self.session.info.status = AgentStatus::Starting;
         self.session.info.active_ms = Some(now_ms());
+        self.session.info.interrupted = false;
+        self.session.watch.status(&AgentStatus::Starting);
         self.session.stopping = false;
         // The new process reports its own sandbox; until it does, none.
         self.session.info.sandbox = None;
@@ -608,10 +664,15 @@ impl SessionView<'_> {
             self.session.process = None;
             self.session.pid = None;
         }
+        self.session.watch.status(&status);
         self.session.info.status = status;
         self.session.info.active_ms = Some(now_ms());
         self.save();
         true
+    }
+    /// The stuck hint, if it changed since clients were last told.
+    fn stuck_changed(&mut self) -> Option<Option<crate::protocol::agents::Stuck>> {
+        self.session.watch.changed()
     }
     pub(crate) fn process(&self) -> Option<Arc<dyn RunningAgent>> {
         self.session.process.clone()
@@ -900,18 +961,31 @@ impl AgentHost {
         if let AgentMessage::ToolResult { tool_use_id, .. } = &message {
             self.sessions.direct.tool_ended(&self.session, tool_use_id);
         }
-        if let Ok((message, seq)) = self.sessions.find(&self.session, |s| s.push(message)) {
+        if let Ok(((message, seq), stuck)) = self
+            .sessions
+            .find(&self.session, |s| (s.push(message), s.stuck_changed()))
+        {
             self.sink.emit(AgentsEvent::Message {
                 session: self.session.clone(),
                 message,
                 seq,
             });
+            if let Some(stuck) = stuck {
+                self.stuck(stuck);
+            }
         }
     }
 
     /// Shows the next piece of the assistant text the agent is writing. Not
     /// kept: the complete message comes through [`Self::message`].
     pub fn text_delta(&self, text: String) {
+        let stuck = self.sessions.find(&self.session, |s| {
+            s.session.watch.active();
+            s.stuck_changed()
+        });
+        if let Ok(Some(stuck)) = stuck {
+            self.stuck(stuck);
+        }
         self.sink.emit(AgentsEvent::TextDelta {
             session: self.session.clone(),
             text,
@@ -951,17 +1025,23 @@ impl AgentHost {
             if changed && status.is_ended() {
                 self.sessions.net_stop(&self.session);
             }
-            (changed, s.run())
+            (changed, s.run(), s.stuck_changed())
         });
         // The run that ended: a resume may have started the next one since.
-        let (changed, run) = changed.unwrap_or((false, 0));
+        let (changed, run, stuck) = changed.unwrap_or((false, 0, None));
         if changed {
             self.sink.emit(AgentsEvent::Status {
                 session: self.session.clone(),
                 project: self.project.clone(),
                 status: status.clone(),
             });
+            if let Some(stuck) = stuck {
+                self.stuck(stuck);
+            }
             if let Some(core) = self.sessions.core() {
+                if status == AgentStatus::Working {
+                    stuck::wake(&core);
+                }
                 crate::resources::wake(&core);
                 crate::orchestration::on_status(&core, &self.session, &status);
                 crate::power::sessions_changed(&core);
@@ -972,6 +1052,13 @@ impl AgentHost {
             }
         }
         changed
+    }
+
+    fn stuck(&self, stuck: Option<crate::protocol::agents::Stuck>) {
+        self.sink.emit(AgentsEvent::Stuck {
+            session: self.session.clone(),
+            stuck,
+        });
     }
 
     pub(crate) fn resolved(&self, ids: Vec<PermissionId>, decision: Decision) {

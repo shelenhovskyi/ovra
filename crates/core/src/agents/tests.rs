@@ -7,7 +7,7 @@ use crate::Core;
 use crate::fakes::{EchoTerminals, MemoryFs, MemoryProjects, MemorySessions, ScriptedAgent, Step};
 use crate::protocol::agents::{
     AgentMessage, AgentModel, AgentStatus, AgentsEvent, AgentsResponse, SessionInfo, SessionMode,
-    ToolCall, ToolKind, TurnUsage,
+    Stuck, ToolCall, ToolKind, TurnUsage,
 };
 use crate::protocol::agents::{ProjectAgentConfig, ProjectConfigReview, SetupState};
 use crate::protocol::permissions::{
@@ -1996,6 +1996,90 @@ async fn each_message_has_a_number_and_the_transcript_says_its_last() {
             assert_eq!(t.messages.len(), seqs.len());
             assert_eq!(t.seq, seqs.len() as u64);
         }
+        other => panic!("unexpected {other:?}"),
+    }
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_silent_working_session_gets_a_hint_that_its_next_message_clears() {
+    let core = core_with(ScriptedAgent::new(vec![vec![]]));
+    project(&core).await;
+    let mut rx = core.subscribe();
+    ok(&core, start("go")).await;
+    until(&mut rx, AgentStatus::Idle).await;
+    let host = host(&core);
+    host.status(AgentStatus::Working);
+    let stuck = |rx: &mut broadcast::Receiver<Event>| {
+        let mut rx = rx.resubscribe();
+        async move {
+            loop {
+                match Core::next_event(&mut rx).await {
+                    Some(Event::Agents(AgentsEvent::Stuck { stuck, .. })) => return stuck,
+                    Some(_) => {}
+                    None => panic!("core closed"),
+                }
+            }
+        }
+    };
+    let silent = stuck(&mut rx);
+    tokio::time::advance(crate::agents::stuck::SILENT).await;
+    assert_eq!(silent.await, Some(Stuck::Silent { minutes: 10 }));
+    assert_eq!(
+        sessions(&core).await[0].stuck.as_deref(),
+        Some(&Stuck::Silent { minutes: 10 })
+    );
+    let cleared = stuck(&mut rx);
+    host.text_delta("still here".into());
+    assert_eq!(cleared.await, None);
+    host.status(AgentStatus::Idle);
+}
+
+#[tokio::test]
+async fn the_same_failing_call_three_times_is_hinted_until_the_turn_ends() {
+    let core = core_with(ScriptedAgent::new(vec![vec![]]));
+    project(&core).await;
+    let mut rx = core.subscribe();
+    ok(&core, start("go")).await;
+    until(&mut rx, AgentStatus::Idle).await;
+    let host = host(&core);
+    host.status(AgentStatus::Working);
+    for n in 0..3 {
+        let id = format!("t{n}");
+        host.message(AgentMessage::ToolUse {
+            id: id.clone(),
+            name: "Bash".into(),
+            input: json!({"command": "make"}),
+            call: ToolCall::default(),
+            parent: None,
+        });
+        host.message(AgentMessage::ToolResult {
+            tool_use_id: id,
+            output: "error: no rule".into(),
+            is_error: true,
+            parent: None,
+        });
+    }
+    host.status(AgentStatus::Idle);
+    let mut hints = Vec::new();
+    loop {
+        match Core::next_event(&mut rx).await {
+            Some(Event::Agents(AgentsEvent::Stuck { stuck, .. })) => {
+                hints.push(
+                    stuck.map(|s| serde_json::to_value(s).unwrap_or_default()["kind"].clone()),
+                );
+            }
+            Some(Event::Agents(AgentsEvent::Status {
+                status: AgentStatus::Idle,
+                ..
+            })) => break,
+            Some(_) => {}
+            None => panic!("core closed"),
+        }
+    }
+    // Told once when it repeats; the hint goes with the turn, after its status.
+    assert_eq!(hints, [Some(json!("repeating"))]);
+    match Core::next_event(&mut rx).await {
+        Some(Event::Agents(AgentsEvent::Stuck { stuck: None, .. })) => {}
         other => panic!("unexpected {other:?}"),
     }
 }
