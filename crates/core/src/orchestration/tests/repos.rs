@@ -272,3 +272,38 @@ async fn a_task_across_repositories_is_refused_when_disk_is_low() {
     };
     assert!(tasks.is_empty(), "{tasks:?}");
 }
+
+#[tokio::test]
+async fn quiet_mode_stays_off_for_an_agent_across_repositories() {
+    use crate::protocol::agents::{SandboxNetwork, SandboxReport};
+    let f = fx_api().await;
+    let quiet = json!({"method": "policy.set", "params": {"project": "p1", "policy": {
+        "quiet": true, "rules": []}}});
+    ok(&f.core, quiet).await;
+    let mut rx = f.core.subscribe();
+    let Response::Orchestration(OrchestrationResponse::Task(task)) =
+        ok(&f.core, linked(json!(["p2"]))).await
+    else {
+        panic!("no task");
+    };
+    let worker = task.workers[0].clone();
+    until(&mut rx, &worker.session.0, AgentStatus::Idle).await;
+    let host = crate::agents::AgentHost::new(
+        worker.session.clone(),
+        ProjectId("p1".into()),
+        f.core.inner_sessions(),
+        f.core.sink(),
+    );
+    host.sandboxed(Some(SandboxReport {
+        name: "bubblewrap, seccomp".into(),
+        network: SandboxNetwork::Proxy,
+        gaps: Vec::new(),
+    }));
+    // A command that quiet mode would let run in one copy asks here: it
+    // could reach the linked copy past that project's rules.
+    let command = format!("cat {}/lib.rs", worker.repos[0].worktree);
+    let bash = crate::fakes::tool("Bash", json!({"command": command}));
+    let asking = tokio::spawn(async move { host.ask(bash, None, None).await });
+    until(&mut rx, &worker.session.0, AgentStatus::WaitingForApproval).await;
+    asking.abort();
+}

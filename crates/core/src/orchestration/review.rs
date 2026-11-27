@@ -472,7 +472,7 @@ pub(super) async fn handle(core: &Core, request: ReviewRequest) -> Result<Respon
         ReviewRequest::Update { id, conflicts } => {
             let done = super::behind::update(core, &id, conflicts).await?;
             Ok(Response::Review(ReviewResponse::Updated {
-                item: done.item,
+                item: Box::new(done.item),
                 files: done.files,
                 conflicts: done.conflicts,
                 written: done.written,

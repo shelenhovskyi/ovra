@@ -390,7 +390,7 @@ pub enum ReviewResponse {
     /// After `review.update`.
     #[serde(rename = "review.updated")]
     Updated {
-        item: ReviewItem,
+        item: Box<ReviewItem>,
         /// Files of the project that came into the worktree (none when
         /// nothing was written).
         files: u32,

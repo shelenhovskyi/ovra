@@ -61,7 +61,9 @@ and reviews and lands two unrelated results.
    only file tools whose every path is in its copy. A `Bash` call is
    allowed by the main project's rules only, as today: it runs in the main
    copy. "Always allow" is offered for the main copy only; a path outside
-   every copy is handled as today.
+   every copy is handled as today. Quiet mode (ADR 0015) is off for such a
+   session: its checks know only the main copy, and a command could reach
+   a linked copy past that project's file rules.
 7. **Review.** Each repository with changes gets its own review item, as a
    worker's item today, in its own project (`ReviewItem.project`), with its
    own diff, fingerprint, Keep, Discard, parts, checks and pull request.

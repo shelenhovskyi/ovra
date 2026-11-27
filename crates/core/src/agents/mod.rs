@@ -820,6 +820,7 @@ impl AgentHost {
         let cwd = cwd.ok_or(())?;
         // A worker across repositories: each linked copy's own rules too.
         let linked = crate::orchestration::linked_projects(&core, &self.session);
+        let across = !linked.is_empty();
         let decided = if linked.is_empty() {
             crate::policy::decide(&policy, &tool.name, &tool.call, &cwd, sandbox.as_ref())
         } else {
@@ -836,8 +837,11 @@ impl AgentHost {
             )
         };
         // Quiet mode decides only what no rule does, as an auto rule would
-        // (ADR 0015), and only in the main copy.
+        // (ADR 0015). Not across repositories: its checks know only the
+        // main copy, and a command could reach a linked one past that
+        // project's file rules (`docs/specs/multi-repo.md`).
         let quiet = decided.is_none()
+            && !across
             && crate::policy::quiet::allows(
                 &policy,
                 &tool.name,

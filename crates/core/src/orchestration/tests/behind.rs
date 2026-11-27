@@ -32,7 +32,7 @@ async fn update(f: &Fx, conflicts: bool) -> (ReviewItem, u32, Vec<String>, bool)
     else {
         panic!("unexpected {done:?}");
     };
-    (item, files, conflicts, written)
+    (*item, files, conflicts, written)
 }
 
 #[tokio::test]
