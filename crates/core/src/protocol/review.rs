@@ -130,6 +130,11 @@ pub struct ReviewItem {
     /// `None` without a check.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub check: Option<Box<ReviewCheck>>,
+    /// Every repository of a worker's task across repositories, the main
+    /// one first (`docs/specs/multi-repo.md`): its session has one item per
+    /// repository, listed and kept together. Empty for one repository.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub task_repos: Vec<ProjectId>,
     /// An open worker item whose project changed since its base
     /// (`docs/specs/main-moved.md`); `None` when it did not, and for direct
     /// and decided items. Only `review.list` and `review.updated` fill it.

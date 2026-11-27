@@ -59,6 +59,19 @@ pub struct Worker {
     /// secret-looking ones, which the worker's agent can read.
     #[serde(default)]
     pub included: Vec<String>,
+    /// Its copies of the task's linked repositories, in the order the
+    /// person picked them (`docs/specs/multi-repo.md`); empty for one.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub repos: Vec<LinkedCopy>,
+}
+
+/// A worker's copy of one linked repository (`docs/specs/multi-repo.md`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LinkedCopy {
+    pub project: ProjectId,
+    /// Absolute path of its worktree in that repository.
+    pub worktree: String,
+    pub branch: String,
 }
 
 /// Where a worktree's setup steps (`.ovra/worktree.json`) are.
@@ -209,6 +222,11 @@ pub enum OrchestrationRequest {
         /// file until the person approves it (`docs/specs/plan-first.md`).
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         plan_first: bool,
+        /// With `solo`: other projects of the person's list the worker
+        /// changes too, each in its own copy, at most three
+        /// (`docs/specs/multi-repo.md`).
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        repos: Vec<ProjectId>,
     },
     /// Tasks of a project, oldest first.
     #[serde(rename = "orchestration.list")]

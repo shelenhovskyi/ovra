@@ -276,6 +276,10 @@ pub struct AgentSpec {
     pub mode: SessionMode,
     /// Absolute path the agent works in: the project root in direct mode.
     pub cwd: PathBuf,
+    /// More folders the agent works in besides `cwd` (a worker's copies of
+    /// linked repositories, `docs/specs/multi-repo.md`); a runtime that
+    /// cannot add folders refuses a spec with any.
+    pub add_dirs: Vec<PathBuf>,
     pub prompt: String,
     /// The executable the user chose for this agent, if any.
     pub executable: Option<PathBuf>,
@@ -354,6 +358,11 @@ pub struct SandboxProfile {
     pub read: Vec<PathBuf>,
     /// More folders it may write.
     pub write: Vec<PathBuf>,
+    /// More folders treated as `work_dir` is: readable, writable and with
+    /// the same protected paths (a worker's copies of linked repositories,
+    /// `docs/specs/multi-repo.md`). A sandbox that cannot protect them
+    /// refuses the profile.
+    pub more_work_dirs: Vec<PathBuf>,
     /// Ports inside the sandbox that its helper makes reachable from
     /// outside as `<port>.sock` in the pod's folder (a server pod, ADR 0008).
     pub expose: Vec<u16>,

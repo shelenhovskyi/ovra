@@ -74,6 +74,8 @@ export type ReviewItem = {
   pull_request?: PullRequest;
   /** The project's check, run when a worker asked for review or a person's own agent ended a turn with changes; absent without one. */
   check?: ReviewCheck;
+  /** Every repository of a task across repositories, the main one first; its session has one item per repository. Absent for one. */
+  task_repos?: ProjectId[];
   /**
    * An open worker item whose project changed since its base (`docs/specs/main-moved.md`).
    * Only `review.list` and `review.updated` fill it.

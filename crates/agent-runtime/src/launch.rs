@@ -565,6 +565,7 @@ mod tests {
 
     fn spec() -> AgentSpec {
         AgentSpec {
+            add_dirs: Vec::new(),
             session: ovra_core::protocol::agents::SessionId("s1".into()),
             agent: ovra_core::protocol::agents::AgentKind::Claude,
             mode: ovra_core::protocol::agents::SessionMode::Direct,
@@ -580,6 +581,7 @@ mod tests {
             images: Vec::new(),
             servers: Vec::new(),
             sandbox: ovra_core::services::SandboxProfile {
+                more_work_dirs: Vec::new(),
                 kind: ovra_core::services::ProfileKind::Agent,
                 agent_state: None,
                 project: None,

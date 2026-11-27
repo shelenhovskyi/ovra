@@ -119,6 +119,7 @@ fn sandbox_on(home: &Path, hidden: Vec<PathBuf>, path: &str) -> Option<Bubblewra
 
 fn profile(work_dir: &Path, network: ProfileNetwork) -> SandboxProfile {
     SandboxProfile {
+        more_work_dirs: Vec::new(),
         kind: ovra_core::services::ProfileKind::Agent,
         agent_state: Some(ovra_core::services::AgentState {
             lists: &claude_lists::CLAUDE_LISTS,

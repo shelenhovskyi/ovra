@@ -131,6 +131,7 @@ impl Drop for Root {
 
 fn profile(work_dir: &Path) -> SandboxProfile {
     SandboxProfile {
+        more_work_dirs: Vec::new(),
         kind: ovra_core::services::ProfileKind::Agent,
         agent_state: claude(None),
         project: Some(ProjectId("p1".into())),

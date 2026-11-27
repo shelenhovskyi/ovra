@@ -205,6 +205,7 @@ fn attached(target: &str, kind: &str) -> Value {
 
 fn profile() -> SandboxProfile {
     SandboxProfile {
+        more_work_dirs: Vec::new(),
         kind: ovra_core::services::ProfileKind::Browser,
         agent_state: None,
         project: None,

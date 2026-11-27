@@ -70,6 +70,7 @@ impl Root {
 
     fn profile(&self) -> SandboxProfile {
         SandboxProfile {
+            more_work_dirs: Vec::new(),
             kind: ProfileKind::Agent,
             agent_state: claude_state(None),
             project: Some(ProjectId("p1".into())),

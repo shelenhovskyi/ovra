@@ -184,6 +184,7 @@ mod tests {
             cwd: "/w".into(),
         };
         let profile = SandboxProfile {
+            more_work_dirs: Vec::new(),
             kind: ovra_core::services::ProfileKind::Agent,
             agent_state: None,
             project: None,

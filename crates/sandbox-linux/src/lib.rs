@@ -230,6 +230,7 @@ impl Bubblewrap {
             ..self.setup.clone()
         };
         let profile = SandboxProfile {
+            more_work_dirs: Vec::new(),
             kind: ovra_core::services::ProfileKind::Agent,
             agent_state: Some(AgentState {
                 lists: &PROBE_AGENT,
@@ -411,6 +412,7 @@ mod tests {
             cwd: "/".into(),
         };
         let agent = SandboxProfile {
+            more_work_dirs: Vec::new(),
             kind: ovra_core::services::ProfileKind::Agent,
             agent_state: None,
             project: None,

@@ -242,6 +242,7 @@ mod tests {
             project: ProjectId("p1".into()),
             work_dir: work_dir.into(),
             profile: SandboxProfile {
+                more_work_dirs: Vec::new(),
                 kind: crate::services::ProfileKind::Pod,
                 agent_state: None,
                 project: None,

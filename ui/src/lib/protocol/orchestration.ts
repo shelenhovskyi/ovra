@@ -62,6 +62,16 @@ export type Worker = {
   waiting?: string | null;
   /** Paths copied into its worktree through `.worktreeinclude`, relative, shallowest first, at most 100 (absent from older cores). */
   included?: string[];
+  /** Its copies of the task's linked repositories (`docs/specs/multi-repo.md`); absent for one. */
+  repos?: LinkedCopy[];
+};
+
+/** A worker's copy of one linked repository. */
+export type LinkedCopy = {
+  project: ProjectId;
+  /** Absolute path of its worktree in that repository. */
+  worktree: string;
+  branch: string;
 };
 
 /** Where a worktree's setup steps (`.ovra/worktree.json`) are. */
@@ -137,6 +147,8 @@ export type OrchestrationRequest =
         model?: AgentModel;
         /** With `solo`: proposes a plan first and changes no file until the person approves it. */
         plan_first?: boolean;
+        /** With `solo`: other projects the worker changes too, each in its own copy, at most three. */
+        repos?: ProjectId[];
       };
     }
   | { method: "orchestration.list"; params: { project: ProjectId } }

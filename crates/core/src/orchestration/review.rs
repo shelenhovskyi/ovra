@@ -558,6 +558,7 @@ async fn current(core: &Core, entry: &Entry) -> Result<(ReviewItem, Option<Strin
             protected_fingerprint(core.worktrees(), &ws.dir, &ws.base, &files, tree).await;
     }
     let item = ReviewItem {
+        task_repos: Vec::new(),
         id: entry.id.clone(),
         project: entry.project.clone(),
         session: entry.session.clone(),

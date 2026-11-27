@@ -1002,6 +1002,7 @@ pub(crate) fn profile(
             SessionMode::Direct | SessionMode::Research => Vec::new(),
         },
         write: Vec::new(),
+        more_work_dirs: Vec::new(),
         expose: Vec::new(),
         forward,
         network,
@@ -1106,6 +1107,7 @@ async fn run(
         agent,
         mode,
         cwd: launch.cwd,
+        add_dirs: Vec::new(),
         // A provider that cannot reach Ovra's IDE tools works without them
         // in its role (`docs/specs/more-agents.md`).
         tools: launch.tools.filter(|_| {

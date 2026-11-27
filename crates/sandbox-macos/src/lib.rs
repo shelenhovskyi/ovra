@@ -265,6 +265,7 @@ mod tests {
             cwd: "/w".into(),
         };
         let profile = SandboxProfile {
+            more_work_dirs: Vec::new(),
             kind: ProfileKind::Agent,
             agent_state: None,
             project: None,

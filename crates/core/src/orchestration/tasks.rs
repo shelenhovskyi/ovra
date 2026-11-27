@@ -118,11 +118,18 @@ pub(super) async fn handle(core: &Core, request: OrchestrationRequest) -> Result
             attempt_of,
             model,
             plan_first,
+            repos,
         } => {
             if plan_first && !solo {
                 return Err(ProtocolError::new(
                     ErrorCode::BadRequest,
                     "plan first is for one agent in the project or in its own copy",
+                ));
+            }
+            if !repos.is_empty() {
+                return Err(ProtocolError::new(
+                    ErrorCode::Unavailable,
+                    "tasks across several repositories are not built yet",
                 ));
             }
             if attempt_of.is_some() && !solo {
@@ -967,6 +974,7 @@ async fn create_worker(
         prep.note = made.note;
     }
     let worker = Worker {
+        repos: Vec::new(),
         session,
         name: name.to_owned(),
         branch,

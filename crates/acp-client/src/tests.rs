@@ -666,6 +666,7 @@ fn spec() -> AgentSpec {
     use ovra_core::protocol::agents::{SessionId, SessionMode};
     use ovra_core::services::{ProfileKind, ProfileNetwork};
     AgentSpec {
+        add_dirs: Vec::new(),
         session: SessionId("s1".into()),
         agent: AgentKind::Claude,
         mode: SessionMode::Isolated,
@@ -677,6 +678,7 @@ fn spec() -> AgentSpec {
         trusted: true,
         resume: None,
         sandbox: SandboxProfile {
+            more_work_dirs: Vec::new(),
             work_dir: ROOT.into(),
             work_dir_read_only: false,
             read: Vec::new(),
