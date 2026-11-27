@@ -2,7 +2,7 @@
 // "One agent, own copy", "Plan and split" or "Research") and with which agent,
 // kept in the page's storage so a reload keeps the choice.
 
-import type { AgentKind, Capabilities, ProjectId } from "../lib/protocol";
+import type { AgentKind, AgentModel, Capabilities, ProjectId } from "../lib/protocol";
 
 export type TaskMode = "here" | "own" | "split" | "research";
 
@@ -81,4 +81,27 @@ export function modesFor(agent: AgentKind, can: Capabilities | undefined): TaskM
 export function attemptAgents(picked: AgentKind, startable: readonly AgentKind[], count: number): AgentKind[] {
   const order = [picked, ...startable.filter((a) => a !== picked)];
   return Array.from({ length: Math.max(1, count) }, (_, i) => order[i % order.length] ?? picked);
+}
+
+const MODEL_KEY = "ovra.task-model.";
+const MODELS: AgentModel[] = ["opus", "sonnet", "haiku"];
+
+/** The Claude model last chosen in `project`; null for the account's default. */
+export function rememberedModel(project: ProjectId, store = storage()): AgentModel | null {
+  try {
+    const kept = store?.getItem(MODEL_KEY + project);
+    return MODELS.find((m) => m === kept) ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/** Keeps `model` (null: the account's default) as the one to offer next time in `project`. */
+export function rememberModel(project: ProjectId, model: AgentModel | null, store = storage()): void {
+  try {
+    if (model) store?.setItem(MODEL_KEY + project, model);
+    else store?.removeItem(MODEL_KEY + project);
+  } catch {
+    // As for the mode.
+  }
 }

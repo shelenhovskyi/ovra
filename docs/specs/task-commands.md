@@ -22,15 +22,15 @@ one may.
    fractions), and so is a `/` after the menu was closed until the box is
    empty again.
 2. **What it lists**, in this order:
-   - the person's **templates**, by name; picking one replaces the box's
-     text with the template's text;
+   - the person's **templates**, by name; picking one puts the template's
+     text in place of the typed `/query`;
    - the project's **commands and skills** from `catalog.list` that Claude
      loads in Ovra (`loads` is not `not_in_ovra`), by name with their
      description; picking one puts `/name ` in the box, which Claude runs
      as its own command. Ones that load only in a trusted project say so.
      Only offered while the box's agent is Claude.
-   - **Save as template** while the box holds text other than the `/query`
-     (offered only from the menu, so it costs no room).
+   - while the person has no templates, **Task templates…**, which opens
+     Settings > Agents where they are made.
 3. **Templates** are the person's own: a name and a text, kept in the
    page's storage with the other agent preferences (`agentPrefs.templates`),
    for every project. Settings > Agents > Task templates lists them, renames,
@@ -50,6 +50,8 @@ one may.
 
 ## Not done
 
+- Saving the box's text as a template from the task form; for now
+  templates are made in Settings.
 - Claude's built-in commands (`/compact`, `/context`): they belong to an
   interactive session, and the stream-json mode Ovra uses does not run them all.
 - User-level commands and skills (`~/.claude`), which the catalog does not

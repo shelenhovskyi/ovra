@@ -22,10 +22,12 @@ import AgentLimitField from "./AgentLimitField.svelte";
 import AgentsPane from "./AgentsPane.svelte";
 import AttemptsField from "./AttemptsField.svelte";
 import EditorPane from "./EditorPane.svelte";
+import ModelField from "./ModelField.svelte";
 import ProviderCard from "./ProviderCard.svelte";
 import { type PaneId, panesFor, settings } from "./panes.svelte";
 import ResourcesField from "./ResourcesField.svelte";
 import SetupPane from "./SetupPane.svelte";
+import TemplatesField from "./TemplatesField.svelte";
 import TrustPane from "./TrustPane.svelte";
 
 const { transport, workspace } = useOvra();
@@ -180,6 +182,8 @@ function onListKeydown(event: KeyboardEvent): void {
           <AgentLimitField research />
           <ResourcesField />
           <AttemptsField />
+          <ModelField />
+          <TemplatesField />
           <KeepAwakeField />
         {:else if pane.id === "setup"}
           <SetupPane />

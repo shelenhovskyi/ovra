@@ -76,7 +76,7 @@ export const PANES: Pane[] = [
     title: "Agents",
     line: "The agents on this computer that run your tasks, and who pays for them.",
     group: "ovra",
-    keywords: ["account", "billing", "path", "sign in", "agents at once", "parallel", "limit"],
+    keywords: ["account", "billing", "path", "sign in", "agents at once", "parallel", "limit", "templates", "model"],
   },
   {
     id: "setup",

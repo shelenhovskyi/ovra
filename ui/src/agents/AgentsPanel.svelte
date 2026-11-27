@@ -26,7 +26,15 @@ import { focusMode } from "../focus/mode.svelte";
 import { sessionBrowsers } from "../browser/browser.svelte";
 import { browserPicks, pickLabel } from "../browser/picks.svelte";
 import { listCommands, registerCommand } from "../keys/commands";
-import type { AccountState, AgentKind, ContextItem, FileChange, SessionId, SessionInfo } from "../lib/protocol";
+import type {
+  AccountState,
+  AgentKind,
+  AgentModel,
+  ContextItem,
+  FileChange,
+  SessionId,
+  SessionInfo,
+} from "../lib/protocol";
 import { CoreError } from "../lib/transport";
 import { isMenuKey, type MenuEntry, openContextMenu } from "../menu/context-menu.svelte";
 import { projectSandbox } from "../settings/sandbox";
@@ -43,6 +51,7 @@ import { hints } from "./hints.svelte";
 import { agentPrefs } from "./prefs.svelte";
 import Leftovers from "./Leftovers.svelte";
 import SetupLink from "./SetupLink.svelte";
+import SlashMenu from "./SlashMenu.svelte";
 import Starters from "./Starters.svelte";
 import { chatLink } from "./links";
 import { diskLabel, pressureNote, resourcesLine, resourcesTip } from "./resources";
@@ -73,7 +82,9 @@ import {
   rememberAgent,
   rememberedAgent,
   rememberedMode,
+  rememberedModel,
   rememberMode,
+  rememberModel,
   type TaskMode,
 } from "./task-mode";
 
@@ -122,6 +133,10 @@ let mode = $state<TaskMode>("here");
 let picked = $state<AgentKind>("claude");
 /** The agent that runs the next task: the picked one while it can start, Claude otherwise (the pick comes back once it can). */
 const agent = $derived(names.startable.includes(picked) ? picked : "claude");
+/** The Claude model picked for the next task, kept per project; null for the account's default. */
+let pickedModel = $state<AgentModel | null>(null);
+/** What the next task asks for: only Claude, and only once Settings offers the picker. */
+const model = $derived(agent === "claude" && agentPrefs.pickModel ? pickedModel : null);
 /** The modes the chosen agent can run in. */
 const offered = $derived(modesFor(agent, names.info(agent)?.capabilities));
 /** The chosen mode, or the agent's first when it cannot run in that one. */
@@ -139,6 +154,8 @@ let replyField = $state<HTMLTextAreaElement>();
 /** The @ menus and chips of the start box and the reply box. */
 let taskContext = $state<ContextInput>();
 let replyContext = $state<ContextInput>();
+let taskSlash = $state<SlashMenu>();
+let replySlash = $state<SlashMenu>();
 /** The account the picker shows; null while there is only one. */
 let account = $state<string | null>(null);
 /** Transcripts asked for to tell a failed turn from a done one. */
@@ -490,7 +507,7 @@ function startItems(ns: number[]): Promise<void> {
     const done: number[] = [];
     try {
       for (const item of picked) {
-        await sessions.startSolo(at, itemPrompt(asked, item, picked.length - 1), agent);
+        await sessions.startSolo(at, itemPrompt(asked, item, picked.length - 1), agent, [], model);
         done.push(item.n);
       }
     } finally {
@@ -571,6 +588,7 @@ $effect(() => {
     selected = null;
     mode = rememberedMode(id);
     picked = rememberedAgent(id);
+    pickedModel = rememberedModel(id);
     error = null;
     startError = null;
     launched = null;
@@ -803,7 +821,7 @@ function pickAgent(id: AgentKind): void {
   if (project) rememberAgent(project.id, id);
 }
 
-/** Starts `body` with `who` and the account `use` (null: the project's) and opens it. */
+/** Starts `body` with `who`, the account `use` (null: the project's) and `model`, and opens it. */
 async function begin(
   body: string,
   how: TaskMode,
@@ -811,6 +829,7 @@ async function begin(
   context: ContextItem[] = [],
   who: AgentKind = "claude",
   attempts: AgentKind[] = [who],
+  model: AgentModel | null = null,
 ): Promise<SessionId> {
   const id = project?.id;
   if (!id) throw new Error("No project is open");
@@ -822,10 +841,10 @@ async function begin(
   const before = document.activeElement;
   const started =
     how === "split"
-      ? await sessions.startTask(id, body, context, who)
+      ? await sessions.startTask(id, body, context, who, model)
       : how === "own"
-        ? await sessions.startAttempts(id, body, attempts, context)
-        : (await sessions.start(id, body, use, how === "research" ? "research" : "direct", context, who)).id;
+        ? await sessions.startAttempts(id, body, attempts, context, model)
+        : (await sessions.start(id, body, use, how === "research" ? "research" : "direct", context, who, model)).id;
   selected = started;
   await tick();
   const moved = document.activeElement !== before && document.activeElement !== document.body;
@@ -843,7 +862,15 @@ async function start(): Promise<void> {
   busy = true;
   startError = null;
   try {
-    launched = await begin(body, how, agent === "claude" ? account : null, drafts.items(newBox), agent, attempting);
+    launched = await begin(
+      body,
+      how,
+      agent === "claude" ? account : null,
+      drafts.items(newBox),
+      agent,
+      attempting,
+      model,
+    );
     hints.mark("started");
     launchedPrompt = body;
     prompt = "";
@@ -1456,12 +1483,26 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
             placeholder={canReply ? "Reply" : `${names.name(current.agent)} is working…`}
             bind:this={replyField}
             bind:value={reply}
-            oninput={() => replyContext?.refresh()}
-            onclick={() => replyContext?.refresh()}
+            oninput={() => {
+              replySlash?.refresh();
+              replyContext?.refresh();
+            }}
+            onclick={() => {
+              replySlash?.refresh();
+              replyContext?.refresh();
+            }}
             onkeydown={(event) => {
-              if (!replyContext?.keydown(event)) submitOnEnter(event, send);
+              if (!replySlash?.keydown(event) && !replyContext?.keydown(event)) submitOnEnter(event, send);
             }}
           ></textarea>
+          <SlashMenu
+            bind:this={replySlash}
+            field={replyField}
+            bind:value={reply}
+            project={current.project}
+            commands={current.agent === "claude"}
+            id="agent-reply-slash"
+          />
           <ContextInput
             bind:this={replyContext}
             field={replyField}
@@ -1662,12 +1703,26 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
         bind:this={promptField}
         bind:value={prompt}
         aria-describedby="agent-mode-hint"
-        oninput={() => taskContext?.refresh()}
-        onclick={() => taskContext?.refresh()}
+        oninput={() => {
+          taskSlash?.refresh();
+          taskContext?.refresh();
+        }}
+        onclick={() => {
+          taskSlash?.refresh();
+          taskContext?.refresh();
+        }}
         onkeydown={(event) => {
-          if (!taskContext?.keydown(event)) submitOnEnter(event, start);
+          if (!taskSlash?.keydown(event) && !taskContext?.keydown(event)) submitOnEnter(event, start);
         }}
       ></textarea>
+      <SlashMenu
+        bind:this={taskSlash}
+        field={promptField}
+        bind:value={prompt}
+        project={project.id}
+        commands={agent === "claude"}
+        id="agent-prompt-slash"
+      />
       <ContextInput
         bind:this={taskContext}
         field={promptField}
@@ -1734,6 +1789,24 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
               {#each names.startable as id (id)}
                 <option value={id}>{names.name(id)}</option>
               {/each}
+            </select>
+          </label>
+        {/if}
+        {#if agent === "claude" && agentPrefs.pickModel}
+          <label class="agent-picker" data-testid="model-picker" title="Remembered for this project">
+            <span class="visually-hidden">Model</span>
+            <select
+              value={pickedModel ?? ""}
+              onchange={(event) => {
+                const value = event.currentTarget.value;
+                pickedModel = value === "opus" || value === "sonnet" || value === "haiku" ? value : null;
+                if (project) rememberModel(project.id, pickedModel);
+              }}
+            >
+              <option value="">Default model</option>
+              <option value="opus">Opus</option>
+              <option value="sonnet">Sonnet</option>
+              <option value="haiku">Haiku</option>
             </select>
           </label>
         {/if}

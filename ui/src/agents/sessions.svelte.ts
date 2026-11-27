@@ -9,6 +9,7 @@ import type {
   AgentCapacity,
   AgentKind,
   AgentMessage,
+  AgentModel,
   Billing,
   ContextItem,
   CoreEvent,
@@ -60,6 +61,11 @@ export type SessionRole =
       /** One of several attempts at one prompt: the first attempt's task and its place, from 1. */
       attempt: { first: TaskId; number: number } | null;
     };
+
+/** The `model` param for a start: only Claude takes one, and none means the account's default. */
+function modelFor(agent: AgentKind, model: AgentModel | null): { model?: AgentModel } {
+  return agent === "claude" && model ? { model } : {};
+}
 
 export class AgentSessions {
   /** Coordinators and workers of the projects' tasks. */
@@ -481,11 +487,18 @@ export class AgentSessions {
     prompt: string,
     context: ContextItem[] = [],
     agent: AgentKind = "claude",
+    model: AgentModel | null = null,
   ): Promise<SessionId> {
     const { data } = await this.transport.call({
       method: "orchestration.start",
       // Left out, the core runs Claude.
-      params: { project, prompt, ...(agent === "claude" ? {} : { agent }), ...(context.length > 0 ? { context } : {}) },
+      params: {
+        project,
+        prompt,
+        ...(agent === "claude" ? {} : { agent }),
+        ...(context.length > 0 ? { context } : {}),
+        ...modelFor(agent, model),
+      },
     });
     await this.load(project);
     return data.coordinator ?? data.workers[0]?.session ?? "";
@@ -500,8 +513,9 @@ export class AgentSessions {
     prompt: string,
     agent: AgentKind = "claude",
     context: ContextItem[] = [],
+    model: AgentModel | null = null,
   ): Promise<SessionId> {
-    return this.startAttempts(project, prompt, [agent], context);
+    return this.startAttempts(project, prompt, [agent], context, model);
   }
 
   /**
@@ -515,6 +529,7 @@ export class AgentSessions {
     prompt: string,
     agents: AgentKind[],
     context: ContextItem[] = [],
+    model: AgentModel | null = null,
   ): Promise<SessionId> {
     const once = async (agent: AgentKind, attemptOf?: TaskId): Promise<Task> => {
       const { data } = await this.transport.call({
@@ -525,6 +540,7 @@ export class AgentSessions {
           agent,
           solo: true,
           ...(context.length > 0 ? { context } : {}),
+          ...modelFor(agent, model),
           ...(attemptOf ? { attempt_of: attemptOf } : {}),
         },
       });
@@ -566,11 +582,20 @@ export class AgentSessions {
     mode: "direct" | "research" = "direct",
     context: ContextItem[] = [],
     agent: AgentKind = "claude",
+    model: AgentModel | null = null,
   ): Promise<SessionInfo> {
     // Messages may arrive before the reply: collect them from the start.
     const { data } = await this.transport.call({
       method: "agents.start",
-      params: { project, agent, mode, prompt, account, ...(context.length > 0 ? { context } : {}) },
+      params: {
+        project,
+        agent,
+        mode,
+        prompt,
+        account,
+        ...(context.length > 0 ? { context } : {}),
+        ...modelFor(agent, model),
+      },
     });
     const known = this.byId.get(data.id);
     // agents.sandbox may also have come before the reply: keep what it said.

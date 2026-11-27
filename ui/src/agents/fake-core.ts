@@ -12,6 +12,7 @@ import type {
   AgentStatus,
   BoardEntry,
   BranchPr,
+  CatalogItem,
   Checkpoint,
   ContextWarning,
   CoreEvent,
@@ -113,6 +114,8 @@ export class FakeAgentCore implements Transport {
   noRepo = false;
   /** The project's files, for the @ menu (`fs.list_files`). */
   listed: string[] = [];
+  /** What `catalog.list` answers: the project's commands and skills for the `/` menu. */
+  catalog: CatalogItem[] = [];
   /** The repository's open issues (`pr.issues`, `pr.issue`). */
   issues: Issue[] = [];
   /** What `pr.branch_checks` answers; `pr.check_log` reads its failed runs' logs from `logs`. */
@@ -402,6 +405,8 @@ export class FakeAgentCore implements Transport {
         return { type: "ok" };
       case "orchestration.retry_setup":
         return { type: "ok" };
+      case "catalog.list":
+        return { type: "catalog.items", data: { items: [...this.catalog] } };
       default:
         throw new CoreError({ code: "unavailable", message: `${request.method} is not faked` });
     }
