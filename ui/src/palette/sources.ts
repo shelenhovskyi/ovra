@@ -6,7 +6,7 @@ import type { Project } from "../lib/protocol";
 import type { Transport } from "../lib/transport";
 import { focusOpenFile, mainView } from "../shell/main-view.svelte";
 import { folderDialogCommand, openAnotherFolder } from "../shell/open-folder";
-import type { Workspace } from "../shell/workspace.svelte";
+import type { TextSpot, Workspace } from "../shell/workspace.svelte";
 import { projectFiles } from "./files";
 import { type PaletteMode, palette } from "./mode.svelte";
 import { recentFileEntries, recentFiles, recentFirst } from "./recent-files.svelte";
@@ -26,6 +26,8 @@ export type Entry = {
   /** The section it is listed under: Files, Commands, Recent. */
   group?: string;
   run: () => void | Promise<void>;
+  /** A file's: opens it in the editor at `spot`, for a query such as `main.rs:42`. */
+  openAt?: (spot: TextSpot) => void;
 };
 
 export type Source = {
@@ -39,6 +41,8 @@ export type Source = {
   idle?: (entries: Entry[]) => Entry[];
   /** A leading `>` keeps only the commands. */
   prefix?: boolean;
+  /** A query may end in a line, `main.rs:42` (see `line-suffix.ts`); a bare `:42` is the shown file. */
+  lines?: boolean;
 };
 
 type Target = Pick<Workspace, "project" | "openPath" | "mode" | "openFile" | "paletteOpen">;
@@ -95,21 +99,23 @@ function commands(keep: (command: Command) => boolean = () => true, group?: stri
 }
 
 async function files(transport: Transport, workspace: Target, project: Project, group?: string): Promise<Entry[]> {
+  const open = (path: string, at?: TextSpot) => {
+    // A view covering the files makes way, also for the file already open, and the file gets the focus the view had.
+    const covered = mainView.current !== null;
+    mainView.close(false);
+    // Picking the file already shown keeps its preview tab, as Enter in the tree does.
+    if (workspace.openPath === path) tabs.current?.makePermanent(path);
+    // An open file comes back in the mode its tab had; a new one keeps
+    // the current mode, so going to a file while editing keeps editing.
+    workspace.openFile(path, modeOf(path, workspace.mode), at);
+    if (covered) void focusOpenFile(workspace.mode === "edit");
+  };
   return (await projectFiles(transport, project.id)).map((path) => ({
     id: `file:${path}`,
     label: path,
     group,
-    // An open file comes back in the mode its tab had; a new one keeps
-    // the current mode, so going to a file while editing keeps editing.
-    run: () => {
-      // A view covering the files makes way, also for the file already open, and the file gets the focus the view had.
-      const covered = mainView.current !== null;
-      mainView.close(false);
-      // Picking the file already shown keeps its preview tab, as Enter in the tree does.
-      if (workspace.openPath === path) tabs.current?.makePermanent(path);
-      workspace.openFile(path, modeOf(path, workspace.mode));
-      if (covered) void focusOpenFile(workspace.mode === "edit");
-    },
+    run: () => open(path),
+    openAt: (spot) => open(path, spot),
   }));
 }
 
@@ -139,6 +145,7 @@ export function source(mode: PaletteMode, transport: Transport, workspace: Targe
         empty: `No matching ${what} or commands`,
         limit: 10,
         prefix: true,
+        lines: project !== null,
         entries: async () => [
           ...(project
             ? await files(transport, workspace, project, "Files")
@@ -171,6 +178,7 @@ export function source(mode: PaletteMode, transport: Transport, workspace: Targe
         placeholder: project ? `Go to file in ${project.name}` : "Open a project first",
         empty: "No matching files",
         limit: 50,
+        lines: true,
         entries: async () => (project ? files(transport, workspace, project) : []),
         // With nothing opened lately, an empty query ranks every file as usual.
         idle:
@@ -188,6 +196,7 @@ export function source(mode: PaletteMode, transport: Transport, workspace: Targe
         placeholder: project ? `Recent files in ${project.name}` : "Open a project first",
         empty: "No recent files",
         limit: 50,
+        lines: true,
         entries: async () =>
           project ? recentFileEntries(project.id, await files(transport, workspace, project), workspace.openPath) : [],
         idle: (entries) => entries,

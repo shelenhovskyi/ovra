@@ -186,6 +186,30 @@ describe("Palette", async () => {
     await vi.waitFor(() => expect(workspace.openPath).toBe("src/main.rs"));
   });
 
+  it("goes to a line of a file, or of the shown one", async () => {
+    const paths = ["README.md", "src/lib.rs", "src/main.rs"];
+    const core: Transport = {
+      call: ((request: Request) =>
+        request.method === "fs.list_files"
+          ? Promise.resolve({ type: "fs.files", data: { paths, total: paths.length, version: 1 } })
+          : Promise.reject(new Error(request.method))) as Transport["call"],
+      onEvent: () => () => {},
+    };
+    const project = { id: "files-line", name: "demo", root: "/demo", last_opened_ms: null, trusted: false };
+    const first = await open("files", core, project, "README.md");
+    await type(first.input, "srcmain:42:3");
+    expect(titles(first.target)).toEqual(["src/main.rs Line 42, column 3"]);
+    key(first.input, "Enter");
+    await vi.waitFor(() => expect(first.workspace.reveal).toEqual({ path: "src/main.rs", line: 42, from: 2, to: 2 }));
+    expect(first.workspace.mode).toBe("edit");
+
+    const shown = await open("files", core, project, "src/lib.rs");
+    await type(shown.input, ":7");
+    expect(titles(shown.target)).toEqual(["src/lib.rs Line 7"]);
+    key(shown.input, "Enter");
+    await vi.waitFor(() => expect(shown.workspace.reveal).toEqual({ path: "src/lib.rs", line: 7, from: 0, to: 0 }));
+  });
+
   it("keeps the tab of the previewed file picked again, and only that one", async () => {
     const paths = ["README.md", "src/main.rs"];
     const core: Transport = {

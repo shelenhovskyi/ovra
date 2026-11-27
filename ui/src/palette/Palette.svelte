@@ -8,9 +8,11 @@ import { runCommand } from "../keys/keybindings";
 import { formatShortcut, inBrowserTab, isApple, liveKeys } from "../keys/shortcut";
 import { useOvra } from "../shell/context";
 import FileIcon from "../shell/file-icons/FileIcon.svelte";
+import type { TextSpot } from "../shell/workspace.svelte";
 import { FolderOpener } from "../tree/folder-opener.svelte";
 import { focusStartScreen } from "./commands";
 import { type Ranked, segments } from "./fuzzy";
+import { splitLine, spotLabel } from "./line-suffix";
 import { palette } from "./mode.svelte";
 import { createRanker, type Ranker } from "./ranker";
 import { keywordMatches, noteRecent } from "./search";
@@ -45,6 +47,8 @@ let list: HTMLUListElement | undefined = $state();
 let items = $state<Ranked<Entry>[]>([]);
 let matches = $state(0);
 let rankedQuery = $state<string | null>(null);
+/** The line `rankedQuery` ends in (`main.rs:42`): the files picked open there. */
+let rankedSpot = $state<TextSpot | null>(null);
 /** Enter pressed before the rows for the current query arrived: run the top row when they do. */
 let enterPending = false;
 const announcement = $derived(
@@ -86,14 +90,24 @@ $effect(() => {
 });
 
 /** Rows for `wanted` from each group, ranked, then the entries only a keyword matches. */
-async function rankPools(current: Pool[], wanted: string): Promise<{ rows: Ranked<Entry>[]; matches: number }> {
+async function rankPools(
+  current: Pool[],
+  wanted: string,
+): Promise<{ rows: Ranked<Entry>[]; matches: number; spot: TextSpot | null }> {
   const idle = from.idle;
-  if (idle && entries && wanted.trim() === "") {
-    const rows = idle(entries).map((item) => ({ item, positions: [] }));
-    return { rows, matches: rows.length };
-  }
   const commandsOnly = from.prefix === true && wanted.startsWith(">");
-  const text = commandsOnly ? wanted.slice(1).trim() : wanted;
+  const { text: query, spot } = from.lines && !commandsOnly ? splitLine(wanted) : { text: wanted, spot: null };
+  // A bare `:42`: the line in the file shown.
+  if (spot && query.trim() === "") {
+    const shown = entries?.find((e) => e.openAt && e.id === `file:${workspace.openPath}`);
+    const rows = shown ? [{ item: shown, positions: [] }] : [];
+    return { rows, matches: rows.length, spot };
+  }
+  if (idle && entries && query.trim() === "") {
+    const rows = idle(entries).map((item) => ({ item, positions: [] }));
+    return { rows, matches: rows.length, spot: null };
+  }
+  const text = commandsOnly ? wanted.slice(1).trim() : query;
   const ranked = await Promise.all(
     current
       .filter((pool) => !commandsOnly || pool.group === "Commands")
@@ -111,7 +125,7 @@ async function rankPools(current: Pool[], wanted: string): Promise<{ rows: Ranke
         };
       }),
   );
-  return { rows: ranked.flatMap((r) => r.rows), matches: ranked.reduce((sum, r) => sum + r.matches, 0) };
+  return { rows: ranked.flatMap((r) => r.rows), matches: ranked.reduce((sum, r) => sum + r.matches, 0), spot };
 }
 
 $effect(() => {
@@ -124,6 +138,7 @@ $effect(() => {
     items = result.rows;
     matches = result.matches;
     rankedQuery = wanted;
+    rankedSpot = result.spot;
     if (enterPending) {
       enterPending = false;
       run(items[selected]);
@@ -169,7 +184,9 @@ function run(item: Ranked<Entry> | undefined): void {
   const recent = palette.mode !== "list";
   close();
   // Run once the palette is gone, so a command can open it again in another mode.
-  const { id, label, run } = item.item;
+  const { id, label, openAt } = item.item;
+  const spot = rankedSpot;
+  const run = spot && openAt ? () => openAt(spot) : item.item.run;
   if (recent) noteRecent(id);
   void tick().then(() => runCommand({ id, title: label, run }));
 }
@@ -270,6 +287,7 @@ function onfocusout(event: FocusEvent): void {
               {#if part.hit}<mark>{part.text}</mark>{:else}{part.text}{/if}
             {/each}
             {#if item.item.detail}<span class="detail">{item.item.detail}</span>{/if}
+            {#if rankedSpot && item.item.openAt}<span class="detail">{spotLabel(rankedSpot)}</span>{/if}
           </span>
           {#if item.item.keys}<kbd>{formatShortcut(liveKeys(item.item.keys, browser), apple)}</kbd>{/if}
         </li>
