@@ -9,6 +9,7 @@ import { listCommands } from "../keys/commands";
 import { listContextKeys } from "../keys/context-keys";
 import { formatShortcut, inBrowserTab, isApple, liveKeys } from "../keys/shortcut";
 import type { CoreInfo } from "../lib/protocol";
+import KeysPane from "../network/KeysPane.svelte";
 import NetworkPanel from "../network/NetworkPanel.svelte";
 import PolicyPanel from "../policy/PolicyPanel.svelte";
 import KeepAwakeField from "../power/KeepAwakeField.svelte";
@@ -186,6 +187,8 @@ function onListKeydown(event: KeyboardEvent): void {
           <PolicyPanel />
         {:else if pane.id === "network"}
           <NetworkPanel />
+        {:else if pane.id === "keys"}
+          <KeysPane />
         {:else if pane.id === "servers"}
           <ServersPanel />
         {:else if pane.id === "notifications"}

@@ -6,6 +6,7 @@ export type PaneId =
   | "trust"
   | "rules"
   | "network"
+  | "keys"
   | "servers"
   | "editor"
   | "claude"
@@ -45,9 +46,16 @@ export const PANES: Pane[] = [
   {
     id: "network",
     title: "Network",
-    line: "Hosts sandboxed agents may reach, and tokens the proxy adds for them.",
+    line: "Hosts sandboxed agents may reach; everything else is refused.",
     group: "project",
-    keywords: ["proxy", "token", "hosts", "secrets"],
+    keywords: ["proxy", "hosts", "allowlist"],
+  },
+  {
+    id: "keys",
+    title: "Keys",
+    line: "Tokens agents use without seeing them. Ovra asks you before an agent uses one.",
+    group: "project",
+    keywords: ["secrets", "token", "api key", "github", "credentials"],
   },
   {
     id: "servers",

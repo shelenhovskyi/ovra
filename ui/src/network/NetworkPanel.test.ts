@@ -65,11 +65,6 @@ function submit(form: HTMLFormElement | null | undefined) {
   form?.dispatchEvent(new SubmitEvent("submit", { bubbles: true, cancelable: true }));
 }
 
-function addSecret() {
-  $<HTMLButtonElement>("[data-testid=add-secret]")?.click();
-  flushSync();
-}
-
 const hosts = () => [...target.querySelectorAll("[data-testid=allowed-host] code")].map((el) => el.textContent);
 
 describe("NetworkPanel", () => {
@@ -100,79 +95,12 @@ describe("NetworkPanel", () => {
     expect(core.calls.some((c) => c.method === "netproxy.set_allowlist")).toBe(false);
   });
 
-  it("sends a secret's value to the core once, clears it and offers to allow its host", async () => {
-    const core = await open();
-    addSecret();
-    type("[data-testid=secret-name]", "github");
-    type("[data-testid=secret-host]", "api.github.com");
-    type("[data-testid=secret-value]", "ghp_example");
-    submit($<HTMLFormElement>("form[aria-label='Add a secret']"));
-    await settle();
-    expect(core.values.get("github")).toBe("ghp_example");
-    expect(core.secrets).toEqual([
-      { name: "github", host: "api.github.com", header: "Authorization", prefix: "Bearer " },
-    ]);
-    expect($<HTMLInputElement>("[data-testid=secret-value]")?.value).toBe("");
-    expect(target.textContent).not.toContain("ghp_example");
-    expect($("[data-testid=secret]")?.textContent).toContain("Agents cannot reach this host yet.");
-
-    [...target.querySelectorAll<HTMLButtonElement>("button")].find((b) => b.textContent === "Allow it")?.click();
-    await settle();
-    expect(core.hosts).toEqual([{ host: "api.github.com" }]);
-    expect($("[data-testid=secret]")?.textContent).not.toContain("cannot reach");
-
-    $<HTMLButtonElement>("[aria-label='Remove secret github']")?.click();
-    await settle();
-    expect(core.secrets).toEqual([]);
-  });
-
-  it("says the keychain is unreachable only once a secret is being added, and why", async () => {
-    const core = new FakeAccessCore();
-    core.store = { state: "unavailable", reason: "zbus error: Failed to connect (os error 2)" };
-    await open(core);
-    expect($("[data-testid=store-unavailable]")).toBeNull();
-    addSecret();
-    const note = $("[data-testid=store-unavailable]");
-    expect(note?.querySelector("p")?.textContent?.trim()).toMatch(/^Secrets can't be saved: the system keychain/);
-    expect(note?.querySelector("p")?.textContent).not.toContain("zbus");
-    expect($("details [data-testid=store-reason]")?.textContent).toBe("zbus error: Failed to connect (os error 2)");
-    expect($("form[aria-label='Add a secret']")).toBeNull();
-    // The pressed button went: focus is on what the person can do next.
-    await settle();
-    expect(document.activeElement).toBe($("[data-testid=store-retry]"));
-
-    core.store = { state: "available", name: "Secret Service" };
-    $<HTMLButtonElement>("[data-testid=store-retry]")?.click();
-    await settle();
-    expect($("[data-testid=store-unavailable]")).toBeNull();
-    expect($<HTMLFieldSetElement>("form[aria-label='Add a secret'] fieldset")?.disabled).toBe(false);
-    expect($("[data-testid=secret-off]")).toBeNull();
-    expect($("[data-testid=store-available]")?.textContent).toContain("Kept in Secret Service");
-  });
-
-  it("says the keychain is available only once the core said so", async () => {
-    const core = new FakeAccessCore();
-    core.refuse.set("secrets.list", "core went away");
-    await open(core);
-    addSecret();
-    expect($("[data-testid=secret-off]")?.textContent).toBe("Checking the keychain…");
-    expect($("[data-testid=store-available]")).toBeNull();
-  });
-
-  it("follows changes made elsewhere and forgets a typed token when the pane closes", async () => {
+  it("follows changes made elsewhere", async () => {
     const core = await open();
     core.hosts = [{ host: "pypi.org" }];
     core.emit({ type: "netproxy.changed", data: { project: "p1" } });
     await settle();
     expect(hosts()).toEqual(["pypi.org"]);
-
-    addSecret();
-    type("[data-testid=secret-value]", "typed");
-    if (app) unmount(app);
-    app = mount(TestHost, { target, props: { transport: core, workspace } });
-    await settle();
-    addSecret();
-    expect($<HTMLInputElement>("[data-testid=secret-value]")?.value).toBe("");
   });
 
   it("never replaces the hosts with a partial list when they could not be read", async () => {
@@ -194,8 +122,7 @@ describe("NetworkPanel", () => {
     core.sessions = [session("s1", { name: "bubblewrap", network: "proxy", gaps: [] })];
     await open(core);
     expect($("[data-testid=unsandboxed]")).toBeNull();
-    const says =
-      "No sandbox: the agent can change anything you can: these hosts don't limit it, and it can read stored secrets.";
+    const says = "No sandbox: the agent can change anything you can: these hosts don't limit it.";
     for (const s2 of [session("s2", null), { ...session("s2", null), status: { state: "stopped" } as const }]) {
       unmount(app ?? {});
       app = null;
@@ -242,21 +169,9 @@ describe("NetworkPanel", () => {
 
   it("clears what was typed when another project opens", async () => {
     await open();
-    addSecret();
-    type("[data-testid=secret-value]", "for-p1");
-    type("[data-testid=secret-name]", "github");
+    type("[data-testid=add-host]", "for-p1.example.com");
     workspace.project = { id: "p2", name: "other", root: "/other", last_opened_ms: null, trusted: false };
     await settle();
-    addSecret();
-    expect($<HTMLInputElement>("[data-testid=secret-value]")?.value).toBe("");
-    expect($<HTMLInputElement>("[data-testid=secret-name]")?.value).toBe("");
-  });
-
-  it("does not offer the token to the browser's password store", async () => {
-    await open();
-    addSecret();
-    const input = $<HTMLInputElement>("[data-testid=secret-value]");
-    expect(input?.type).toBe("text");
-    expect(input?.autocomplete).toBe("off");
+    expect($<HTMLInputElement>("[data-testid=add-host]")?.value).toBe("");
   });
 });

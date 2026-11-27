@@ -1,9 +1,10 @@
-// Test-only fake of the core's `netproxy.*` and `secrets.*`: keeps one
-// project's hosts and secrets, checks nothing but what a test asks it to.
+// Test-only fake of the core's `netproxy.*`, `secrets.*` and `policy.*`: keeps
+// one project's hosts, secrets and rules, checks nothing but what a test asks it to.
 
 import type {
   AllowedHost,
   CoreEvent,
+  PolicyRule,
   Request,
   ResponseFor,
   SecretInfo,
@@ -22,6 +23,7 @@ export class FakeAccessCore implements Transport {
   values = new Map<string, string>();
   store: SecretStoreStatus = { state: "available", name: "Secret Service" };
   sessions: SessionInfo[] = [];
+  rules: PolicyRule[] = [];
   /** Errors to answer with, by method. */
   refuse = new Map<string, string>();
   private listeners = new Set<(event: CoreEvent) => void>();
@@ -46,6 +48,11 @@ export class FakeAccessCore implements Transport {
         this.values.set(secret.name, value);
         return { type: "ok" } as ResponseFor<R>;
       }
+      case "policy.get":
+        return { type: "policy.policy", data: { rules: [...this.rules] } } as ResponseFor<R>;
+      case "policy.set":
+        this.rules = request.params.policy.rules;
+        return { type: "policy.policy", data: { rules: [...this.rules] } } as ResponseFor<R>;
       case "secrets.remove":
         this.secrets = this.secrets.filter((s) => s.name !== request.params.name);
         return { type: "ok" } as ResponseFor<R>;
