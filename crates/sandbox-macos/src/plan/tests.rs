@@ -300,3 +300,50 @@ fn a_language_server() {
     networked.network = ProfileNetwork::Open;
     assert!(Plan::server(&setup, &networked, &line).is_err());
 }
+
+#[test]
+fn only_claudes_missing_login_file_becomes_writable() {
+    let root = Root::new("login");
+    let setup = root.setup();
+    let config = root.dir("home/.claude");
+    let plan = Plan::agent(&setup, &root.profile(), &root.line()).unwrap();
+    assert!(plan.write_files.contains(&config.join(".credentials.json")));
+    // A link (or a folder) in its place is never given.
+    std::os::unix::fs::symlink(root.dir("elsewhere"), config.join(".credentials.json")).unwrap();
+    let plan = Plan::agent(&setup, &root.profile(), &root.line()).unwrap();
+    assert!(
+        !plan
+            .write_files
+            .iter()
+            .any(|f| f.ends_with(".credentials.json"))
+    );
+    // The same in an account's own folder.
+    let work = root.dir("home/.claude-work");
+    let mut profile = root.profile();
+    profile.agent_state = claude_state(Some(work.clone()));
+    let plan = Plan::agent(&setup, &profile, &root.line()).unwrap();
+    assert!(plan.write_files.contains(&work.join(".credentials.json")));
+    // Another provider's missing login file stays out.
+    static OTHER: ProviderLists = ProviderLists {
+        name: "Other",
+        home_dir: ".claude",
+        state_file: ".claude.json",
+        config_var: "OTHER_HOME",
+        private: &[],
+        in_place: &[],
+        files: &["auth.json"],
+        files_made: &[],
+        projects: "projects",
+        project_memory: "memory",
+        env: &[],
+        windows_env: &[],
+        fixture_var: "OTHER_FIXTURE",
+        layered: false,
+    };
+    profile.agent_state = Some(AgentState {
+        lists: &OTHER,
+        config_dir: None,
+    });
+    let plan = Plan::agent(&setup, &profile, &root.line()).unwrap();
+    assert!(!plan.write_files.iter().any(|f| f.ends_with("auth.json")));
+}

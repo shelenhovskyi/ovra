@@ -97,6 +97,11 @@ const HOME_READ: [&str; 4] = [
     ".config/git/attributes",
 ];
 
+/// Login files an agent writes in its configuration folder when the
+/// keychain is out of reach (`claude` on macOS): writable even before they
+/// exist.
+const LOGIN_FILES: [&str; 1] = [".credentials.json"];
+
 /// Secrets inside readable folders of the home folder (a toolchain's).
 const SECRETS: [&str; 3] = ["credentials", "credentials.toml", "credentials.json"];
 
@@ -200,6 +205,16 @@ pub(crate) struct Plan {
 }
 
 impl Plan {
+    /// A plan with only a work dir and `net`, for the profile's tests.
+    #[cfg(test)]
+    pub(crate) fn for_tests(net: Net) -> Self {
+        let mut plan = Self::empty("/bin/x".into(), "/w".into());
+        plan.write.push("/w".into());
+        plan.hidden.push("/home".into());
+        plan.net = net;
+        plan
+    }
+
     fn empty(program: PathBuf, cwd: PathBuf) -> Self {
         Self {
             read: Vec::new(),
@@ -511,12 +526,18 @@ impl Plan {
             if lists.files_made.contains(name) {
                 let _ = fs::OpenOptions::new().create(true).append(true).open(&file);
             }
-            // Also when missing: without the keychain, `claude` makes its
-            // login file (`.credentials.json`) when the person signs in.
+            // `claude`'s login file also when missing: without the
+            // keychain, it makes it when the person signs in. No other
+            // missing file, so an agent cannot plant another provider's
+            // login for the person's own runs of it.
             match fs::symlink_metadata(&file) {
                 Ok(meta) if meta.is_file() => self.write_files.push(file),
-                Ok(_) => {}
-                Err(_) => self.write_files.push(file),
+                Err(e)
+                    if e.kind() == std::io::ErrorKind::NotFound && LOGIN_FILES.contains(name) =>
+                {
+                    self.write_files.push(file);
+                }
+                _ => {}
             }
         }
         if fs::symlink_metadata(&state).is_ok_and(|m| m.is_file()) {

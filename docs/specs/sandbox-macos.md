@@ -54,7 +54,8 @@ must do) and ADR 0011 (`ProviderLists`).
   configuration folder read-only, `in_place` folders writable (Seatbelt
   cannot make folders private to the session), this work dir's
   transcripts folder writable without its `memory`, `files` and the state
-  file writable. An account's own folder (`CLAUDE_CONFIG_DIR`) replaces
+  file writable (of them only `claude`'s login file, `.credentials.json`,
+  also while missing). An account's own folder (`CLAUDE_CONFIG_DIR`) replaces
   the default one, with the same checks as on Linux.
 - **Network.** `Blocked`: none. `Proxy`: the helper starts a bridge
   outside the sandbox on a free port of `127.0.0.1` that forwards to the
@@ -147,7 +148,12 @@ must happen.
    outside still uses its keychain login. If it does not fall back, the
    sandbox stays off until this is solved another way. How the person
    signs in for sandboxed agents (a terminal inside the sandbox, from
-   Settings) is a follow-up that must land before `VERIFIED`.
+   Settings) is a follow-up that must land before `VERIFIED`; `/login`
+   inside cannot open a browser (no Launch Services), so it is the
+   paste-code flow through the netproxy (`claude.ai`,
+   `platform.claude.com` are on the base list). With a `.credentials.json`
+   planted from inside (a bad token), the person's own `claude` outside
+   still uses its keychain login.
 3. `cat ~/.ssh/id_*`, `cat ~/.SSH/id_*`, `ls ~`, `ls ~/Documents`,
    `cat ~/.aws/credentials`, `cat ~/.cargo/credentials.toml`, and other
    spellings of the same paths: `cat //Users/$USER/.ssh/id_*`,
@@ -165,7 +171,10 @@ must happen.
 7. Hard links and clones: `ln .git/config x && echo pwn >> x` is
    refused, or `.git/config` is unchanged afterwards; `ln ~/.ssh/id_* x &&
    cat x`, `cp -c ~/.ssh/id_* x` and `cat /.vol/<dev>/<inode>` (from
-   `stat -f '%d %i'`) are refused. If a link or clone works, the sandbox
+   `stat -f '%d %i'`) are refused; with `~/.claude/.credentials.json`
+   missing, `ln ~/.claude/settings.json ~/.claude/.credentials.json &&
+   echo x >> ~/.claude/.credentials.json` leaves `settings.json`
+   unchanged. If a link or clone works, the sandbox
    must stay off until a `file-link` rule closes it.
 8. A protected name that is a link (`.claude -> notes`): writing through it
    is refused.
@@ -185,7 +194,12 @@ must happen.
 12. `open -a Calculator`, `osascript -e 'tell app "Terminal" to do script
     "id"'`, `launchctl submit -l x -- /usr/bin/touch /tmp/x`: none starts
     anything.
-13. `defaults write com.apple.Terminal x 1`: refused.
+13. `defaults write com.apple.Terminal x 1`: refused. Certificate checks
+    leave the sandbox through `trustd`/`ocspd`: evaluate a self-made
+    certificate whose OCSP or issuer (AIA) URL names a host not on the
+    allowlist (`security verify-cert -c cert.pem`, or a small
+    `SecTrustEvaluate` call) and watch whether that host is
+    fetched; if it is, list it as a gap or drop `ocspd`.
 14. `printf 'protocol=https\nhost=github.com\n\n' | git credential fill`
     and `.../git-credential-osxkeychain get` give no token; copying it
     (`cp "$(git --exec-path)/git-credential-osxkeychain" x`, `cat ... > x`,

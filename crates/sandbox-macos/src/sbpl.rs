@@ -264,9 +264,32 @@ mod tests {
 
     #[test]
     fn no_profile_reaches_the_keychain() {
-        // It would answer for every item `security` may read (the gh login).
-        assert!(!BASE.contains("SecurityServer"));
-        assert!(!BASE.contains("securityd"));
+        // The keychain would answer for every item `security` may read (the
+        // gh login): every system service any profile names is one of these.
+        let allowed = [
+            "com.apple.system.opendirectoryd.libinfo",
+            "com.apple.system.opendirectoryd.membership",
+            "com.apple.system.notification_center",
+            "com.apple.system.logger",
+            "com.apple.logd",
+            "com.apple.cfprefsd.daemon",
+            "com.apple.cfprefsd.agent",
+            "com.apple.bsd.dirhelper",
+            "com.apple.trustd",
+            "com.apple.trustd.agent",
+            "com.apple.ocspd",
+            "com.apple.dnssd.service",
+        ];
+        for net in [Net::Blocked, Net::Bridge("/s".into()), Net::Open] {
+            let plan = Plan::for_tests(net);
+            let text = profile(&plan).ok().unwrap_or_default();
+            assert!(text.contains("(deny default)"));
+            for part in text.split("(global-name \"").skip(1) {
+                let name = part.split('"').next().unwrap_or_default();
+                assert!(allowed.contains(&name), "{name}");
+            }
+            assert!(!text.contains("SecurityServer") && !text.contains("securityd"));
+        }
     }
 
     #[test]
