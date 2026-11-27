@@ -16,6 +16,7 @@ import EmptyState from "../shell/EmptyState.svelte";
 import { mainView } from "../shell/main-view.svelte";
 import ViewFrame from "../shell/ViewFrame.svelte";
 import MarkdownView from "../viewers/MarkdownView.svelte";
+import ServerSwitch from "./ServerSwitch.svelte";
 import Teach from "./Teach.svelte";
 import {
   AGENT_NAMES,
@@ -46,7 +47,8 @@ const listed = $derived(groups(items ?? [], filter));
 const flat = $derived(listed.flatMap((group) => group.items));
 const picked = $derived(flat.find((entry) => entry.key === chosen) ?? flat[0] ?? null);
 const item = $derived(picked?.item ?? null);
-const loads = $derived(item ? loadsLine(item.loads, project?.trusted === true) : null);
+// A server of .mcp.json says whether agents get it in its own section.
+const loads = $derived(item && !item.server ? loadsLine(item.loads, project?.trusted === true) : null);
 
 $effect(() => {
   const id = project?.id ?? null;
@@ -229,6 +231,11 @@ function onListKeydown(event: KeyboardEvent): void {
                 <dd><code>{field.value}</code></dd>
               {/each}
             </dl>
+          {/if}
+          {#if item.server && project}
+            {#key item.name}
+              <ServerSwitch {transport} project={project.id} {item} use={item.server} changed={() => void load(project.id)} />
+            {/key}
           {/if}
           {#if item.files.length > 0}
             <h4>Files in this skill</h4>
