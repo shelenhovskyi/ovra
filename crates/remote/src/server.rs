@@ -296,6 +296,9 @@ async fn accept_loop(
         let Some(slots) = Slots::take(&all, &by_ip, addr.ip()) else {
             continue;
         };
+        // A reply that follows an event frame must not wait for the
+        // phone's delayed ACK.
+        let _ = stream.set_nodelay(true);
         let (tls, app, stop) = (tls.clone(), app.clone(), stop.clone());
         tokio::spawn(async move {
             let mut first = [0u8; 1];
