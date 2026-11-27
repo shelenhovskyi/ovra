@@ -39,7 +39,8 @@ pub(crate) fn tool(name: &str, input: Value) -> ToolRequest {
             written = content(writes);
         }
         // `WebSearch` looks, as `Grep` does: it reads no page itself.
-        "Glob" | "Grep" | "LS" | "WebSearch" => call.kind = ToolKind::Search,
+        "Glob" | "Grep" | "LS" => (call.kind, call.paths) = (ToolKind::Search, path("path")),
+        "WebSearch" => call.kind = ToolKind::Search,
         "WebFetch" => (call.kind, call.url) = (ToolKind::Fetch, text("url")),
         "Task" | "Agent" => call.kind = ToolKind::Subagent,
         "TodoWrite" => call.kind = ToolKind::Think,
