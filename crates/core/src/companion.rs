@@ -29,8 +29,11 @@ pub(crate) fn allows(request: &Request) -> bool {
         Request::Agents(r) => match r {
             // A phone sends plain text; context items (selections, terminal
             // text, confirmed secrets) are attached only on the computer.
-            AgentsRequest::Send { context, .. } => context.is_empty(),
+            AgentsRequest::Send { context, .. } | AgentsRequest::Queue { context, .. } => {
+                context.is_empty()
+            }
             AgentsRequest::List { .. }
+            | AgentsRequest::Unqueue { .. }
             | AgentsRequest::Interrupt { .. }
             | AgentsRequest::Stop { .. }
             | AgentsRequest::Transcript { .. }
@@ -47,6 +50,9 @@ pub(crate) fn allows(request: &Request) -> bool {
             // Past tasks of every project stay on the computer.
             | AgentsRequest::History { .. }
             | AgentsRequest::Start { .. }
+            // Approving a plan lets the agent change files: like Keep, on
+            // the computer only.
+            | AgentsRequest::ApprovePlan { .. }
             | AgentsRequest::Resume { .. }
             | AgentsRequest::SetLimit { .. }
             | AgentsRequest::ResearchLimit
@@ -124,7 +130,9 @@ pub(crate) fn shows(event: &Event) -> bool {
             | AgentsEvent::Message { .. }
             | AgentsEvent::Status { .. }
             | AgentsEvent::Billing { .. }
-            | AgentsEvent::Sandbox { .. } => true,
+            | AgentsEvent::Sandbox { .. }
+            | AgentsEvent::Queue { .. }
+            | AgentsEvent::Planning { .. } => true,
             AgentsEvent::ResearchLimitChanged(_) | AgentsEvent::TextDelta { .. } => false,
         },
         Event::Projects(_)

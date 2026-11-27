@@ -109,7 +109,21 @@ export type SessionInfo = {
   started_ms?: number | null;
   /** Its latest message or change of status, ms since the Unix epoch; null for sessions saved before it was kept. */
   active_ms?: number | null;
+  /** Plan first: Ovra refuses its file changes until the person approves its plan (`agents.approve_plan`). */
+  planning?: boolean;
+  /** What the person queued while a turn ran, oldest first; absent when empty. */
+  queue?: QueuedMessage[];
 };
+
+/** A message that waits for the running turn to end (`agents.queue`). */
+export interface QueuedMessage {
+  id: number;
+  /** The person's text, without its `@` context. */
+  text: string;
+}
+
+/** The most messages that wait in one session's queue. */
+export const MAX_QUEUED = 10;
 
 /** A piece of a message with the first matched word at `from`..`to` (UTF-16 offsets). */
 export type Snippet = { text: string; from: number; to: number };
@@ -306,9 +320,17 @@ export type AgentsRequest =
         no_web?: boolean;
         /** Claude only: the model to ask for; left out runs the account's default. */
         model?: AgentModel;
+        /** Direct only: proposes a plan first and changes no file until the person approves it. */
+        plan_first?: boolean;
       };
     }
   | { method: "agents.send"; params: { session: SessionId; text: string; context?: ContextItem[] } }
+  /** Sends once the running turn ends, or now if none runs; `conflict` when 10 already wait. */
+  | { method: "agents.queue"; params: { session: SessionId; text: string; context?: ContextItem[] } }
+  /** `not_found` once it was sent. */
+  | { method: "agents.unqueue"; params: { session: SessionId; id: number } }
+  /** Lets a planning session change files and tells it to go ahead; `conflict` while a turn runs. */
+  | { method: "agents.approve_plan"; params: { session: SessionId } }
   | { method: "agents.resume"; params: { session: SessionId; prompt: string } }
   | { method: "agents.interrupt"; params: { session: SessionId } }
   | { method: "agents.stop"; params: { session: SessionId } }
@@ -376,4 +398,8 @@ export type AgentsEvent =
    * The next piece of the assistant text the agent is writing now, for display
    * only: the complete `assistant_text` message replaces it.
    */
-  | { type: "agents.text_delta"; data: { session: SessionId; text: string } };
+  | { type: "agents.text_delta"; data: { session: SessionId; text: string } }
+  /** The session's queue changed (`SessionInfo.queue`). */
+  | { type: "agents.queue"; data: { session: SessionId; queue: QueuedMessage[] } }
+  /** The session entered or left plan first (`SessionInfo.planning`). */
+  | { type: "agents.planning"; data: { session: SessionId; planning: boolean } };

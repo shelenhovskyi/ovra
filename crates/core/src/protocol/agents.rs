@@ -199,6 +199,24 @@ pub struct SessionInfo {
     /// `None` for sessions saved before Ovra kept it.
     #[serde(default)]
     pub active_ms: Option<u64>,
+    /// Plan first (`docs/specs/plan-first.md`): the agent proposes a plan,
+    /// and Ovra refuses its file changes until the person approves it
+    /// (`agents.approve_plan`).
+    #[serde(default)]
+    pub planning: bool,
+    /// What the person queued while a turn ran (`agents.queue`), oldest
+    /// first: each goes as the next message when a turn ends.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub queue: Vec<QueuedMessage>,
+}
+
+/// A message that waits for the running turn to end (`agents.queue`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct QueuedMessage {
+    /// Chosen by the core, unique within the session.
+    pub id: u32,
+    /// The person's text, without the `@` context that goes with it.
+    pub text: String,
 }
 
 /// A session `agents.history` found (`docs/specs/task-history.md`).
@@ -536,6 +554,9 @@ impl AgentSettings {
     }
 }
 
+/// The most messages that wait in one session's queue.
+pub const MAX_QUEUED: usize = 10;
+
 /// The most entries `agents.history` answers with.
 pub const HISTORY_LIMIT: usize = 200;
 
@@ -748,6 +769,10 @@ pub enum AgentsRequest {
         /// default.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         model: Option<AgentModel>,
+        /// Direct only: the agent proposes a plan first and changes no
+        /// file until the person approves it (`docs/specs/plan-first.md`).
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        plan_first: bool,
     },
     /// Sends the next message. Answers `ok`.
     #[serde(rename = "agents.send")]
@@ -757,6 +782,26 @@ pub enum AgentsRequest {
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         context: Vec<ContextItem>,
     },
+    /// Sends the next message once the running turn ends, or now if none
+    /// runs; also for a session that waits to start. Refused (`conflict`)
+    /// when [`MAX_QUEUED`] wait already. Answers `ok`; `agents.queue`
+    /// tells the new queue.
+    #[serde(rename = "agents.queue")]
+    Queue {
+        session: SessionId,
+        text: String,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        context: Vec<ContextItem>,
+    },
+    /// Takes a queued message back; `not_found` once it was sent. Answers
+    /// `ok`.
+    #[serde(rename = "agents.unqueue")]
+    Unqueue { session: SessionId, id: u32 },
+    /// The person approves the plan of a session in plan first: Ovra lets
+    /// it change files again and tells it to go ahead. Refused (`conflict`)
+    /// while a turn runs. Answers `ok`.
+    #[serde(rename = "agents.approve_plan")]
+    ApprovePlan { session: SessionId },
     /// Continues an ended session, also one from before a restart, with a
     /// new prompt. Answers `agents.session`.
     #[serde(rename = "agents.resume")]
@@ -895,4 +940,13 @@ pub enum AgentsEvent {
     /// came so far, and the transcript never keeps these.
     #[serde(rename = "agents.text_delta")]
     TextDelta { session: SessionId, text: String },
+    /// The session's queue changed (`SessionInfo::queue`).
+    #[serde(rename = "agents.queue")]
+    Queue {
+        session: SessionId,
+        queue: Vec<QueuedMessage>,
+    },
+    /// The session entered or left plan first (`SessionInfo::planning`).
+    #[serde(rename = "agents.planning")]
+    Planning { session: SessionId, planning: bool },
 }

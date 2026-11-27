@@ -139,7 +139,14 @@ pub(crate) async fn agents(
             context,
             no_web,
             model,
+            plan_first,
         } => {
+            if plan_first && mode != SessionMode::Direct {
+                return Err(ProtocolError::new(
+                    ErrorCode::BadRequest,
+                    "plan first is for one agent in the project or in its own copy",
+                ));
+            }
             if no_web && mode != SessionMode::Research {
                 return Err(ProtocolError::new(
                     ErrorCode::BadRequest,
@@ -174,6 +181,7 @@ pub(crate) async fn agents(
                 preparing: false,
                 no_web,
                 model,
+                plan_first,
             };
             let info = start(ctx, new).await?;
             Ok(Response::Agents(AgentsResponse::Session(info)))
@@ -187,30 +195,33 @@ pub(crate) async fn agents(
             text,
             context,
         } => {
-            // The person's context and picks go with their next message, in
-            // Ovra's words.
-            let core = sessions.core();
-            let added = match &core {
-                Some(core) => {
-                    let (project, agent) =
-                        sessions.find(&session, |s| (s.info().project, s.info().agent))?;
-                    let sees = sees_images(ctx, agent);
-                    crate::context::message(core, &project, Some(&session), &context, sees).await?
-                }
-                None if context.is_empty() => None,
-                None => return Err(shutting_down()),
-            };
-            let picks = core
-                .as_ref()
-                .and_then(|c| crate::browser::pending(c, &session));
-            let mut parts = vec![(text, MessageFrom::Person)];
-            let images = added.as_ref().map(|c| c.images.clone()).unwrap_or_default();
-            parts.extend(added.map(|c| (c.text, MessageFrom::Ovra)));
-            parts.extend(picks.as_ref().map(|(t, _)| (t.clone(), MessageFrom::Ovra)));
-            send_with_images(ctx, session.clone(), parts, images)?;
-            if let (Some(core), Some((_, count))) = (&core, picks) {
-                crate::browser::sent(core, &session, count);
+            let (parts, images, picks) = person_parts(ctx, &session, text, &context).await?;
+            send_parts(ctx, session.clone(), parts, images)?;
+            if let (Some(core), Some(count)) = (sessions.core(), picks) {
+                crate::browser::sent(&core, &session, count);
             }
+            Ok(OK)
+        }
+        AgentsRequest::Queue {
+            session,
+            text,
+            context,
+        } => {
+            let (parts, images, picks) = person_parts(ctx, &session, text, &context).await?;
+            // Picked elements go with the next message the person sends.
+            let parts = match picks {
+                Some(_) => parts[..parts.len() - 1].to_vec(),
+                None => parts,
+            };
+            super::queue::queue(ctx, &session, parts, images)?;
+            Ok(OK)
+        }
+        AgentsRequest::Unqueue { session, id } => {
+            super::queue::unqueue(ctx, &session, id)?;
+            Ok(OK)
+        }
+        AgentsRequest::ApprovePlan { session } => {
+            super::plan::approve(ctx, &session)?;
             Ok(OK)
         }
         AgentsRequest::Interrupt { session } => {
@@ -407,6 +418,9 @@ pub(crate) struct NewSession {
     /// Waits `preparing` while its worktree is set up, then
     /// [`start_queued`] starts it; overrides `queued`.
     pub(crate) preparing: bool,
+    /// Proposes a plan first and changes no file until the person approves
+    /// it (`docs/specs/plan-first.md`).
+    pub(crate) plan_first: bool,
 }
 
 /// Only Claude takes a model for now (`docs/specs/task-commands.md`).
@@ -474,6 +488,34 @@ fn check_can(ctx: &Ctx<'_>, asked: Asked<'_>) -> Result<()> {
     Ok(())
 }
 
+/// Plan first holds only where Ovra refuses the agent's file changes
+/// itself: a person's task for a provider with an enforced policy.
+fn check_plan_first(ctx: &Ctx<'_>, new: &NewSession) -> Result<()> {
+    let enforced = ctx
+        .runtime
+        .providers()
+        .iter()
+        .any(|p| p.id == new.agent && p.capabilities.enforced_policy);
+    let person_task = new.from == MessageFrom::Person
+        && match new.tools {
+            None => new.mode == SessionMode::Direct,
+            Some(role) => role == ToolRole::Worker,
+        };
+    if !person_task {
+        return Err(ProtocolError::new(
+            ErrorCode::BadRequest,
+            "plan first is for one agent in the project or in its own copy",
+        ));
+    }
+    if !enforced {
+        return Err(ProtocolError::new(
+            ErrorCode::Unavailable,
+            "plan first needs an agent whose file changes Ovra can refuse",
+        ));
+    }
+    Ok(())
+}
+
 /// Whether `agent`'s provider sees images sent with a message.
 pub(crate) fn sees_images(ctx: &Ctx<'_>, agent: AgentKind) -> bool {
     ctx.runtime
@@ -495,6 +537,9 @@ fn program(agent: AgentKind) -> &'static str {
 pub(crate) async fn start(ctx: &Ctx<'_>, new: NewSession) -> Result<SessionInfo> {
     check_text(&new.prompt)?;
     check_model(new.agent, new.model)?;
+    if new.plan_first {
+        check_plan_first(ctx, &new)?;
+    }
     // Coordinators take no place, workers wait for one when asked to; a
     // person's start past the cap waits too (`docs/specs/review-check.md`),
     // a research session's is refused.
@@ -532,6 +577,10 @@ pub(crate) async fn start(ctx: &Ctx<'_>, new: NewSession) -> Result<SessionInfo>
         .map(|c| c.images.clone())
         .unwrap_or_default();
     parts.extend(new.context.map(|c| (c.text, MessageFrom::Ovra)));
+    if new.plan_first {
+        parts.push((super::plan::NOTE.to_owned(), MessageFrom::Ovra));
+        joined(&parts)?;
+    }
     let waits = queued || new.preparing;
     let (status, first) = if new.preparing {
         (AgentStatus::Preparing, Some(parts.clone()))
@@ -559,6 +608,8 @@ pub(crate) async fn start(ctx: &Ctx<'_>, new: NewSession) -> Result<SessionInfo>
         model: new.model,
         started_ms: Some(super::now_ms()),
         active_ms: Some(super::now_ms()),
+        planning: new.plan_first,
+        queue: Vec::new(),
     };
     // With its folder and role from the start, so that it counts in its
     // role, and its first message if it waits.
@@ -1067,14 +1118,51 @@ pub(crate) async fn trust(
     ctx.projects.set_trusted(project, Some(current))
 }
 
+/// The person's `text` with what they added with `@` and the elements they
+/// picked in the session's browser, in Ovra's words, and the images; the
+/// number of picks if any went with it (the last part).
+async fn person_parts(
+    ctx: &Ctx<'_>,
+    session: &SessionId,
+    text: String,
+    context: &[crate::protocol::context::ContextItem],
+) -> Result<(Parts, Vec<AgentImage>, Option<usize>)> {
+    let sessions = ctx.sessions;
+    let core = sessions.core();
+    let added = match &core {
+        Some(core) => {
+            let (project, agent) =
+                sessions.find(session, |s| (s.info().project, s.info().agent))?;
+            let sees = sees_images(ctx, agent);
+            crate::context::message(core, &project, Some(session), context, sees).await?
+        }
+        None if context.is_empty() => None,
+        None => return Err(shutting_down()),
+    };
+    let picks = core
+        .as_ref()
+        .and_then(|c| crate::browser::pending(c, session));
+    let mut parts = vec![(text, MessageFrom::Person)];
+    let images = added.as_ref().map(|c| c.images.clone()).unwrap_or_default();
+    parts.extend(added.map(|c| (c.text, MessageFrom::Ovra)));
+    let count = picks.as_ref().map(|(_, count)| *count);
+    parts.extend(picks.map(|(t, _)| (t, MessageFrom::Ovra)));
+    Ok((parts, images, count))
+}
+
+/// Refuses `parts` that would make too long a message.
+pub(super) fn check_parts(parts: &Parts) -> Result<()> {
+    joined(parts).map(drop)
+}
+
 /// Sends `parts` as the running session's next message; empty `parts`
 /// send only what waits for it on its task's board, if anything.
 pub(crate) fn send(ctx: &Ctx<'_>, session: SessionId, parts: Parts) -> Result<()> {
-    send_with_images(ctx, session, parts, Vec::new())
+    send_parts(ctx, session, parts, Vec::new())
 }
 
 /// [`send`] with images, for an agent that sees them.
-fn send_with_images(
+pub(super) fn send_parts(
     ctx: &Ctx<'_>,
     session: SessionId,
     parts: Parts,

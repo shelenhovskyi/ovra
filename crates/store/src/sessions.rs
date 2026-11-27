@@ -173,6 +173,8 @@ mod tests {
                 can_undo_go_back: false,
                 no_web: false,
                 model: None,
+                planning: false,
+                queue: Vec::new(),
                 started_ms: Some(1),
                 active_ms: Some(2),
             },

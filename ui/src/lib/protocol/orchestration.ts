@@ -135,6 +135,8 @@ export type OrchestrationRequest =
         attempt_of?: TaskId;
         /** Claude only: the model its sessions ask for; a coordinator's workers use their coordinator's. */
         model?: AgentModel;
+        /** With `solo`: proposes a plan first and changes no file until the person approves it. */
+        plan_first?: boolean;
       };
     }
   | { method: "orchestration.list"; params: { project: ProjectId } }

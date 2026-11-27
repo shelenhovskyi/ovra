@@ -117,7 +117,14 @@ pub(super) async fn handle(core: &Core, request: OrchestrationRequest) -> Result
             solo,
             attempt_of,
             model,
+            plan_first,
         } => {
+            if plan_first && !solo {
+                return Err(ProtocolError::new(
+                    ErrorCode::BadRequest,
+                    "plan first is for one agent in the project or in its own copy",
+                ));
+            }
             if attempt_of.is_some() && !solo {
                 return Err(ProtocolError::new(
                     ErrorCode::BadRequest,
@@ -128,7 +135,13 @@ pub(super) async fn handle(core: &Core, request: OrchestrationRequest) -> Result
             let sees = agents::sees_images(&core.agents_ctx(), agent);
             let context = crate::context::message(core, &project, None, &context, sees).await?;
             let task = if solo {
-                start_solo(core, project, prompt, context, agent, attempt_of, model).await?
+                let solo = Solo {
+                    agent,
+                    attempt_of,
+                    model,
+                    plan_first,
+                };
+                start_solo(core, project, prompt, context, solo).await?
             } else {
                 start(core, project, prompt, context, limits, agent, model).await?
             };
@@ -231,6 +244,7 @@ async fn start(
         account: None,
         queued: false,
         preparing: false,
+        plan_first: false,
     };
     let coordinator = agents::start(&core.agents_ctx(), new).await?.id;
     let entry = {
@@ -286,15 +300,27 @@ const SOLO: &str = "agent";
 /// Starts one agent of `agent`'s provider in its own worktree, without a
 /// coordinator: the task's only worker, with the person's prompt. Past the
 /// project's cap it waits `queued`, like a person's start.
+/// How a solo task's agent works.
+struct Solo {
+    agent: AgentKind,
+    attempt_of: Option<TaskId>,
+    model: Option<AgentModel>,
+    plan_first: bool,
+}
+
 async fn start_solo(
     core: &Core,
     project: ProjectId,
     prompt: String,
     context: Option<crate::context::Context>,
-    agent: AgentKind,
-    attempt_of: Option<TaskId>,
-    model: Option<AgentModel>,
+    solo: Solo,
 ) -> Result<Task> {
+    let Solo {
+        agent,
+        attempt_of,
+        model,
+        plan_first,
+    } = solo;
     agents::check_text(&prompt)?;
     needs_git(core, &project, "One agent, own copy").await?;
     let state = core.orchestration_state();
@@ -355,6 +381,7 @@ async fn start_solo(
         low,
         port,
         skip_setup: false,
+        plan_first,
     };
     let result = create_worker(core, &entry, &worktrees_dir, new).await;
     {
@@ -724,6 +751,7 @@ pub(super) async fn spawn(
         low,
         port,
         skip_setup,
+        plan_first: false,
     };
     let result = create_worker(core, &entry, &worktrees_dir, new).await;
     {
@@ -821,6 +849,7 @@ struct NewWorker<'a> {
     low: Option<String>,
     port: u16,
     skip_setup: bool,
+    plan_first: bool,
 }
 
 /// A worker's session, waiting `preparing` or `queued`, and its worktree
@@ -842,6 +871,7 @@ async fn create_worker(
         low,
         port,
         skip_setup,
+        plan_first,
     } = new;
     let root = core.root(&task.project)?;
     let worktrees = core.worktrees();
@@ -900,6 +930,7 @@ async fn create_worker(
         account,
         queued,
         preparing: !queued,
+        plan_first,
     };
     let session = match agents::start(&core.agents_ctx(), new).await {
         Ok(session) => session.id,

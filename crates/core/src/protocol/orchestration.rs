@@ -205,6 +205,10 @@ pub enum OrchestrationRequest {
         /// workers use their coordinator's.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         model: Option<AgentModel>,
+        /// With `solo`: the worker proposes a plan first and changes no
+        /// file until the person approves it (`docs/specs/plan-first.md`).
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        plan_first: bool,
     },
     /// Tasks of a project, oldest first.
     #[serde(rename = "orchestration.list")]

@@ -68,6 +68,35 @@ async fn one_agent_works_in_its_own_worktree_and_is_reviewed_like_a_worker() {
 }
 
 #[tokio::test]
+async fn one_agent_can_plan_first() {
+    let f = fx(say()).await;
+    let mut rx = f.core.subscribe();
+    let mut first = solo("claude", "fix the typo");
+    first["params"]["plan_first"] = json!(true);
+    let Response::Orchestration(OrchestrationResponse::Task(task)) = ok(&f.core, first).await
+    else {
+        panic!("no task");
+    };
+    let session = task.workers[0].session.clone();
+    until(&mut rx, &session.0, AgentStatus::Idle).await;
+    let said = transcript(&f.core, &session.0).await;
+    assert!(
+        said.iter().any(
+            |m| matches!(m, AgentMessage::UserText { text, from: MessageFrom::Ovra }
+            if text.starts_with("Plan first:"))
+        ),
+        "{said:?}"
+    );
+    let list = json!({"method": "agents.list", "params": {"project": "p1"}});
+    let Response::Agents(crate::protocol::agents::AgentsResponse::List(list)) =
+        ok(&f.core, list).await
+    else {
+        panic!("no list");
+    };
+    assert!(list.iter().any(|s| s.id == session && s.planning));
+}
+
+#[tokio::test]
 async fn stopping_its_task_stops_the_agent() {
     let f = fx(say()).await;
     let mut rx = f.core.subscribe();
@@ -112,6 +141,10 @@ async fn a_provider_without_an_enforced_policy_runs_in_its_own_copy() {
     let plan = json!({"method": "orchestration.start", "params": {
         "project": "p1", "prompt": "x", "agent": "gemini"}});
     assert_eq!(code(call(&core, plan).await), ErrorCode::Unavailable);
+    // Ovra cannot refuse its file changes, so it cannot plan first.
+    let mut first = solo("gemini", "x");
+    first["params"]["plan_first"] = json!(true);
+    assert_eq!(code(call(&core, first).await), ErrorCode::Unavailable);
     let task = start_solo(&core, "gemini").await;
     let started = agent.started.lock().map(|s| s.clone()).unwrap_or_default();
     assert_eq!(started.len(), 1);

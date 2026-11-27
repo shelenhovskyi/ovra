@@ -7,6 +7,8 @@ mod history;
 mod keys;
 mod net;
 mod permissions;
+mod plan;
+mod queue;
 mod requests;
 mod state;
 mod transcript;
@@ -89,6 +91,8 @@ struct Session {
     /// The person's answers about keys, by name, for this session's runs
     /// (`docs/specs/secrets-consent.md`): `true` allowed.
     keys: std::collections::HashMap<SecretInfo, bool>,
+    /// What the person queued for after the running turn.
+    later: queue::Later,
 }
 
 /// A session that has not ended, as the resource monitor sees it.
@@ -183,6 +187,7 @@ impl Sessions {
                 pid: None,
                 images: Vec::new(),
                 keys: Default::default(),
+                later: queue::Later::default(),
             };
             // What a go-back restored is kept with the checkpoints, if it
             // still can be undone.
@@ -250,6 +255,7 @@ impl Sessions {
             pid: None,
             images,
             keys: Default::default(),
+            later: queue::Later::default(),
         };
         let _ = self.store.save(&session.stored());
         list.push(session);
@@ -451,6 +457,7 @@ impl Session {
         SessionInfo {
             usage: self.transcript.usage().clone(),
             resumable: self.info.status.is_ended() && self.agent_session.is_some(),
+            queue: self.later.shown(),
             ..self.info.clone()
         }
     }
@@ -553,6 +560,11 @@ impl SessionView<'_> {
     }
     pub(crate) fn run(&self) -> u64 {
         self.session.run
+    }
+    /// Enters or leaves plan first (`docs/specs/plan-first.md`).
+    fn set_planning(&mut self, planning: bool) {
+        self.session.info.planning = planning;
+        self.save();
     }
     /// The next message to the agent is in the transcript: answers the
     /// number of its turn. A go-back can no longer be undone.
@@ -806,8 +818,17 @@ impl AgentHost {
             self.audit_tool(tool, false, DecidedBy::Role).await;
             return BeforeTool::Deny(why);
         }
+        let hold = self.plan_hold(tool);
+        if hold == plan::Hold::Refuse {
+            self.audit_tool(tool, false, DecidedBy::Role).await;
+            return BeforeTool::Deny(Self::plan_refusal());
+        }
         // Ovra's own tools follow their role rules (`Self::ask`).
-        let mut verdict = BeforeTool::Proceed;
+        let mut verdict = if hold == plan::Hold::Ask {
+            BeforeTool::Ask(plan::ASKS.to_owned())
+        } else {
+            BeforeTool::Proceed
+        };
         if !name.starts_with(crate::orchestration::IDE_TOOL_PREFIX) {
             let refused = match self.policy(tool) {
                 Ok(Some((PolicyAction::Deny, rule))) => Some((
@@ -895,6 +916,12 @@ impl AgentHost {
         if changed && idle && self.sessions.direct.turn_ended(&self.session) {
             self.sessions.record_turns(&self.session);
         }
+        if changed && ended {
+            self.drop_queue();
+        }
+        if changed && idle {
+            self.send_queued();
+        }
     }
 
     pub(crate) fn set_status(&self, status: AgentStatus) -> bool {
@@ -951,6 +978,11 @@ impl AgentHost {
             let answer = PermissionAnswer::deny(why);
             return self.decided(&tool, answer, DecidedBy::Role).await;
         }
+        let hold = self.plan_hold(&tool);
+        if hold == plan::Hold::Refuse {
+            let answer = PermissionAnswer::deny(Self::plan_refusal());
+            return self.decided(&tool, answer, DecidedBy::Role).await;
+        }
         if let Some(name) = tool
             .name
             .strip_prefix(crate::orchestration::IDE_TOOL_PREFIX)
@@ -967,8 +999,8 @@ impl AgentHost {
         }
         let decided = self.policy(&tool);
         // A call some rule asks about, or under an unreadable policy, gets
-        // no "Always allow".
-        let open = matches!(decided, Ok(None));
+        // no "Always allow"; nor does one plan first holds.
+        let open = matches!(decided, Ok(None)) && hold == plan::Hold::None;
         match decided {
             Ok(Some((PolicyAction::Deny, rule))) => {
                 // The hook may have seen the call first (a policy changed
@@ -984,7 +1016,8 @@ impl AgentHost {
                     .decided(&tool, answer, DecidedBy::Policy { rule })
                     .await;
             }
-            Ok(Some((PolicyAction::Auto, rule))) => {
+            // Plan first puts commands to the person, whatever a rule allows.
+            Ok(Some((PolicyAction::Auto, rule))) if hold == plan::Hold::None => {
                 let by = DecidedBy::Policy { rule };
                 return self.decided(&tool, PermissionAnswer::allow(), by).await;
             }
@@ -1001,6 +1034,13 @@ impl AgentHost {
         let always = |cwd: Option<&Path>, sandbox: Option<&SandboxReport>| {
             cwd.filter(|_| open)
                 .and_then(|cwd| crate::policy::always_rule(&tool.name, &tool.call, cwd, sandbox))
+        };
+        let reason = match hold {
+            plan::Hold::Ask => Some(PermissionReason {
+                text: plan::ASKS.to_owned(),
+                kind: None,
+            }),
+            _ => reason,
         };
         self.ask_person(&tool, title, reason, always).await
     }
