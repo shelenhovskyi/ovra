@@ -161,6 +161,15 @@ fn blank(c: char) -> bool {
     )
 }
 
+/// What a machine may pin: 1 to [`KEYS_MAX`] different fingerprints.
+/// `ovra-ssh` checks its saved list with this as well.
+pub fn fingerprints_ok(fingerprints: &[String]) -> bool {
+    !fingerprints.is_empty()
+        && fingerprints.len() <= KEYS_MAX
+        && fingerprints.iter().all(|f| fingerprint(f))
+        && (1..fingerprints.len()).all(|i| !fingerprints[..i].contains(&fingerprints[i]))
+}
+
 /// `SHA256:` and unpadded base64, as `ssh-keygen -l` prints it.
 fn fingerprint(text: &str) -> bool {
     text.strip_prefix("SHA256:").is_some_and(|b64| {
@@ -175,7 +184,7 @@ fn invalid(message: &str) -> ProtocolError {
     ProtocolError::new(ErrorCode::BadRequest, message)
 }
 
-pub(crate) fn handle(core: &Core, request: SshRequest) -> Result<Response, ProtocolError> {
+pub(crate) async fn handle(core: &Core, request: SshRequest) -> Result<Response, ProtocolError> {
     let ssh = core.ssh();
     let changed = |core: &Core| -> Result<(), ProtocolError> {
         core.emit(SshEvent::Changed(core.ssh().list()?));
@@ -185,21 +194,18 @@ pub(crate) fn handle(core: &Core, request: SshRequest) -> Result<Response, Proto
         SshRequest::List => Response::Ssh(SshResponse::Hosts(ssh.list()?)),
         SshRequest::Prepare { destination } => {
             let destination = Destination::parse(&destination)?;
-            Response::Ssh(SshResponse::Prepared(ssh.prepare(&destination)?))
+            Response::Ssh(SshResponse::Prepared(ssh.prepare(&destination).await?))
         }
         SshRequest::Add(new) => {
             let name = MachineName::parse(&new.name)?;
             let destination = Destination::parse(&new.destination)?;
             let daemon = DaemonPath::parse(new.daemon.as_deref())?;
-            if new.fingerprints.is_empty()
-                || new.fingerprints.len() > KEYS_MAX
-                || !new.fingerprints.iter().all(|f| fingerprint(f))
-                || (1..new.fingerprints.len())
-                    .any(|i| new.fingerprints[..i].contains(&new.fingerprints[i]))
-            {
+            if !fingerprints_ok(&new.fingerprints) {
                 return Err(invalid("pin the keys that were shown for this machine"));
             }
-            let host = ssh.add(&name, &destination, &daemon, &new.fingerprints)?;
+            let host = ssh
+                .add(&name, &destination, &daemon, &new.fingerprints)
+                .await?;
             changed(core)?;
             Response::Ssh(SshResponse::Host(host))
         }

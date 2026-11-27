@@ -15,8 +15,8 @@ use std::sync::{Mutex, PoisonError};
 
 use ovra_core::protocol::ssh::{PreparedHost, RemoteHost};
 use ovra_core::protocol::{ErrorCode, ProtocolError};
-use ovra_core::services::{RemoteHosts, Result as ServiceResult};
-use ovra_core::ssh::{DaemonPath, Destination, HostId, MachineName};
+use ovra_core::services::{BoxFuture, RemoteHosts, Result as ServiceResult};
+use ovra_core::ssh::{DaemonPath, Destination, HostId, MachineName, fingerprints_ok};
 use rand::Rng;
 
 use crate::config::Effective;
@@ -30,6 +30,8 @@ pub struct OpenSsh {
     dir: PathBuf,
     /// Held while the host list changes.
     changing: Mutex<()>,
+    /// `ssh` and `ssh-keygen`, once found.
+    tools: Mutex<Option<Tools>>,
     /// An SSH config other than the person's, for tests.
     config: Option<PathBuf>,
 }
@@ -40,6 +42,7 @@ impl OpenSsh {
         Self {
             dir: data_dir.join("ssh"),
             changing: Mutex::new(()),
+            tools: Mutex::new(None),
             config: None,
         }
     }
@@ -53,18 +56,24 @@ impl OpenSsh {
         }
     }
 
-    fn tools(&self) -> ServiceResult<Tools> {
-        Tools::find(std::env::var_os("PATH"))
+    /// The tools found on `PATH` the first time they were found.
+    async fn tools(&self) -> ServiceResult<Tools> {
+        if let Some(tools) = lock(&self.tools).clone() {
+            return Ok(tools);
+        }
+        let tools = Tools::find(std::env::var_os("PATH")).await?;
+        *lock(&self.tools) = Some(tools.clone());
+        Ok(tools)
     }
 
     /// `ssh -G` for `destination` as the person's config resolves it.
-    fn resolve(&self, tools: &Tools, destination: &Destination) -> ServiceResult<Effective> {
+    async fn resolve(&self, tools: &Tools, destination: &Destination) -> ServiceResult<Effective> {
         let mut command = tools.ssh();
         if let Some(config) = &self.config {
             command.arg("-F").arg(config);
         }
         command.args(["-G", "--", destination.as_str()]);
-        let out = tools.run(&mut command, None)?;
+        let out = tools.run(command, None).await?;
         if !out.status.success() {
             return Err(ProtocolError::new(
                 ErrorCode::BadRequest,
@@ -77,16 +86,31 @@ impl OpenSsh {
         Ok(Effective::parse(&String::from_utf8_lossy(&out.stdout)))
     }
 
-    fn found(&self, destination: &Destination) -> ServiceResult<(Effective, String, Vec<Known>)> {
-        let tools = self.tools()?;
-        let effective = self.resolve(&tools, destination)?;
+    async fn found(
+        &self,
+        destination: &Destination,
+    ) -> ServiceResult<(Effective, String, Vec<Known>)> {
+        let tools = self.tools().await?;
+        let effective = self.resolve(&tools, destination).await?;
+        // Ovra cannot read a revocation list from here (`ssh-keygen -Q`
+        // takes key files only), so it shows no key rather than one the
+        // person revoked.
+        if effective
+            .get("revokedhostkeys")
+            .is_some_and(|v| v != "none")
+        {
+            return Err(ProtocolError::new(
+                ErrorCode::Unavailable,
+                "your SSH config revokes host keys (RevokedHostKeys), which Ovra cannot check yet",
+            ));
+        }
         let name = effective.key_name().ok_or_else(|| {
             ProtocolError::new(
                 ErrorCode::BadRequest,
                 "your SSH config names no host for this",
             )
         })?;
-        let keys = known::lookup(&tools, &name, &effective.known_files())?;
+        let keys = known::lookup(&tools, &name, &effective.known_files()).await?;
         Ok((effective, name, keys))
     }
 
@@ -94,12 +118,26 @@ impl OpenSsh {
         self.dir.join("hosts.json")
     }
 
+    /// The saved hosts, each checked again as if it had just been added: a
+    /// command line is only ever built from checked values.
     fn read(&self) -> ServiceResult<Vec<RemoteHost>> {
-        match std::fs::read(self.hosts_file()) {
-            Ok(bytes) => serde_json::from_slice(&bytes).map_err(|e| internal(&e)),
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Vec::new()),
-            Err(e) => Err(internal(&e)),
+        let hosts: Vec<RemoteHost> = match std::fs::read(self.hosts_file()) {
+            Ok(bytes) => serde_json::from_slice(&bytes).map_err(|e| internal(&e))?,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Vec::new(),
+            Err(e) => return Err(internal(&e)),
+        };
+        for host in &hosts {
+            let checked = HostId::parse(&host.id)
+                .and(MachineName::parse(&host.name))
+                .and(Destination::parse(&host.destination))
+                .and(DaemonPath::parse(Some(&host.daemon)))
+                .is_ok()
+                && fingerprints_ok(&host.fingerprints);
+            if !checked {
+                return Err(internal(&"the saved list of remote machines was changed"));
+            }
         }
+        Ok(hosts)
     }
 
     fn write(&self, hosts: &[RemoteHost]) -> ServiceResult<()> {
@@ -107,47 +145,16 @@ impl OpenSsh {
         let bytes = serde_json::to_vec_pretty(hosts).map_err(|e| internal(&e))?;
         write_private(&self.hosts_file(), &bytes)
     }
-}
 
-impl RemoteHosts for OpenSsh {
-    fn list(&self) -> ServiceResult<Vec<RemoteHost>> {
-        self.read()
-    }
-
-    fn prepare(&self, destination: &Destination) -> ServiceResult<PreparedHost> {
-        let (effective, key_name, keys) = self.found(destination)?;
-        Ok(PreparedHost {
-            destination: destination.as_str().to_owned(),
-            host_name: effective.get("hostname").unwrap_or_default().to_owned(),
-            port: effective
-                .get("port")
-                .and_then(|p| p.parse().ok())
-                .unwrap_or(22),
-            user: effective.get("user").unwrap_or_default().to_owned(),
-            key_name,
-            keys: keys.into_iter().map(|k| k.key).collect(),
-        })
-    }
-
-    fn add(
+    /// Writes the pins for `pinned` under a new id and the host to the list.
+    fn save(
         &self,
         name: &MachineName,
         destination: &Destination,
         daemon: &DaemonPath,
-        fingerprints: &[String],
+        pinned: &[&Known],
     ) -> ServiceResult<RemoteHost> {
-        let (_, _, keys) = self.found(destination)?;
-        let pinned: Vec<&Known> = fingerprints
-            .iter()
-            .filter_map(|f| keys.iter().find(|k| &k.key.fingerprint == f))
-            .collect();
-        if pinned.len() != fingerprints.len() {
-            return Err(ProtocolError::new(
-                ErrorCode::Conflict,
-                "your SSH no longer trusts these keys for this machine; check them again",
-            ));
-        }
-        let _changing = self.changing.lock().unwrap_or_else(PoisonError::into_inner);
+        let _changing = lock(&self.changing);
         let mut hosts = self.read()?;
         let id = new_id();
         let folder = self.dir.join(id.as_str());
@@ -157,22 +164,78 @@ impl RemoteHosts for OpenSsh {
             .iter()
             .map(|k| format!("ovra-{} {} {}\n", id.as_str(), k.key.kind, k.blob))
             .collect();
-        write_private(&folder.join("known_hosts"), lines.as_bytes())?;
         let host = RemoteHost {
             id: id.as_str().to_owned(),
             name: name.as_str().to_owned(),
             destination: destination.as_str().to_owned(),
             daemon: daemon.as_str().to_owned(),
-            fingerprints: fingerprints.to_vec(),
+            fingerprints: pinned.iter().map(|k| k.key.fingerprint.clone()).collect(),
             last_connected: None,
         };
         hosts.push(host.clone());
-        self.write(&hosts)?;
-        Ok(host)
+        let saved = write_private(&folder.join("known_hosts"), lines.as_bytes())
+            .and_then(|()| self.write(&hosts));
+        if saved.is_err() {
+            let _ = std::fs::remove_dir_all(&folder);
+        }
+        saved.map(|()| host)
+    }
+}
+
+fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    mutex.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+impl RemoteHosts for OpenSsh {
+    fn list(&self) -> ServiceResult<Vec<RemoteHost>> {
+        self.read()
+    }
+
+    fn prepare<'a>(
+        &'a self,
+        destination: &'a Destination,
+    ) -> BoxFuture<'a, ServiceResult<PreparedHost>> {
+        Box::pin(async move {
+            let (effective, key_name, keys) = self.found(destination).await?;
+            Ok(PreparedHost {
+                destination: destination.as_str().to_owned(),
+                host_name: effective.get("hostname").unwrap_or_default().to_owned(),
+                port: effective
+                    .get("port")
+                    .and_then(|p| p.parse().ok())
+                    .unwrap_or(22),
+                user: effective.get("user").unwrap_or_default().to_owned(),
+                key_name,
+                keys: keys.into_iter().map(|k| k.key).collect(),
+            })
+        })
+    }
+
+    fn add<'a>(
+        &'a self,
+        name: &'a MachineName,
+        destination: &'a Destination,
+        daemon: &'a DaemonPath,
+        fingerprints: &'a [String],
+    ) -> BoxFuture<'a, ServiceResult<RemoteHost>> {
+        Box::pin(async move {
+            let (_, _, keys) = self.found(destination).await?;
+            let pinned: Vec<&Known> = fingerprints
+                .iter()
+                .filter_map(|f| keys.iter().find(|k| &k.key.fingerprint == f))
+                .collect();
+            if pinned.len() != fingerprints.len() {
+                return Err(ProtocolError::new(
+                    ErrorCode::Conflict,
+                    "your SSH no longer trusts these keys for this machine; check them again",
+                ));
+            }
+            self.save(name, destination, daemon, &pinned)
+        })
     }
 
     fn remove(&self, id: &HostId) -> ServiceResult<()> {
-        let _changing = self.changing.lock().unwrap_or_else(PoisonError::into_inner);
+        let _changing = lock(&self.changing);
         let mut hosts = self.read()?;
         let before = hosts.len();
         hosts.retain(|h| h.id != id.as_str());
@@ -187,7 +250,7 @@ impl RemoteHosts for OpenSsh {
     }
 
     fn rename(&self, id: &HostId, name: &MachineName) -> ServiceResult<RemoteHost> {
-        let _changing = self.changing.lock().unwrap_or_else(PoisonError::into_inner);
+        let _changing = lock(&self.changing);
         let mut hosts = self.read()?;
         let host = hosts
             .iter_mut()
@@ -221,9 +284,17 @@ fn internal(e: &dyn std::fmt::Display) -> ProtocolError {
     ProtocolError::new(ErrorCode::Internal, format!("remote machines: {e}"))
 }
 
-/// A folder only this user may read (0700 on Unix); a symlink is refused.
+/// A folder only this user may read (made 0700 on Unix); a symlink is
+/// refused.
 fn private_dir(dir: &Path) -> ServiceResult<()> {
-    std::fs::create_dir_all(dir).map_err(|e| internal(&e))?;
+    let mut builder = std::fs::DirBuilder::new();
+    builder.recursive(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::DirBuilderExt;
+        builder.mode(0o700);
+    }
+    builder.create(dir).map_err(|e| internal(&e))?;
     let meta = std::fs::symlink_metadata(dir).map_err(|e| internal(&e))?;
     if !meta.is_dir() {
         return Err(internal(&format!("{} is not a folder", dir.display())));
@@ -231,18 +302,24 @@ fn private_dir(dir: &Path) -> ServiceResult<()> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
+        // A folder made before keeps its mode otherwise.
         std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700))
             .map_err(|e| internal(&e))?;
     }
     Ok(())
 }
 
-/// Writes `path` whole or not at all, readable by this user only.
+/// Writes `path` whole or not at all, readable by this user only. The
+/// temporary file is always new: never one left behind, never a link.
 fn write_private(path: &Path, bytes: &[u8]) -> ServiceResult<()> {
     use std::io::Write;
     let tmp = path.with_extension("tmp");
+    match std::fs::remove_file(&tmp) {
+        Err(e) if e.kind() != std::io::ErrorKind::NotFound => return Err(internal(&e)),
+        _ => {}
+    }
     let mut options = std::fs::OpenOptions::new();
-    options.write(true).create(true).truncate(true);
+    options.write(true).create_new(true);
     #[cfg(unix)]
     {
         use std::os::unix::fs::OpenOptionsExt;

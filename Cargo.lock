@@ -3835,8 +3835,10 @@ dependencies = [
  "insta",
  "ovra-core",
  "rand 0.9.5",
+ "rustix",
  "serde_json",
  "tempfile",
+ "tokio",
 ]
 
 [[package]]

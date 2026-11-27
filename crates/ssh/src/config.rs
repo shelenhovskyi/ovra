@@ -39,12 +39,15 @@ impl Effective {
     }
 
     /// The files `ssh` reads keys from: the person's and the system's.
+    /// `ssh -G` joins them with spaces, so a path with a space comes back
+    /// in pieces; only absolute pieces are kept, never one read relative
+    /// to Ovra's own folder.
     pub(crate) fn known_files(&self) -> Vec<String> {
         ["userknownhostsfile", "globalknownhostsfile"]
             .iter()
             .filter_map(|key| self.get(key))
             .flat_map(|list| list.split(' ').map(str::to_owned))
-            .filter(|file| !file.is_empty() && file != "none")
+            .filter(|file| std::path::Path::new(file).is_absolute())
             .collect()
     }
 }
@@ -57,6 +60,8 @@ mod tests {
     fn keys_are_looked_up_under_the_name_ssh_checks() {
         let text =
             "hostname h.example\nport 2222\nuserknownhostsfile /a /b\nglobalknownhostsfile none\n";
+        let spaced = Effective::parse("userknownhostsfile /tmp/a b/kh /c\n");
+        assert_eq!(spaced.known_files(), ["/tmp/a", "/c"]);
         let effective = Effective::parse(text);
         assert_eq!(effective.key_name().as_deref(), Some("[h.example]:2222"));
         assert_eq!(effective.known_files(), ["/a", "/b"]);

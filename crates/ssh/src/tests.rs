@@ -75,16 +75,31 @@ mod hosts {
         r.unwrap_or_else(|e| panic!("{e:?}"))
     }
 
+    /// Whether OpenSSH is installed here. These tests read real
+    /// `ssh -G` and `ssh-keygen` output, which a fake would only guess;
+    /// where OpenSSH is missing they say so and pass.
+    async fn installed() -> bool {
+        let found = crate::tools::Tools::find(std::env::var_os("PATH")).await;
+        if found.is_err() {
+            eprintln!("skipped: no OpenSSH 8.7 or later on PATH");
+        }
+        found.is_ok()
+    }
+
     /// An `OpenSsh` whose config sends `build` to `build.example` with
-    /// `known` as the person's known_hosts.
+    /// `known` as the person's known_hosts, and `extra` lines after.
     fn setup(dir: &Path, known: &str, port: u16) -> OpenSsh {
+        setup_with(dir, known, port, "")
+    }
+
+    fn setup_with(dir: &Path, known: &str, port: u16, extra: &str) -> OpenSsh {
         let known_file = dir.join("known_hosts");
         ok(std::fs::write(&known_file, known));
         let config = dir.join("config");
         ok(std::fs::write(
             &config,
             format!(
-                "Host build\n  HostName build.example\n  User dev\n  Port {port}\n  UserKnownHostsFile {}\n  GlobalKnownHostsFile none\n",
+                "Host build\n  HostName build.example\n  User dev\n  Port {port}\n  UserKnownHostsFile {}\n  GlobalKnownHostsFile none\n{extra}",
                 known_file.display()
             ),
         ));
@@ -99,15 +114,18 @@ mod hosts {
         ok(MachineName::parse(text))
     }
 
-    #[test]
-    fn keys_the_person_trusts_are_shown_pinned_and_forgotten() {
+    #[tokio::test]
+    async fn keys_the_person_trusts_are_shown_pinned_and_forgotten() {
+        if !installed().await {
+            return;
+        }
         let dir = ok(tempfile::tempdir());
         let ssh = setup(
             dir.path(),
             &format!("build.example ssh-ed25519 {KEY}\n"),
             22,
         );
-        let prepared = ok(ssh.prepare(&build()));
+        let prepared = ok(ssh.prepare(&build()).await);
         assert_eq!(
             (
                 prepared.host_name.as_str(),
@@ -120,12 +138,14 @@ mod hosts {
         let print = prepared.keys[0].fingerprint.clone();
         assert!(print.starts_with("SHA256:"), "{print}");
 
-        let host = ok(ssh.add(
-            &name("Build"),
-            &build(),
-            &ok(DaemonPath::parse(None)),
-            std::slice::from_ref(&print),
-        ));
+        let host = ok(ssh
+            .add(
+                &name("Build"),
+                &build(),
+                &ok(DaemonPath::parse(None)),
+                std::slice::from_ref(&print),
+            )
+            .await);
         let pins = dir
             .path()
             .join("data/ssh")
@@ -155,8 +175,11 @@ mod hosts {
         );
     }
 
-    #[test]
-    fn hashed_ported_revoked_and_unknown_keys() {
+    #[tokio::test]
+    async fn hashed_ported_revoked_and_unknown_keys() {
+        if !installed().await {
+            return;
+        }
         let dir = ok(tempfile::tempdir());
         let known = format!(
             "[build.example]:2222 ssh-ed25519 {KEY}\n[build.example]:2222 ssh-ed25519 {OTHER}\n@revoked [build.example]:2222 ssh-ed25519 {OTHER}\nbuild.example ssh-ed25519 {OTHER}\n"
@@ -168,22 +191,27 @@ mod hosts {
             .arg(dir.path().join("known_hosts"))
             .output();
         assert!(hashed.is_ok_and(|o| o.status.success()));
-        let prepared = ok(ssh.prepare(&build()));
+        let prepared = ok(ssh.prepare(&build()).await);
         assert_eq!(prepared.key_name, "[build.example]:2222");
         assert_eq!(prepared.keys.len(), 1, "{:?}", prepared.keys);
 
         // A key the person's SSH does not trust is never pinned.
         let other = "SHA256:AAAAQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU".to_owned();
-        let refused = ssh.add(&name("B"), &build(), &ok(DaemonPath::parse(None)), &[other]);
+        let refused = ssh
+            .add(&name("B"), &build(), &ok(DaemonPath::parse(None)), &[other])
+            .await;
         assert_eq!(refused.err().map(|e| e.code), Some(ErrorCode::Conflict));
         assert!(ok(ssh.list()).is_empty());
 
         let empty = setup(dir.path(), "", 22);
-        assert!(ok(empty.prepare(&build())).keys.is_empty());
+        assert!(ok(empty.prepare(&build()).await).keys.is_empty());
     }
 
-    #[test]
-    fn a_host_known_only_through_a_certificate_authority_is_refused() {
+    #[tokio::test]
+    async fn a_host_known_only_through_a_certificate_authority_is_refused() {
+        if !installed().await {
+            return;
+        }
         let dir = ok(tempfile::tempdir());
         let ssh = setup(
             dir.path(),
@@ -191,8 +219,77 @@ mod hosts {
             22,
         );
         assert_eq!(
-            ssh.prepare(&build()).err().map(|e| e.code),
+            ssh.prepare(&build()).await.err().map(|e| e.code),
             Some(ErrorCode::Unavailable)
         );
+    }
+
+    #[tokio::test]
+    async fn a_config_that_leaves_a_command_running_cannot_hold_ovra_up() {
+        if !installed().await {
+            return;
+        }
+        let dir = ok(tempfile::tempdir());
+        let ssh = setup_with(dir.path(), "", 22, "Match exec \"sleep 30 &\"\n");
+        let mut tools = ok(ssh.tools().await);
+        tools.limit = std::time::Duration::from_millis(300);
+        *crate::lock(&ssh.tools) = Some(tools);
+        let started = std::time::Instant::now();
+        let refused = ssh.prepare(&build()).await;
+        assert_eq!(refused.err().map(|e| e.code), Some(ErrorCode::Unavailable));
+        assert!(started.elapsed() < std::time::Duration::from_secs(2));
+    }
+
+    #[tokio::test]
+    async fn revoked_host_keys_in_the_config_are_not_guessed_at() {
+        if !installed().await {
+            return;
+        }
+        let dir = ok(tempfile::tempdir());
+        let krl = dir.path().join("revoked");
+        ok(std::fs::write(&krl, ""));
+        let ssh = setup_with(
+            dir.path(),
+            &format!("build.example ssh-ed25519 {KEY}\n"),
+            22,
+            &format!("  RevokedHostKeys {}\n", krl.display()),
+        );
+        let refused = ssh.prepare(&build()).await;
+        assert!(refused.is_err_and(|e| e.message.contains("RevokedHostKeys")));
+    }
+
+    #[tokio::test]
+    async fn a_changed_list_and_a_leftover_file_are_not_trusted() {
+        let dir = ok(tempfile::tempdir());
+        let ssh = OpenSsh::new(dir.path());
+        let ssh_dir = dir.path().join("ssh");
+        ok(std::fs::create_dir_all(&ssh_dir));
+        let host = |destination: &str| {
+            format!(
+                r#"[{{"id":"abc","name":"B","destination":"{destination}","daemon":"ovra-daemon","fingerprints":["SHA256:{}"],"lastConnected":null}}]"#,
+                "A".repeat(43)
+            )
+        };
+        ok(std::fs::write(
+            ssh_dir.join("hosts.json"),
+            host("-oProxyCommand=x"),
+        ));
+        assert!(ssh.list().is_err());
+        ok(std::fs::write(ssh_dir.join("hosts.json"), host("build")));
+        assert_eq!(ok(ssh.list()).len(), 1);
+
+        use std::os::unix::fs::PermissionsExt;
+        let tmp = ssh_dir.join("hosts.tmp");
+        ok(std::fs::write(&tmp, "old"));
+        ok(std::fs::set_permissions(
+            &tmp,
+            std::fs::Permissions::from_mode(0o644),
+        ));
+        let id = ok(HostId::parse("abc"));
+        ok(ssh.rename(&id, &name("Box")));
+        let mode = ok(std::fs::metadata(ssh_dir.join("hosts.json")))
+            .permissions()
+            .mode();
+        assert_eq!(mode & 0o777, 0o600);
     }
 }

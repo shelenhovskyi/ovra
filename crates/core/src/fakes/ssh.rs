@@ -3,7 +3,7 @@ use std::sync::Mutex;
 
 use crate::protocol::ssh::{HostKey, PreparedHost, RemoteHost};
 use crate::protocol::{ErrorCode, ProtocolError};
-use crate::services::{RemoteHosts, Result};
+use crate::services::{BoxFuture, RemoteHosts, Result};
 use crate::ssh::{DaemonPath, Destination, HostId, MachineName};
 
 use super::lock;
@@ -45,7 +45,43 @@ impl RemoteHosts for MemoryRemoteHosts {
         Ok(lock(&self.hosts).clone())
     }
 
-    fn prepare(&self, destination: &Destination) -> Result<PreparedHost> {
+    fn prepare<'a>(&'a self, destination: &'a Destination) -> BoxFuture<'a, Result<PreparedHost>> {
+        Box::pin(async move { self.prepared(destination) })
+    }
+
+    fn add<'a>(
+        &'a self,
+        name: &'a MachineName,
+        destination: &'a Destination,
+        daemon: &'a DaemonPath,
+        fingerprints: &'a [String],
+    ) -> BoxFuture<'a, Result<RemoteHost>> {
+        Box::pin(async move { self.added(name, destination, daemon, fingerprints) })
+    }
+
+    fn remove(&self, id: &HostId) -> Result<()> {
+        let mut hosts = lock(&self.hosts);
+        let before = hosts.len();
+        hosts.retain(|h| h.id != id.as_str());
+        if hosts.len() == before {
+            return Err(missing(id));
+        }
+        Ok(())
+    }
+
+    fn rename(&self, id: &HostId, name: &MachineName) -> Result<RemoteHost> {
+        let mut hosts = lock(&self.hosts);
+        let host = hosts
+            .iter_mut()
+            .find(|h| h.id == id.as_str())
+            .ok_or_else(|| missing(id))?;
+        host.name = name.as_str().into();
+        Ok(host.clone())
+    }
+}
+
+impl MemoryRemoteHosts {
+    fn prepared(&self, destination: &Destination) -> Result<PreparedHost> {
         let keys = lock(&self.known)
             .get(destination.as_str())
             .cloned()
@@ -64,7 +100,7 @@ impl RemoteHosts for MemoryRemoteHosts {
         })
     }
 
-    fn add(
+    fn added(
         &self,
         name: &MachineName,
         destination: &Destination,
@@ -95,25 +131,5 @@ impl RemoteHosts for MemoryRemoteHosts {
         };
         hosts.push(host.clone());
         Ok(host)
-    }
-
-    fn remove(&self, id: &HostId) -> Result<()> {
-        let mut hosts = lock(&self.hosts);
-        let before = hosts.len();
-        hosts.retain(|h| h.id != id.as_str());
-        if hosts.len() == before {
-            return Err(missing(id));
-        }
-        Ok(())
-    }
-
-    fn rename(&self, id: &HostId, name: &MachineName) -> Result<RemoteHost> {
-        let mut hosts = lock(&self.hosts);
-        let host = hosts
-            .iter_mut()
-            .find(|h| h.id == id.as_str())
-            .ok_or_else(|| missing(id))?;
-        host.name = name.as_str().into();
-        Ok(host.clone())
     }
 }

@@ -2,11 +2,13 @@
 //! with a short environment and a time limit.
 
 use std::ffi::OsString;
-use std::path::PathBuf;
-use std::process::{Command, Output, Stdio};
-use std::time::{Duration, Instant};
+use std::path::{Path, PathBuf};
+use std::process::{Output, Stdio};
+use std::time::Duration;
 
 use ovra_core::protocol::{ErrorCode, ProtocolError};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt};
+use tokio::process::{Child, Command};
 
 /// OpenSSH older than this lacks options the command line needs
 /// (`SessionType`, `StdinNull`, `ForkAfterAuthentication`).
@@ -14,10 +16,13 @@ const OLDEST: (u32, u32) = (8, 7);
 /// How long `ssh -G` or `ssh-keygen` may take: the person's config can
 /// run commands (`Match exec`) or look names up.
 const LIMIT: Duration = Duration::from_secs(10);
+/// The most either pipe may carry; more fails the call.
+const OUTPUT_MAX: u64 = 4 * 1024 * 1024;
 
 /// The variables `ssh` keeps: enough to find the person's keys, agent and
-/// config, nothing that could be sent with `SendEnv`.
-const KEPT: [&str; 8] = [
+/// config, nothing that could be sent with `SendEnv`. The last four are
+/// how Windows and its OpenSSH find the system and `~/.ssh`.
+const KEPT: [&str; 11] = [
     "PATH",
     "HOME",
     "USER",
@@ -26,18 +31,24 @@ const KEPT: [&str; 8] = [
     "SSH_AUTH_SOCK",
     "XDG_RUNTIME_DIR",
     "SYSTEMROOT",
+    "USERPROFILE",
+    "HOMEDRIVE",
+    "HOMEPATH",
 ];
 
 #[derive(Debug, Clone)]
 pub(crate) struct Tools {
     pub(crate) ssh: PathBuf,
     pub(crate) keygen: PathBuf,
+    /// [`LIMIT`], shorter in tests.
+    pub(crate) limit: Duration,
 }
 
 impl Tools {
     /// `ssh` and `ssh-keygen` from `path` (a `PATH` value), skipping empty
-    /// and relative entries, with `ssh` checked to be new enough.
-    pub(crate) fn find(path: Option<OsString>) -> Result<Self, ProtocolError> {
+    /// and relative entries and files that cannot run, with `ssh` checked
+    /// to be new enough.
+    pub(crate) async fn find(path: Option<OsString>) -> Result<Self, ProtocolError> {
         let dirs: Vec<PathBuf> = path
             .map(|p| {
                 std::env::split_paths(&p)
@@ -47,15 +58,21 @@ impl Tools {
             .unwrap_or_default();
         let find = |name: &str| {
             let file = format!("{name}{}", std::env::consts::EXE_SUFFIX);
-            dirs.iter().map(|d| d.join(&file)).find(|p| p.is_file())
+            dirs.iter().map(|d| d.join(&file)).find(|p| runnable(p))
         };
         let (Some(ssh), Some(keygen)) = (find("ssh"), find("ssh-keygen")) else {
             return Err(no_ssh(
                 "Ovra could not find OpenSSH (ssh and ssh-keygen) on PATH",
             ));
         };
-        let tools = Self { ssh, keygen };
-        let out = tools.run(Command::new(&tools.ssh).arg("-V"), None)?;
+        let tools = Self {
+            ssh,
+            keygen,
+            limit: LIMIT,
+        };
+        let mut command = tools.ssh();
+        command.arg("-V");
+        let out = tools.run(command, None).await?;
         // `ssh -V` prints to stderr.
         let text = String::from_utf8_lossy(&out.stderr);
         match version(&text) {
@@ -70,11 +87,13 @@ impl Tools {
         }
     }
 
-    /// Runs `command` with the kept variables only, `input` on stdin, and
-    /// gives up after [`LIMIT`].
-    pub(crate) fn run(
+    /// Runs `command` with the kept variables only and `input` on stdin, in
+    /// its own process group. Gives up after `limit`, and then ends the
+    /// whole group: a command the person's config ran in the background
+    /// (`Match exec "... &"`) can hold the pipes open after `ssh` exits.
+    pub(crate) async fn run(
         &self,
-        command: &mut Command,
+        mut command: Command,
         input: Option<&str>,
     ) -> Result<Output, ProtocolError> {
         command.env_clear();
@@ -86,6 +105,8 @@ impl Tools {
                 command.env(name, value);
             }
         }
+        #[cfg(unix)]
+        command.process_group(0);
         command
             .stdin(if input.is_some() {
                 Stdio::piped()
@@ -93,50 +114,91 @@ impl Tools {
                 Stdio::null()
             })
             .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
-        let mut child = command
-            .spawn()
-            .map_err(|e| no_ssh(&format!("could not run OpenSSH: {e}")))?;
-        if let (Some(text), Some(mut stdin)) = (input, child.stdin.take()) {
-            use std::io::Write;
-            let _ = stdin.write_all(text.as_bytes());
-        }
-        // Read while waiting, so that a long known_hosts cannot fill the pipe.
-        let read = |pipe: Option<Box<dyn std::io::Read + Send>>| {
-            std::thread::spawn(move || {
-                let mut bytes = Vec::new();
-                if let Some(mut pipe) = pipe {
-                    let _ = pipe.read_to_end(&mut bytes);
-                }
-                bytes
-            })
-        };
-        let stdout = read(child.stdout.take().map(|p| Box::new(p) as Box<_>));
-        let stderr = read(child.stderr.take().map(|p| Box::new(p) as Box<_>));
-        let started = Instant::now();
-        let status = loop {
-            match child.try_wait() {
-                Ok(Some(status)) => break status,
-                Ok(None) if started.elapsed() < LIMIT => {
-                    std::thread::sleep(Duration::from_millis(2));
-                }
-                _ => {
-                    let _ = child.kill();
-                    let _ = child.wait();
-                    return Err(no_ssh("OpenSSH took too long reading your SSH config"));
-                }
+            .stderr(Stdio::piped())
+            .kill_on_drop(true);
+        let mut child = Group(
+            command
+                .spawn()
+                .map_err(|e| no_ssh(&format!("could not run OpenSSH: {e}")))?,
+        );
+        let pipe = child.0.stdin.take();
+        let feed = async move {
+            if let (Some(mut pipe), Some(text)) = (pipe, input) {
+                // A process that exits without reading closes the pipe;
+                // its exit status says what happened.
+                let _ = pipe.write_all(text.as_bytes()).await;
             }
         };
-        Ok(Output {
-            status,
-            stdout: stdout.join().unwrap_or_default(),
-            stderr: stderr.join().unwrap_or_default(),
-        })
+        let (stdout, stderr) = (child.0.stdout.take(), child.0.stderr.take());
+        let work = async {
+            // The pipes first, then the exit: until it is reaped, the
+            // child's id names its group and nothing else.
+            let ((), stdout, stderr) = tokio::join!(feed, read_all(stdout), read_all(stderr));
+            let (stdout, stderr) = (stdout?, stderr?);
+            let status = child.0.wait().await?;
+            std::io::Result::Ok(Output {
+                status,
+                stdout,
+                stderr,
+            })
+        };
+        tokio::time::timeout(self.limit, work)
+            .await
+            .map_err(|_| no_ssh("OpenSSH took too long reading your SSH config"))?
+            .map_err(|e| no_ssh(&format!("could not run OpenSSH: {e}")))
     }
 
     pub(crate) fn ssh(&self) -> Command {
         Command::new(&self.ssh)
     }
+
+    pub(crate) fn keygen(&self) -> Command {
+        Command::new(&self.keygen)
+    }
+}
+
+/// A file this user can run: on Unix, one with an execute bit.
+fn runnable(path: &Path) -> bool {
+    let Ok(meta) = std::fs::metadata(path) else {
+        return false;
+    };
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        meta.is_file() && meta.permissions().mode() & 0o111 != 0
+    }
+    #[cfg(not(unix))]
+    meta.is_file()
+}
+
+/// A child that, unless it was reaped, is killed with its process group
+/// when dropped (a timeout, too much output or a dropped call).
+struct Group(Child);
+
+impl Drop for Group {
+    fn drop(&mut self) {
+        #[cfg(unix)]
+        if let Some(pid) = self.0.id().and_then(|id| i32::try_from(id).ok()) {
+            use rustix::process::{Pid, Signal, kill_process_group};
+            if let Some(group) = Pid::from_raw(pid) {
+                // Gone already when this fails.
+                let _ = kill_process_group(group, Signal::KILL);
+            }
+        }
+        // Then `kill_on_drop` ends the child itself, on every system.
+    }
+}
+
+/// All of `pipe`, or an error past [`OUTPUT_MAX`].
+async fn read_all(pipe: Option<impl AsyncRead + Unpin>) -> std::io::Result<Vec<u8>> {
+    let mut bytes = Vec::new();
+    if let Some(pipe) = pipe {
+        pipe.take(OUTPUT_MAX + 1).read_to_end(&mut bytes).await?;
+    }
+    if bytes.len() as u64 > OUTPUT_MAX {
+        return Err(std::io::Error::other("OpenSSH wrote too much"));
+    }
+    Ok(bytes)
 }
 
 /// `(major, minor)` from `OpenSSH_9.6p1 ...`, or `OpenSSH_for_Windows_9.5p1`.

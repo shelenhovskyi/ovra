@@ -503,7 +503,7 @@ impl Core {
             Request::Remote(r) => crate::remote::handle(self, r),
             Request::Setup(r) => crate::setup::handle(self, r).await,
             Request::Catalog(r) => crate::catalog::handle(self, r).await,
-            Request::Ssh(r) => crate::ssh::handle(self, r),
+            Request::Ssh(r) => crate::ssh::handle(self, r).await,
             Request::Schedules(r) => crate::schedules::handle(self, r).await,
         }
     }

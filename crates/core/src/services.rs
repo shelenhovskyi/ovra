@@ -229,17 +229,17 @@ pub trait RemoteHosts: Send + Sync + Debug {
     fn list(&self) -> Result<Vec<RemoteHost>>;
     /// What `ssh -G` resolves for `destination` and the keys the person's
     /// own `known_hosts` has for it. Never accepts a key and never runs
-    /// `ssh-keyscan`.
-    fn prepare(&self, destination: &Destination) -> Result<PreparedHost>;
+    /// `ssh-keyscan`. Runs the person's tools, so it does not block.
+    fn prepare<'a>(&'a self, destination: &'a Destination) -> BoxFuture<'a, Result<PreparedHost>>;
     /// Pins exactly `fingerprints`; `Conflict` when the person's
     /// `known_hosts` no longer has each of them for `destination`.
-    fn add(
-        &self,
-        name: &MachineName,
-        destination: &Destination,
-        daemon: &DaemonPath,
-        fingerprints: &[String],
-    ) -> Result<RemoteHost>;
+    fn add<'a>(
+        &'a self,
+        name: &'a MachineName,
+        destination: &'a Destination,
+        daemon: &'a DaemonPath,
+        fingerprints: &'a [String],
+    ) -> BoxFuture<'a, Result<RemoteHost>>;
     fn remove(&self, id: &HostId) -> Result<()>;
     fn rename(&self, id: &HostId, name: &MachineName) -> Result<RemoteHost>;
 }
@@ -1951,17 +1951,17 @@ impl RemoteHosts for Unavailable {
     fn list(&self) -> Result<Vec<RemoteHost>> {
         self.err()
     }
-    fn prepare(&self, _: &Destination) -> Result<PreparedHost> {
-        self.err()
+    fn prepare<'a>(&'a self, _: &'a Destination) -> BoxFuture<'a, Result<PreparedHost>> {
+        Box::pin(async move { self.err() })
     }
-    fn add(
-        &self,
-        _: &MachineName,
-        _: &Destination,
-        _: &DaemonPath,
-        _: &[String],
-    ) -> Result<RemoteHost> {
-        self.err()
+    fn add<'a>(
+        &'a self,
+        _: &'a MachineName,
+        _: &'a Destination,
+        _: &'a DaemonPath,
+        _: &'a [String],
+    ) -> BoxFuture<'a, Result<RemoteHost>> {
+        Box::pin(async move { self.err() })
     }
     fn remove(&self, _: &HostId) -> Result<()> {
         self.err()

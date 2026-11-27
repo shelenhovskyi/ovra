@@ -1,8 +1,6 @@
 //! The host keys the person's own `known_hosts` already trusts. Ovra never
 //! accepts a key itself; it copies these, after the person saw them.
 
-use std::process::Command;
-
 use ovra_core::protocol::ssh::HostKey;
 use ovra_core::protocol::{ErrorCode, ProtocolError};
 
@@ -18,7 +16,7 @@ pub(crate) struct Known {
 
 /// The keys `files` trust for `name`, without revoked ones. A host known
 /// only through a certificate authority is refused for now.
-pub(crate) fn lookup(
+pub(crate) async fn lookup(
     tools: &Tools,
     name: &str,
     files: &[String],
@@ -30,12 +28,9 @@ pub(crate) fn lookup(
         if !std::path::Path::new(file).is_file() {
             continue;
         }
-        let out = tools.run(
-            Command::new(&tools.keygen)
-                .args(["-F", name, "-f"])
-                .arg(file),
-            None,
-        )?;
+        let mut command = tools.keygen();
+        command.args(["-F", name, "-f"]).arg(file);
+        let out = tools.run(command, None).await?;
         for line in String::from_utf8_lossy(&out.stdout).lines() {
             match parse(line) {
                 Some(Line::Key(kind, blob)) => keys.push((kind, blob)),
@@ -46,14 +41,15 @@ pub(crate) fn lookup(
         }
     }
     keys.retain(|(_, blob)| !revoked.contains(blob));
-    keys.dedup();
+    let mut seen = std::collections::BTreeSet::new();
+    keys.retain(|(_, blob)| seen.insert(blob.clone()));
     if keys.is_empty() && authority {
         return Err(ProtocolError::new(
             ErrorCode::Unavailable,
             "this machine is trusted through an SSH certificate authority, which Ovra does not support yet",
         ));
     }
-    fingerprints(tools, keys)
+    fingerprints(tools, keys).await
 }
 
 enum Line {
@@ -93,7 +89,10 @@ fn parse(line: &str) -> Option<Line> {
 }
 
 /// Fingerprints from `ssh-keygen -l`, in the same order as `keys`.
-fn fingerprints(tools: &Tools, keys: Vec<(String, String)>) -> Result<Vec<Known>, ProtocolError> {
+async fn fingerprints(
+    tools: &Tools,
+    keys: Vec<(String, String)>,
+) -> Result<Vec<Known>, ProtocolError> {
     if keys.is_empty() {
         return Ok(Vec::new());
     }
@@ -101,10 +100,9 @@ fn fingerprints(tools: &Tools, keys: Vec<(String, String)>) -> Result<Vec<Known>
         .iter()
         .map(|(kind, blob)| format!("x {kind} {blob}\n"))
         .collect();
-    let out = tools.run(
-        Command::new(&tools.keygen).args(["-l", "-E", "sha256", "-f", "-"]),
-        Some(&input),
-    )?;
+    let mut command = tools.keygen();
+    command.args(["-l", "-E", "sha256", "-f", "-"]);
+    let out = tools.run(command, Some(&input)).await?;
     let text = String::from_utf8_lossy(&out.stdout);
     let prints: Vec<&str> = text
         .lines()
