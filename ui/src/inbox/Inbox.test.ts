@@ -509,6 +509,35 @@ describe("Inbox", () => {
     expect(mainView.current).toBeNull();
   });
 
+  it("lists the files to look at most carefully first, and names the step that wrote each part", async () => {
+    await setup(
+      [review("r1", { files: [change("README.md"), change("src/a.ts"), change("src/old.ts", { kind: "deleted" })] })],
+      async (core) => {
+        core.transcripts.set("s1", [
+          { kind: "assistant_text", text: "Fix the readme typo." },
+          {
+            kind: "tool_use",
+            id: "t1",
+            name: "Edit",
+            input: { file_path: "/demo/README.md", old_string: "teh readme", new_string: "the readme" },
+            call: { kind: "edit", paths: ["/demo/README.md"] },
+          },
+        ]);
+      },
+    );
+    await open();
+    const listed = [...target.querySelectorAll<HTMLElement>("[data-file]")].map((b) => b.dataset.file);
+    expect(listed).toEqual(["src/old.ts", "src/a.ts", "README.md"]);
+    expect($("[data-file='src/old.ts'] [data-testid=file-risk]")?.textContent).toBe("Deletes a file");
+    expect($("[data-file='src/old.ts']")?.getAttribute("aria-current")).toBe("true");
+    $("[data-file='README.md']")?.click();
+    await settle();
+    expect($("[data-testid=hunk-step]")?.textContent).toBe("Step 1 (Edit): “Fix the readme typo.”");
+    $("[data-file='src/a.ts']")?.click();
+    await settle();
+    expect($("[data-testid=hunk-step]")).toBeNull();
+  });
+
   it("says an item is one of several attempts, and after Keep discards the others", async () => {
     const solo = (id: string, session: string, attempt_of?: string): Task => ({
       id,
@@ -887,17 +916,17 @@ describe("Inbox", () => {
   });
 
   it("shows a decided item's diffs", async () => {
-    const core = await setup([review("r1", { files: [change("README.md"), change("src/a.ts")] })]);
-    core.diffGone.set("src/a.ts", "the diff of a decided review is kept for at most 50 files");
+    const core = await setup([review("r1", { files: [change("README.md"), change("docs/a.md")] })]);
+    core.diffGone.set("docs/a.md", "the diff of a decided review is kept for at most 50 files");
     await open();
     button(/^Keep changes$/)?.click();
     await settle();
     expect($("[data-item=r1]")?.textContent).toContain("Kept");
     expect($("[data-testid=inbox-diff]")?.textContent).toContain("the readme");
-    $("[data-file='src/a.ts']")?.click();
+    $("[data-file='docs/a.md']")?.click();
     await settle();
     expect($("[data-testid=inbox-diff] [role=alert]")?.textContent).toBe(
-      "Could not load the diff of src/a.ts: the diff of a decided review is kept for at most 50 files",
+      "Could not load the diff of docs/a.md: the diff of a decided review is kept for at most 50 files",
     );
   });
 
@@ -999,7 +1028,7 @@ describe("Inbox", () => {
   });
 
   it("explains the changes in plain words on a press, beside each file's diff", async () => {
-    const core = await setup([review("r1", { files: [change("README.md"), change("src/a.ts")] })]);
+    const core = await setup([review("r1", { files: [change("README.md"), change("docs/a.md")] })]);
     await open();
     expect(core.sent("agents.start")).toEqual([]);
     core.agentAnswer =
@@ -1015,7 +1044,7 @@ describe("Inbox", () => {
     expect($("[data-testid=inbox-file-explained]")?.textContent?.trim()).toBe("Fixes a typo in the greeting.");
 
     // The other file has no line of its own; its name in the card selects it back.
-    $<HTMLButtonElement>("[data-file='src/a.ts']")?.click();
+    $<HTMLButtonElement>("[data-file='docs/a.md']")?.click();
     await settle();
     expect($("[data-testid=inbox-file-explained]")).toBeNull();
     [...target.querySelectorAll<HTMLButtonElement>("[data-testid=inbox-explanation] button")]
@@ -1025,7 +1054,7 @@ describe("Inbox", () => {
     expect($("[data-file='README.md']")?.getAttribute("aria-current")).toBe("true");
 
     // The agent's files change: the explanation says it is out of date.
-    core.items = [review("r1", { files: [change("README.md", { additions: 4 }), change("src/a.ts")] })];
+    core.items = [review("r1", { files: [change("README.md", { additions: 4 }), change("docs/a.md")] })];
     core.emit({ type: "review.changed", data: { project: "p1", id: "r1" } });
     await settle();
     expect($("[data-testid=inbox-explain-stale]")).not.toBeNull();

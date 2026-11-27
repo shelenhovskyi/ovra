@@ -8,7 +8,8 @@ import { highlightLines, type Segment } from "../editor/highlight/static";
 import { languageFor } from "../editor/languages";
 import type { Hunk, LineComment } from "../lib/protocol";
 import PatchView from "../viewers/PatchView.svelte";
-import { commentLine, type HunkLine, hunkPlace, parseHunks } from "./hunks";
+import { commentLine, type HunkLine, hunkPlace, type ParsedHunk, parseHunks } from "./hunks";
+import type { Step } from "./steps";
 
 /** Longer diffs are shown whole, without per-part actions. */
 const MAX_LINES = 2000;
@@ -24,6 +25,7 @@ let {
   ondiscard,
   oncomment,
   onuncomment,
+  stepOf = () => null,
 }: {
   patch: string;
   path: string;
@@ -38,7 +40,14 @@ let {
   ondiscard: (hunk: Hunk) => void;
   oncomment: (comment: LineComment) => void;
   onuncomment: (comment: LineComment) => void;
+  /** The agent's step that wrote a part, when it can be told. */
+  stepOf?: (part: ParsedHunk) => Step | null;
 } = $props();
+
+function stepText(step: Step): string {
+  const said = step.said ? `: “${step.said}”` : "";
+  return `Step ${step.number} (${step.tool})${said}`;
+}
 
 const hunks = $derived(parseHunks(patch));
 const size = $derived(hunks.reduce((n, h) => n + h.lines.length, 0));
@@ -126,6 +135,7 @@ const LABEL = { context: "unchanged", added: "added", removed: "removed" } as co
     {#each hunks as part, index (part.key)}
       {@const isKept = kept.has(part.key)}
       {@const place = hunkPlace(part)}
+      {@const step = stepOf(part)}
       <section class="hunk" class:kept={isKept} aria-label="Part {index + 1} of {hunks.length}, {place}" data-testid="hunk">
         <header>
           <span class="place">Part {index + 1} of {hunks.length}: {place}</span>
@@ -156,6 +166,9 @@ const LABEL = { context: "unchanged", added: "added", removed: "removed" } as co
             }}>Comment</button
           >
         </header>
+        {#if step}
+          <p class="made" data-testid="hunk-step">{stepText(step)}</p>
+        {/if}
         {#if !isKept || writing?.hunk === part.key}
           <div class="lines" role="list" aria-label="Lines of part {index + 1}">
             {#each part.lines as line, l (l)}
@@ -277,6 +290,16 @@ const LABEL = { context: "unchanged", added: "added", removed: "removed" } as co
   }
   .place {
     font-weight: 600;
+  }
+  .made {
+    margin: 0;
+    padding: 2px 8px 4px;
+    overflow: hidden;
+    color: var(--text-2);
+    font-size: 12px;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    background: var(--s2);
   }
   .where {
     color: var(--text-2);

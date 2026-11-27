@@ -11,7 +11,7 @@
 import { tick, untrack } from "svelte";
 import { agentSessions } from "../agents/sessions.svelte";
 import { isEnded } from "../agents/status";
-import { sessionSummary, taskSummary } from "../agents/summary";
+import { sessionSummary } from "../agents/summary";
 import TaskSummary from "../agents/TaskSummary.svelte";
 import { registerCommand } from "../keys/commands";
 import { registerContextKeys } from "../keys/context-keys";
@@ -67,6 +67,8 @@ import PrPanel from "./PrPanel.svelte";
 import { ProtectedLooks } from "./protected.svelte";
 import { canOpenPr } from "./pull-request";
 import { message as errorText, type Outcome, type ReviewInbox } from "./reviews.svelte";
+import { byRisk, riskReason } from "./risk";
+import { fileSteps, stepOf } from "./steps";
 
 /** The shell's inbox, shared with the title bar's Reviews button. */
 let { inbox }: { inbox: ReviewInbox } = $props();
@@ -106,12 +108,19 @@ let prFor = $state<ReviewId | null>(null);
 
 const item = $derived(inbox.items.find((i) => i.id === selectedId) ?? null);
 const file = $derived(item?.files.find((f) => f.path === selectedPath) ?? null);
+/** The item's files, those most worth a careful look first. */
+const ordered = $derived(item ? byRisk(item.files) : []);
+/** The agent's calls that edited the selected file: each part of its diff names the one that wrote it. */
+const steps = $derived(
+  item && selectedPath ? fileSteps(sessions.transcripts.get(item.session) ?? [], selectedPath) : [],
+);
 /** The item's outcome in three lines: from its summary, else from its agent's last answer. */
 const brief = $derived(item ? sessionSummary(item, sessions.transcripts.get(item.session)) : null);
 $effect(() => {
   const at = item;
-  if (!at || taskSummary(at.summary) || sessions.transcripts.has(at.session)) return;
-  // Without one, the agent's last answer may hold it. A failed load only costs the summary.
+  if (!at || sessions.transcripts.has(at.session)) return;
+  // Without a summary, the agent's last answer may hold it; the diff's parts
+  // name the steps that wrote them. A failed load only costs those.
   untrack(() => void sessions.loadTranscript(at.session).catch(() => {}));
 });
 const shared = $derived(item ? sharedFiles(item, inbox.items) : new Set<string>());
@@ -327,7 +336,8 @@ $effect(() => {
   const items = inbox.items;
   untrack(() => {
     if (!items.some((i) => i.id === selectedId)) select((inbox.waiting[0] ?? inbox.open[0] ?? items[0])?.id ?? null);
-    else if (item && !item.files.some((f) => f.path === selectedPath)) selectedPath = item.files[0]?.path ?? null;
+    else if (item && !item.files.some((f) => f.path === selectedPath))
+      selectedPath = byRisk(item.files)[0]?.path ?? null;
   });
 });
 
@@ -381,7 +391,7 @@ function select(id: ReviewId | null): void {
   staleDiff = false;
   const next = inbox.items.find((i) => i.id === id);
   // The riskiest file first: its diff is what the person sees.
-  selectedPath = (next?.files.find((f) => f.protected) ?? next?.files[0])?.path ?? null;
+  selectedPath = (next ? byRisk(next.files)[0] : undefined)?.path ?? null;
   looks.untick();
   commit = false;
   commitMessage = next ? defaultCommitMessage(next) : "";
@@ -1056,8 +1066,8 @@ function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
                   task={taskOf(item, sessions.name(item.session)) ?? sessions.name(item.session)}
                   onselect={(path) => (selectedPath = path)}
                 />
-                <ul class="files" aria-label="Changed files">
-                  {#each item.files as changed (changed.path)}
+                <ul class="files" aria-label="Changed files, those to look at most carefully first">
+                  {#each ordered as changed (changed.path)}
                     {@const markers = fileMarkers(
                       changed,
                       shared.has(changed.path),
@@ -1087,6 +1097,8 @@ function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
                         {/each}
                         {#if changed.protected}
                           <span class="meta" data-testid="file-reason">{protectedReason(changed)}</span>
+                        {:else if riskReason(changed)}
+                          <span class="meta" data-testid="file-risk">{riskReason(changed)}</span>
                         {/if}
                       </button>
                     </li>
@@ -1135,6 +1147,7 @@ function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
                       ondiscard={(hunk) => void discardPart(item, file.path, hunk)}
                       oncomment={(c) => (lineComments = [...lineComments, c])}
                       onuncomment={(c) => (lineComments = lineComments.filter((x) => x !== c))}
+                      stepOf={(part) => stepOf(part, steps)}
                     />
                   {:else}
                     <PatchView text={diff.patch} />
