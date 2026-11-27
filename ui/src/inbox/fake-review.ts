@@ -62,6 +62,8 @@ export class FakeReviewCore implements Transport {
   diffGone = new Map<string, string>();
   /** Makes the next call of this method fail with this error. */
   failNext = new Map<Request["method"], CoreError>();
+  /** Holds the next call of this method until the promise settles. */
+  holdNext = new Map<Request["method"], Promise<void>>();
   /** Diffs say they were read with this fingerprint instead of the item's. */
   diffFingerprint: string | null = null;
   /** What `review.check_log` answers, by item. */
@@ -94,6 +96,11 @@ export class FakeReviewCore implements Transport {
     if (failure) {
       this.failNext.delete(request.method);
       throw failure;
+    }
+    const hold = this.holdNext.get(request.method);
+    if (hold) {
+      this.holdNext.delete(request.method);
+      await hold;
     }
     return this.answer(request) as ResponseFor<R>;
   }

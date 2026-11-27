@@ -458,6 +458,34 @@ describe("Inbox", () => {
     expect(document.activeElement?.id).toBe("inbox-item-title");
   });
 
+  it("lets the person's own pick win over moving on after a slow Keep or Discard", async () => {
+    const core = await setup([review("r1"), review("r2", { session: "s2" }), review("r3", { session: "s3" })]);
+    await open();
+    let release = () => {};
+    core.holdNext.set("review.approve", new Promise((resolve) => (release = resolve)));
+    button(/^Keep changes$/)?.click();
+    await settle();
+    // While the keep runs, the person picks r3; r2 would be next.
+    $("[data-item=r3]")?.click();
+    await settle();
+    release();
+    await settle();
+    expect($("[data-item][aria-current=true]")?.getAttribute("data-item")).toBe("r3");
+
+    core.holdNext.set("review.reject", new Promise((resolve) => (release = resolve)));
+    button(/^Discard…$/)?.click();
+    await settle();
+    button(/^Discard the changes$/)?.click();
+    await settle();
+    $<HTMLButtonElement>("[data-item=r2]")?.click();
+    $<HTMLButtonElement>("[data-item=r2]")?.focus();
+    await settle();
+    release();
+    await settle();
+    expect($("[data-item][aria-current=true]")?.getAttribute("data-item")).toBe("r2");
+    expect(document.activeElement?.getAttribute("data-item")).toBe("r2");
+  });
+
   it("undoes a keep in one press, from the kept item or from the next one", async () => {
     const core = await setup([review("r1"), review("r2", { session: "s2" })]);
     await open();

@@ -553,6 +553,11 @@ async function approve(review: ReviewItem): Promise<void> {
   // A direct item's protected files are kept once each was seen; a worker's
   // are copied only if the person ticked the box after seeing each.
   if ((await inbox.approve(review.id, message, looks.included(review))) && inbox.outcome) {
+    // The person picked another item while the keep ran: their pick wins.
+    if (selectedId !== review.id) {
+      announcement = `Kept ${shortTitle(review, sessions.name(review.session))}.`;
+      return;
+    }
     // The note on what was not copied is not read out by itself.
     const now = inbox.items.find((i) => i.id === review.id);
     const left = now?.state === "partly_approved" ? ` ${notCopiedHint(now, keptFrom)}` : "";
@@ -615,7 +620,8 @@ async function reject(review: ReviewItem): Promise<void> {
   if (await inbox.reject(review.id)) {
     confirmingReject = false;
     if (inbox.outcome) announcement = outcomeText(inbox.outcome);
-    await refocus();
+    // Focus stays where the person went if they picked another item meanwhile.
+    if (selectedId === review.id) await refocus();
   }
 }
 
