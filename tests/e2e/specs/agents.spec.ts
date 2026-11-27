@@ -3,14 +3,17 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import type { Page } from "@playwright/test";
-import { addProject, clickWhenArmed, expect, expectAccessible, loadProject, tabTo, test } from "../test";
+import { addProject, clickWhenArmed, expect, expectAccessible, loadProject, stopAgents, tabTo, test } from "../test";
 
 // The daemon runs with --fake-agent: every session asks to run `ls -la` and to
 // edit README.md, then waits; each reply asks to run `git status`. A task's
 // coordinator starts three workers, and each asks to write NOTES.md in its
 // worktree, then asks for review.
-// Approvals are shared by all projects, so these tests take turns.
+// Approvals are shared by all projects, so these tests take turns, and each
+// stops its agents when it ends: one that asks again later would put its card
+// before the next test's own.
 test.describe.configure({ mode: "serial" });
+test.afterEach(({ page }) => stopAgents(page));
 
 /** Approvals wait 500 ms before they can be answered; skip that wait. */
 async function arm(page: Page): Promise<void> {
@@ -453,6 +456,8 @@ test("one agent works on its own copy and its change is kept from Reviews, all f
   // Keep sits above the explanation, a few Shift+Tab presses back, and Enter presses it.
   const keep = item.getByRole("button", { name: "Keep changes" });
   await tabTo(page, keep, { back: true });
+  // The item can reload as the agent's turn ends; Keep waits for that, as a person would.
+  await expect(keep).toHaveAttribute("aria-disabled", "false");
   await page.keyboard.press("Enter");
   await expect.poll(() => readIfThere(join(dir, "NOTES.md"))).toBe("Notes from a worker.\n");
 });

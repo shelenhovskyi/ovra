@@ -59,8 +59,8 @@ function daemonUrl(): string {
   return url;
 }
 
-/** Adds `root` to the daemon's projects over its WebSocket; resolves with the project's id. */
-export async function addProject(url: string, root: string): Promise<string> {
+/** Calls the daemon over its WebSocket, one call after another; resolves with each call's data. */
+async function callCore(url: string, calls: { method: string; params: unknown }[]): Promise<unknown[]> {
   const { host, searchParams } = new URL(url);
   const socket = new WebSocket(`ws://${host}/ws?token=${encodeURIComponent(searchParams.get("token") ?? "")}`);
   try {
@@ -68,22 +68,56 @@ export async function addProject(url: string, root: string): Promise<string> {
       socket.addEventListener("open", ok, { once: true });
       socket.addEventListener("error", fail, { once: true });
     });
-    return await new Promise<string>((ok, fail) => {
-      socket.addEventListener("message", (event) => {
-        const frame = JSON.parse(String(event.data)) as {
-          id?: number;
-          result?: { data: { id: string } };
-          error?: unknown;
-        };
-        if (frame.id !== 1) return;
-        if (frame.result) ok(frame.result.data.id);
-        else fail(new Error(`projects.add failed: ${JSON.stringify(frame.error)}`));
-      });
-      socket.send(JSON.stringify({ id: 1, method: "projects.add", params: { root } }));
-    });
+    const answers: unknown[] = [];
+    for (const [n, { method, params }] of calls.entries()) {
+      answers.push(
+        await new Promise((ok, fail) => {
+          const listen = (event: MessageEvent) => {
+            const frame = JSON.parse(String(event.data)) as {
+              id?: number;
+              result?: { data: unknown };
+              error?: unknown;
+            };
+            if (frame.id !== n + 1) return;
+            socket.removeEventListener("message", listen);
+            if (frame.result) ok(frame.result.data);
+            else fail(new Error(`${method} failed: ${JSON.stringify(frame.error)}`));
+          };
+          socket.addEventListener("message", listen);
+          socket.send(JSON.stringify({ id: n + 1, method, params }));
+        }),
+      );
+    }
+    return answers;
   } finally {
     socket.close();
   }
+}
+
+/** Adds `root` to the daemon's projects over its WebSocket; resolves with the project's id. */
+export async function addProject(url: string, root: string): Promise<string> {
+  const [project] = await callCore(url, [{ method: "projects.add", params: { root } }]);
+  return (project as { id: string }).id;
+}
+
+/**
+ * Stops every agent session of the project `page` has open. The daemon is
+ * shared, and the approvals of every project reach every page: an agent left
+ * running could ask again during a later test, whose card would then not be
+ * the one on screen.
+ */
+export async function stopAgents(page: Page, url = daemonUrl()): Promise<void> {
+  const project = await page.evaluate(() => localStorage.getItem("ovra.project")).catch(() => null);
+  if (!project) return;
+  const [sessions] = (await callCore(url, [{ method: "agents.list", params: { project } }])) as {
+    id: string;
+    status: { state: string };
+  }[][];
+  const running = (sessions ?? []).filter((s) => !["stopped", "failed"].includes(s.status.state));
+  await callCore(
+    url,
+    running.map((s) => ({ method: "agents.stop", params: { session: s.id } })),
+  );
 }
 
 /**
