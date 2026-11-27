@@ -21,6 +21,7 @@ import type { ProjectsEvent, ProjectsRequest, ProjectsResponse } from "./project
 import type { RemoteEvent, RemoteRequest, RemoteResponse, RemoteResponseFor } from "./remote";
 import type { ResourcesEvent } from "./resources";
 import type { ReviewEvent, ReviewRequest, ReviewResponse } from "./review";
+import type { SchedulesEvent, SchedulesRequest, SchedulesResponse, SchedulesResponseFor } from "./schedules";
 import type { SearchEvent, SearchRequest, SearchResponse } from "./search";
 import type { SecretsEvent, SecretsRequest, SecretsResponse } from "./secrets";
 import type { ServersEvent, ServersRequest, ServersResponse, ServersResponseFor } from "./servers";
@@ -55,6 +56,7 @@ export type * from "./projects";
 export type * from "./remote";
 export type * from "./resources";
 export type * from "./review";
+export type * from "./schedules";
 export type * from "./search";
 export type * from "./secrets";
 export type * from "./servers";
@@ -89,7 +91,8 @@ export type Request =
   | RemoteRequest
   | SetupRequest
   | CatalogRequest
-  | SshRequest;
+  | SshRequest
+  | SchedulesRequest;
 
 export type Response =
   | InfoResponse
@@ -117,6 +120,7 @@ export type Response =
   | SetupResponse
   | CatalogResponse
   | SshResponse
+  | SchedulesResponse
   | { type: "ok" };
 
 export type CoreEvent =
@@ -141,7 +145,8 @@ export type CoreEvent =
   | PowerEvent
   | BoardEvent
   | RemoteEvent
-  | SshEvent;
+  | SshEvent
+  | SchedulesEvent;
 
 export type ErrorCode = "bad_request" | "not_found" | "conflict" | "forbidden" | "unavailable" | "internal";
 
@@ -316,4 +321,6 @@ type LaterResponseFor<R extends Request> = R extends ServersRequest
                       ? SshResponseFor<R["method"]>
                       : R extends { method: "agents.resume_interrupted" }
                         ? Extract<Response, { type: "agents.resumed" }>
+                      : R extends SchedulesRequest
+                        ? SchedulesResponseFor<R["method"]>
                         : never;

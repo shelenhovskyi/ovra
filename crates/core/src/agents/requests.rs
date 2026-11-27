@@ -77,9 +77,10 @@ pub(crate) async fn agents(
                     ),
                 ));
             }
-            let mut settings = ctx.projects.agent_settings()?;
-            settings.set_path(agent, path);
-            ctx.projects.set_agent_settings(settings)?;
+            super::change_settings(ctx.projects, |s| {
+                s.set_path(agent, path);
+                Ok(())
+            })?;
             Ok(Response::Agents(AgentsResponse::Setup(setup)))
         }
         AgentsRequest::Accounts { project } => {
@@ -87,24 +88,20 @@ pub(crate) async fn agents(
             Ok(Response::Agents(AgentsResponse::Accounts(overview)))
         }
         AgentsRequest::SaveAccount { account } => {
-            let mut settings = ctx.projects.agent_settings()?;
-            accounts::save(&mut settings, account)?;
-            ctx.projects.set_agent_settings(settings)?;
+            super::change_settings(ctx.projects, |s| accounts::save(s, account))?;
             let overview = accounts::overview(ctx, None).await?;
             Ok(Response::Agents(AgentsResponse::Accounts(overview)))
         }
         AgentsRequest::RemoveAccount { id } => {
-            let mut settings = ctx.projects.agent_settings()?;
-            accounts::remove(&mut settings, &id)?;
-            ctx.projects.set_agent_settings(settings)?;
+            super::change_settings(ctx.projects, |s| accounts::remove(s, &id))?;
             let overview = accounts::overview(ctx, None).await?;
             Ok(Response::Agents(AgentsResponse::Accounts(overview)))
         }
         AgentsRequest::SetProjectAccount { project, account } => {
             ctx.projects.get(&project)?;
-            let mut settings = ctx.projects.agent_settings()?;
-            accounts::set_project(&mut settings, &project, account)?;
-            ctx.projects.set_agent_settings(settings)?;
+            super::change_settings(ctx.projects, |s| {
+                accounts::set_project(s, &project, account)
+            })?;
             Ok(OK)
         }
         AgentsRequest::ProjectConfig { project } => {
@@ -182,6 +179,7 @@ pub(crate) async fn agents(
                 no_web,
                 model,
                 plan_first,
+                schedule: None,
             };
             let info = start(ctx, new).await?;
             Ok(Response::Agents(AgentsResponse::Session(info)))
@@ -425,6 +423,8 @@ pub(crate) struct NewSession {
     /// Proposes a plan first and changes no file until the person approves
     /// it (`docs/specs/plan-first.md`).
     pub(crate) plan_first: bool,
+    /// The name of the schedule that starts it (ADR 0015).
+    pub(crate) schedule: Option<String>,
 }
 
 /// Only Claude takes a model for now (`docs/specs/task-commands.md`).
@@ -621,6 +621,7 @@ pub(crate) async fn start(ctx: &Ctx<'_>, new: NewSession) -> Result<SessionInfo>
         queue: Vec::new(),
         interrupted: false,
         stuck: None,
+        schedule: new.schedule.clone(),
     };
     // With its folder and role from the start, so that it counts in its
     // role, and its first message if it waits.

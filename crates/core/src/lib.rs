@@ -30,6 +30,7 @@ pub mod provenance;
 mod remote;
 mod resources;
 pub mod runtimes;
+mod schedules;
 mod search;
 mod secrets;
 mod servers;

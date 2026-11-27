@@ -140,6 +140,7 @@ pub(super) async fn handle(core: &Core, request: OrchestrationRequest) -> Result
                     attempt_of,
                     model,
                     plan_first,
+                    schedule: None,
                 };
                 start_solo(core, project, prompt, context, solo).await?
             } else {
@@ -245,6 +246,7 @@ async fn start(
         queued: false,
         preparing: false,
         plan_first: false,
+        schedule: None,
     };
     let coordinator = agents::start(&core.agents_ctx(), new).await?.id;
     let entry = {
@@ -298,17 +300,20 @@ async fn needs_git(core: &Core, project: &ProjectId, what: &str) -> Result<()> {
 const SOLO: &str = "agent";
 
 /// How a solo task's agent works.
-struct Solo {
-    agent: AgentKind,
-    attempt_of: Option<TaskId>,
-    model: Option<AgentModel>,
-    plan_first: bool,
+pub(crate) struct Solo {
+    pub(crate) agent: AgentKind,
+    pub(crate) attempt_of: Option<TaskId>,
+    pub(crate) model: Option<AgentModel>,
+    pub(crate) plan_first: bool,
+    /// The schedule that starts it (ADR 0015).
+    pub(crate) schedule: Option<String>,
 }
 
 /// Starts one agent of `agent`'s provider in its own worktree, without a
 /// coordinator: the task's only worker, with the person's prompt. Past the
 /// project's cap it waits `queued`, like a person's start.
-async fn start_solo(
+
+pub(crate) async fn start_solo(
     core: &Core,
     project: ProjectId,
     prompt: String,
@@ -320,6 +325,7 @@ async fn start_solo(
         attempt_of,
         model,
         plan_first,
+        schedule,
     } = solo;
     agents::check_text(&prompt)?;
     if plan_first {
@@ -385,6 +391,7 @@ async fn start_solo(
         port,
         skip_setup: false,
         plan_first,
+        schedule,
     };
     let result = create_worker(core, &entry, &worktrees_dir, new).await;
     {
@@ -755,6 +762,7 @@ pub(super) async fn spawn(
         port,
         skip_setup,
         plan_first: false,
+        schedule: None,
     };
     let result = create_worker(core, &entry, &worktrees_dir, new).await;
     {
@@ -853,6 +861,8 @@ struct NewWorker<'a> {
     port: u16,
     skip_setup: bool,
     plan_first: bool,
+    /// The schedule that starts it (ADR 0015).
+    schedule: Option<String>,
 }
 
 /// A worker's session, waiting `preparing` or `queued`, and its worktree
@@ -875,6 +885,7 @@ async fn create_worker(
         port,
         skip_setup,
         plan_first,
+        schedule,
     } = new;
     let root = core.root(&task.project)?;
     let worktrees = core.worktrees();
@@ -934,6 +945,7 @@ async fn create_worker(
         queued,
         preparing: !queued,
         plan_first,
+        schedule,
     };
     let session = match agents::start(&core.agents_ctx(), new).await {
         Ok(session) => session.id,

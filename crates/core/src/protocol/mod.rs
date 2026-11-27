@@ -26,6 +26,7 @@ pub mod projects;
 pub mod remote;
 pub mod resources;
 pub mod review;
+pub mod schedules;
 pub mod search;
 pub mod secrets;
 pub mod servers;
@@ -65,6 +66,7 @@ pub enum Request {
     Setup(setup::SetupRequest),
     Catalog(catalog::CatalogRequest),
     Ssh(ssh::SshRequest),
+    Schedules(schedules::SchedulesRequest),
 }
 
 /// The core's answer to a [`Request`]. Wire form: `{"type": "<domain>.<name>", "data": ...}`.
@@ -96,6 +98,7 @@ pub enum Response {
     Setup(setup::SetupResponse),
     Catalog(catalog::CatalogResponse),
     Ssh(ssh::SshResponse),
+    Schedules(schedules::SchedulesResponse),
     /// The request succeeded and has nothing to return.
     Ok(OkResponse),
 }
@@ -132,6 +135,7 @@ pub enum Event {
     Power(power::PowerEvent),
     Remote(remote::RemoteEvent),
     Ssh(ssh::SshEvent),
+    Schedules(schedules::SchedulesEvent),
 }
 
 /// An error returned instead of a [`Response`].
@@ -220,6 +224,12 @@ impl From<review::ReviewEvent> for Event {
 impl From<board::BoardEvent> for Event {
     fn from(e: board::BoardEvent) -> Self {
         Self::Board(e)
+    }
+}
+
+impl From<schedules::SchedulesEvent> for Event {
+    fn from(e: schedules::SchedulesEvent) -> Self {
+        Self::Schedules(e)
     }
 }
 

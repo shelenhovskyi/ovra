@@ -45,12 +45,14 @@ use crate::protocol::{ErrorCode, ProtocolError, Response};
 use crate::services::SessionStore;
 
 pub(crate) use prepare::work_env;
+pub(crate) use review::waits_for_review;
 pub(crate) use saved::restore;
 pub(crate) use slots::{
     Reservation, capacity, research_view as research_limit, reserve, reserve_research, set_limit,
     set_research_limit, start_next_queued, start_queued, view as limit,
 };
 pub(crate) use tasks::unless_cleaned;
+pub(crate) use tasks::{Solo, start_solo};
 
 type Result<T> = std::result::Result<T, ProtocolError>;
 

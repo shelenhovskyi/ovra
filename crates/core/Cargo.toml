@@ -13,6 +13,8 @@ fakes = ["tokio/rt"]
 
 [dependencies]
 base64 = "0.22"
+# Local times of schedules from a bundled time-zone database (ADR 0015).
+jiff = { version = "1.0.3", default-features = false, features = ["std", "tzdb-bundle-always"] }
 serde.workspace = true
 serde_json.workspace = true
 sha2 = "0.10"

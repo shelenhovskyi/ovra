@@ -73,6 +73,9 @@ fn a_phone_reads_answers_replies_and_stops_but_changes_nothing_else() {
         json!({"method": "review.update", "params": {"id": "v1"}}),
         json!({"method": "orchestration.start", "params": {"project": "p1", "prompt": "x"}}),
         json!({"method": "audit.list", "params": p}),
+        json!({"method": "schedules.list", "params": p}),
+        json!({"method": "schedules.run_now", "params": {"id": "sc1"}}),
+        json!({"method": "schedules.set_enabled", "params": {"enabled": true}}),
     ];
     for value in refused {
         assert!(

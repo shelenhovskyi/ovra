@@ -484,6 +484,30 @@ pub(super) async fn settled(core: &Core, session: &SessionId) -> Option<String> 
     changes.is_ok_and(|c| c.is_empty()).then_some(base)
 }
 
+/// Whether `session`'s work waits for the person in Reviews: an item of it
+/// is partly kept, or its latest item is open with changes. A workspace
+/// that cannot be read (removed) holds nothing back.
+pub(crate) async fn waits_for_review(core: &Core, session: &SessionId) -> bool {
+    let (partial, latest) = {
+        let state = core.orchestration_state();
+        let state = state.lock();
+        let mine = || state.reviews.iter().filter(|r| &r.session == session);
+        let partial = mine().any(|r| r.state == ReviewState::PartlyApproved);
+        (partial, mine().next_back().cloned())
+    };
+    if partial {
+        return true;
+    }
+    let Some(latest) = latest.filter(|r| r.state == ReviewState::Open) else {
+        return false;
+    };
+    let ws = latest.workspace;
+    core.worktrees()
+        .changes(ws.dir, ws.base)
+        .await
+        .is_ok_and(|c| !c.is_empty())
+}
+
 /// Changes `id`'s entry and tells clients.
 pub(super) fn update(core: &Core, id: &ReviewId, f: impl FnOnce(&mut Entry)) -> Result<Entry> {
     let entry = {

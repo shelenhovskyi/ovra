@@ -111,7 +111,9 @@ pub(crate) fn allows(request: &Request) -> bool {
         | Request::Remote(_)
         | Request::Setup(_)
         | Request::Catalog(_)
-        | Request::Ssh(_) => false,
+        | Request::Ssh(_)
+        // Only the person at the computer makes or runs schedules (ADR 0015).
+        | Request::Schedules(_) => false,
     }
 }
 
@@ -153,7 +155,8 @@ pub(crate) fn shows(event: &Event) -> bool {
         | Event::Pr(_)
         | Event::Board(_)
         | Event::Remote(_)
-        | Event::Ssh(_) => false,
+        | Event::Ssh(_)
+        | Event::Schedules(_) => false,
     }
 }
 

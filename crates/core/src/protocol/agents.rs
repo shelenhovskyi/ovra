@@ -218,6 +218,10 @@ pub struct SessionInfo {
     /// replies.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stuck: Option<Box<Stuck>>,
+    /// The name of the schedule that started it (ADR 0015); `None` for a
+    /// person's start.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub schedule: Option<String>,
 }
 
 /// Why a working session may be stuck (`docs/specs/stuck-and-resume.md`).
@@ -523,6 +527,28 @@ pub struct AgentSettings {
     /// How many research sessions may work at once in one project (ADR
     /// 0013); `None` is the default.
     pub research_limit: Option<u32>,
+    /// Whether schedules start agents (ADR 0015); off by default.
+    pub schedules_enabled: bool,
+    /// The person's schedules of every project, oldest first. A stored
+    /// `next_ms` is when the next run is due, also while paused or off.
+    /// One that cannot be read is dropped, so it never hides the rest.
+    #[serde(deserialize_with = "readable")]
+    pub schedules: Vec<super::schedules::Schedule>,
+    /// How many schedules were ever made, for their ids.
+    pub schedules_made: u64,
+}
+
+/// The entries of a list that can be read.
+fn readable<'de, D, T>(deserializer: D) -> Result<Vec<T>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: serde::de::DeserializeOwned,
+{
+    let values = Vec::<serde_json::Value>::deserialize(deserializer)?;
+    Ok(values
+        .into_iter()
+        .filter_map(|v| serde_json::from_value(v).ok())
+        .collect())
 }
 
 /// How many agents may work at once in each project, and the range the

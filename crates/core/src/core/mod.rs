@@ -225,6 +225,7 @@ impl CoreBuilder {
                 remote: self.remote,
                 ssh: self.ssh,
                 sandbox: self.sandbox,
+                schedules: crate::schedules::State::default(),
             }),
             events,
         };
@@ -232,6 +233,7 @@ impl CoreBuilder {
             .sessions
             .link_ide(self.ide_tools, core.downgrade());
         orchestration::restore(&core);
+        crate::schedules::start_clock(&core);
         core
     }
 }
@@ -276,6 +278,7 @@ struct Inner {
     remote: Arc<dyn RemoteAccess>,
     ssh: Arc<dyn RemoteHosts>,
     sandbox: Option<Arc<dyn Sandbox>>,
+    schedules: crate::schedules::State,
 }
 
 /// A [`Core`] that does not keep it alive; sessions hold one so their IDE
@@ -462,6 +465,8 @@ impl Core {
         held: &Mutex<Option<ProjectId>>,
         by: DecidedBy,
     ) -> Result<Response, ProtocolError> {
+        // A front end built outside a runtime starts the clock here.
+        crate::schedules::start_clock(self);
         match request {
             Request::Info(InfoRequest::Get) => Ok(Response::Info(InfoResponse::Info(CoreInfo {
                 name: "ovra".to_owned(),
@@ -499,6 +504,7 @@ impl Core {
             Request::Setup(r) => crate::setup::handle(self, r).await,
             Request::Catalog(r) => crate::catalog::handle(self, r).await,
             Request::Ssh(r) => crate::ssh::handle(self, r),
+            Request::Schedules(r) => crate::schedules::handle(self, r).await,
         }
     }
 
@@ -509,6 +515,10 @@ impl Core {
 
     pub(crate) fn sessions(&self) -> &Arc<Sessions> {
         &self.inner.sessions
+    }
+
+    pub(crate) fn schedules(&self) -> &crate::schedules::State {
+        &self.inner.schedules
     }
 
     pub(crate) fn orchestration_state(&self) -> &Orchestration {
@@ -721,6 +731,7 @@ impl Core {
                 drop(changing);
                 agents::stop_project(&self.agents_ctx(), &id);
                 crate::lsp::stop_project(self, &id);
+                crate::schedules::forget_project(self, &id);
                 // Clients still holding it let go of nothing when they close.
                 if lock(&self.inner.open).remove(&id).is_some() {
                     self.inner.fs.unwatch(&id);

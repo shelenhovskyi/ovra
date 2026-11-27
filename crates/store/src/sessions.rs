@@ -179,6 +179,7 @@ mod tests {
                 active_ms: Some(2),
                 interrupted: false,
                 stuck: None,
+                schedule: None,
             },
             agent_session: None,
         }
