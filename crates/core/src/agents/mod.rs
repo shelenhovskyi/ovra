@@ -59,6 +59,21 @@ pub(crate) fn now_ms() -> u64 {
         .map_or(0, |d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX))
 }
 
+/// Held while the agent settings are read, changed and written back, so
+/// that writers (requests, limits, the schedules' clock) never lose each
+/// other's changes. Nothing written if `f` fails.
+pub(crate) fn change_settings<T>(
+    store: &dyn crate::services::ProjectStore,
+    f: impl FnOnce(&mut crate::protocol::agents::AgentSettings) -> Result<T, ProtocolError>,
+) -> Result<T, ProtocolError> {
+    static WRITING: Mutex<()> = Mutex::new(());
+    let _writing = lock(&WRITING);
+    let mut settings = store.agent_settings()?;
+    let out = f(&mut settings)?;
+    store.set_agent_settings(settings)?;
+    Ok(out)
+}
+
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
     m.lock().unwrap_or_else(PoisonError::into_inner)
 }

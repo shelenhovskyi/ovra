@@ -69,9 +69,10 @@ pub(crate) fn set_limit(core: &Core, limit: u32) -> Result<AgentLimit, ProtocolE
         // when two changes come at once.
         let state = core.orchestration_state();
         let mut guard = state.lock();
-        let mut settings = store.agent_settings()?;
-        settings.max_working = (limit != DEFAULT_LIMIT).then_some(limit);
-        store.set_agent_settings(settings)?;
+        crate::agents::change_settings(store, |s| {
+            s.max_working = (limit != DEFAULT_LIMIT).then_some(limit);
+            Ok(())
+        })?;
         guard.limit = usize::try_from(limit).ok();
     }
     let view = view(core);
@@ -151,9 +152,10 @@ pub(crate) fn set_research_limit(core: &Core, limit: u32) -> Result<AgentLimit, 
         let state = core.orchestration_state();
         let _guard = state.lock();
         let store = core.project_store();
-        let mut settings = store.agent_settings()?;
-        settings.research_limit = (limit != DEFAULT_RESEARCH_LIMIT).then_some(limit);
-        store.set_agent_settings(settings)?;
+        crate::agents::change_settings(store, |s| {
+            s.research_limit = (limit != DEFAULT_RESEARCH_LIMIT).then_some(limit);
+            Ok(())
+        })?;
     }
     let view = research_view_of(limit);
     core.emit(AgentsEvent::ResearchLimitChanged(view));
