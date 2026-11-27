@@ -87,7 +87,11 @@ pub(crate) fn allows(
                 && call.paths.iter().all(|p| kept_in(work_dir, p))
                 && !held(&call.paths)
         }
-        ToolKind::Search => call.paths.iter().all(|p| kept_in(work_dir, p)) && !held(&call.paths),
+        ToolKind::Search => {
+            call.paths.iter().all(|p| kept_in(work_dir, p))
+                && !held(&call.paths)
+                && !searches_held(policy, work_dir, &call.paths)
+        }
         ToolKind::Edit | ToolKind::Delete | ToolKind::Move => {
             own_copy && edits(work_dir, call) && !held(&call.paths)
         }
@@ -119,6 +123,46 @@ fn held_by_rule(policy: &Policy, work_dir: &Path, paths: &[String]) -> bool {
                         .is_some_and(|p| !p.is_empty() && super::glob(pattern, &p))
                 })
             }),
+        })
+}
+
+/// Whether a search may look into files a deny or ask rule of a file tool
+/// holds: it covers the whole folder, a folder above what a rule names
+/// (`src` for `src/keys/**`), or one its glob reaches (any for `**/.env`).
+fn searches_held(policy: &Policy, work_dir: &Path, paths: &[String]) -> bool {
+    let folders: Vec<String> = if paths.is_empty() {
+        vec![String::new()]
+    } else {
+        paths.iter().filter_map(|p| relative(work_dir, p)).collect()
+    };
+    policy
+        .rules
+        .iter()
+        .filter(|r| r.action != PolicyAction::Auto && PATH_TOOLS.contains(&r.tool.as_str()))
+        .any(|rule| {
+            // The rule's folders before its first glob character.
+            let named: Vec<&str> = rule
+                .pattern
+                .as_deref()
+                .unwrap_or("")
+                .split('/')
+                .filter(|s| !s.is_empty() && *s != ".")
+                .take_while(|s| !s.contains(['*', '?', '[']))
+                .collect();
+            let globbed = rule
+                .pattern
+                .as_deref()
+                .is_none_or(|p| p.contains(['*', '?', '[']));
+            folders.iter().any(|folder| {
+                let folder: Vec<&str> = folder.split('/').filter(|s| !s.is_empty()).collect();
+                let same = folder
+                    .iter()
+                    .zip(&named)
+                    .all(|(a, b)| super::fold(a) == super::fold(b));
+                // Above what the rule names, or below it where its glob
+                // still reaches.
+                same && (folder.len() <= named.len() || globbed)
+            })
         })
 }
 
@@ -195,7 +239,11 @@ fn command(work_dir: &Path, command: &str) -> bool {
                 || (bare.starts_with('/') && bare.contains(['*', '?', '[', '{']));
             let login = bare.split('/').any(|seg| {
                 let seg = seg.to_ascii_lowercase();
-                crate::protected::AGENT_STATE_IN_HOME.contains(&seg.as_str())
+                // `.claude-work` too: the sandbox keeps every account
+                // folder named so as agent state, and its login readable.
+                crate::protected::AGENT_STATE_IN_HOME
+                    .iter()
+                    .any(|state| seg.starts_with(state))
             });
             home || login || named(bare) || relative(work_dir, bare).is_some_and(|p| named(&p))
         })

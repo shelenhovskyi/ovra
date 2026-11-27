@@ -189,6 +189,24 @@ fn deny_and_ask_rules_on_files_hold_for_every_tool_that_names_them() {
         assert!(!quietly(tool, input.clone()), "{tool} {input}");
     }
     assert!(quietly("Bash", json!({"command": "cat src/a.rs"})));
+    // A search over a folder above what a rule holds asks too.
+    for input in [
+        json!({"pattern": "BEGIN"}),
+        json!({"pattern": "BEGIN", "path": "."}),
+        json!({"pattern": "BEGIN", "path": "/w"}),
+        json!({"pattern": "BEGIN", "glob": "keys/**"}),
+    ] {
+        assert!(!quietly("Grep", input.clone()), "{input}");
+    }
+    assert!(quietly("Grep", json!({"pattern": "BEGIN", "path": "src"})));
+    let anywhere = quiet(vec![rule("Read", Some("**/.env"), PolicyAction::Deny)]);
+    let grep = json!({"pattern": "x", "path": "src"});
+    assert!(!allows_under(
+        &anywhere,
+        "Grep",
+        grep,
+        SessionMode::Isolated
+    ));
     // A file rule without a match covers every call that names a path.
     let all = quiet(vec![rule("Read", None, PolicyAction::Ask)]);
     assert!(!allows_under(
@@ -221,6 +239,10 @@ fn the_home_folder_and_agent_logins_ask() {
         ("Bash", json!({"command": "cat $HOME/x"})),
         ("Bash", json!({"command": "cat /root/.cl*/.cr*"})),
         ("Bash", json!({"command": "ls /home/me/.codex"})),
+        (
+            "Bash",
+            json!({"command": "cat /home/u/.claude-work/.credentials.json"}),
+        ),
     ] {
         assert!(!allows(tool, input.clone()), "{tool} {input}");
     }
