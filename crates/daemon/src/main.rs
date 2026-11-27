@@ -189,6 +189,13 @@ async fn serve() -> anyhow::Result<()> {
     println!("OVRA_URL=http://{addr}/?token={token}");
     tracing::info!(%addr, "ovra-daemon listening");
 
+    // Without TCP_NODELAY a reply that follows an event frame waits for the
+    // browser's delayed ACK, about 40 ms on Linux.
+    let listener = axum::serve::ListenerExt::tap_io(listener, |tcp| {
+        if let Err(error) = tcp.set_nodelay(true) {
+            tracing::debug!(%error, "TCP_NODELAY");
+        }
+    });
     axum::serve(listener, app)
         .with_graceful_shutdown(async {
             let _ = tokio::signal::ctrl_c().await;
