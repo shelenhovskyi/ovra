@@ -307,6 +307,18 @@ pub(crate) fn spawn_git_refresher(
     Ok(tx)
 }
 
+/// The events of a batch that change something. Reads (`Access`) do not:
+/// had they asked for a git status, the reads of that `git status` would
+/// ask for the next one, about three runs a second for as long as the
+/// project is open.
+pub(crate) fn changes(batch: Vec<notify::Result<notify::Event>>) -> Vec<notify::Event> {
+    batch
+        .into_iter()
+        .filter_map(std::result::Result::ok)
+        .filter(|event| !matches!(event.kind, EventKind::Access(_)))
+        .collect()
+}
+
 struct Worker {
     project: ProjectId,
     root: PathBuf,
@@ -592,10 +604,11 @@ impl Worker {
         let mut visible = HashMap::new();
         let dot_git = self.root.join(".git");
         let mut git_appeared = false;
-        for event in batch.into_iter().filter_map(std::result::Result::ok) {
-            if matches!(event.kind, EventKind::Access(_)) {
-                continue;
-            }
+        let events = changes(batch);
+        if events.is_empty() {
+            return;
+        }
+        for event in events {
             for path in event.paths {
                 git_appeared |= self.git_tx.is_none()
                     && (path == dot_git || path.parent() == Some(dot_git.as_path()));

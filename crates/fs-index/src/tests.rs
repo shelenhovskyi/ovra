@@ -549,6 +549,24 @@ async fn watcher_finds_a_repository_set_up_after_it_started() {
     assert_eq!(b.git, Some(ovra_core::protocol::fs::GitStatus::Added));
 }
 
+/// `git status` reads the tree: a batch of reads alone must not ask for the
+/// next status run, or the refresher never stops.
+#[test]
+fn reads_alone_change_nothing() {
+    use notify::EventKind;
+    use notify::event::{AccessKind, AccessMode, DataChange, ModifyKind};
+    let event = |kind| Ok(notify::Event::new(kind).add_path("/p/a.txt".into()));
+    let reads = vec![
+        event(EventKind::Access(AccessKind::Open(AccessMode::Any))),
+        event(EventKind::Access(AccessKind::Close(AccessMode::Read))),
+    ];
+    assert!(watch::changes(reads).is_empty());
+    let write = EventKind::Modify(ModifyKind::Data(DataChange::Content));
+    let mixed = vec![event(EventKind::Access(AccessKind::Read)), event(write)];
+    let kinds: Vec<_> = watch::changes(mixed).into_iter().map(|e| e.kind).collect();
+    assert_eq!(kinds, [write]);
+}
+
 #[tokio::test]
 async fn git_refresher_folds_a_burst_of_changes_into_one_status_run() {
     let tmp = dir();
