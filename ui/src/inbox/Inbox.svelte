@@ -23,6 +23,7 @@ import Icon from "../shell/Icon.svelte";
 import { mainView } from "../shell/main-view.svelte";
 import ViewFrame from "../shell/ViewFrame.svelte";
 import PatchView from "../viewers/PatchView.svelte";
+import BehindNotice from "./BehindNotice.svelte";
 import {
   approveDetail,
   approveHint,
@@ -775,6 +776,15 @@ function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
 
               {#if item.state === "open" || item.state === "published"}
                 <div class="actions" role="group" aria-label="Decide on this review">
+                  <BehindNotice
+                    {inbox}
+                    {item}
+                    onsaid={(said) => (announcement = said)}
+                    onask={(text) => {
+                      comment = text;
+                      void tick().then(() => document.getElementById("inbox-comment")?.focus());
+                    }}
+                  />
                   <p class="hint">{approveHint(item)}</p>
                   {#if protectedText}
                     <p class="protected" id="inbox-protected" data-testid="inbox-protected">{protectedText}</p>

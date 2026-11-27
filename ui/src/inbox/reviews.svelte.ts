@@ -16,6 +16,16 @@ import type {
 } from "../lib/protocol";
 import { CoreError, type Transport } from "../lib/transport";
 
+/** What the last `review.update` of an item did (`docs/specs/main-moved.md`). */
+export type Updated = {
+  id: ReviewId;
+  /** Files of the project that came in. */
+  files: number;
+  /** Written with conflict markers when `written`; else why nothing was written. */
+  conflicts: string[];
+  written: boolean;
+};
+
 /** What the last approve, reject or undo did, and what it left for the person. */
 export type Outcome = {
   id: ReviewId;
@@ -38,6 +48,7 @@ export class ReviewInbox {
   /** Items with an action on the way; their buttons wait for the answer. */
   busy = $state<ReviewId[]>([]);
   outcome = $state<Outcome | null>(null);
+  updated = $state<Updated | null>(null);
   /** Bumped whenever the core says an item changed, so open diffs reload. */
   changes = $state(0);
   /** An agent asked to show a review since Reviews was last open; the title bar's button says so. */
@@ -86,6 +97,7 @@ export class ReviewInbox {
     if (project !== this.project) {
       this.items = [];
       this.outcome = null;
+      this.updated = null;
     }
     this.project = project;
     await this.reload();
@@ -207,6 +219,20 @@ export class ReviewInbox {
     return this.act(id, async () => {
       const { data } = await this.transport.call({ method: "review.resolve", params: { id } });
       this.settle("resolved", data);
+    });
+  }
+
+  /**
+   * Brings the project's changes since a worker started into its worktree,
+   * merged with the worker's. Files changed in the same place on both sides
+   * are written, with conflict markers, only with `conflicts`.
+   */
+  update(id: ReviewId, conflicts = false): Promise<boolean> {
+    return this.act(id, async () => {
+      const params = { id, ...(conflicts ? { conflicts: true } : {}) };
+      const { data } = await this.transport.call({ method: "review.update", params });
+      this.items = this.items.map((i) => (i.id === data.item.id ? data.item : i));
+      this.updated = { id, files: data.files, conflicts: data.conflicts, written: data.written };
     });
   }
 

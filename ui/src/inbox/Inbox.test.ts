@@ -582,6 +582,27 @@ describe("Inbox", () => {
     );
   });
 
+  it("warns that the project moved on, brings its changes in, and asks the agent to resolve conflicts", async () => {
+    const behind = { files: 3, clashes: ["src/a.ts"] };
+    const core = await setup([review("r1", { mode: "isolated", files: [change("src/a.ts")], behind })]);
+    await open();
+    expect($("[data-testid=inbox-behind-text]")?.textContent).toContain("also in a.ts, which the agent changed too");
+    $<HTMLButtonElement>("[data-testid=inbox-update]")?.click();
+    await settle();
+    expect(core.sent("review.update").map((c) => c.params)).toEqual([{ id: "r1" }]);
+    expect($("[data-testid=inbox-updated]")?.textContent).toContain("a.ts changed in the same place on both sides");
+
+    $<HTMLButtonElement>("[data-testid=inbox-update-conflicts]")?.click();
+    await settle();
+    expect(core.sent("review.update").map((c) => c.params)).toEqual([{ id: "r1" }, { id: "r1", conflicts: true }]);
+    expect($("[data-testid=inbox-updated]")?.textContent).toContain("a.ts now has conflict markers");
+    expect($("[data-testid=inbox-behind-text]")).toBeNull();
+    $<HTMLButtonElement>("[data-testid=inbox-ask-resolve]")?.click();
+    await settle();
+    expect($<HTMLTextAreaElement>("#inbox-comment")?.value).toContain("Resolve the conflict markers in src/a.ts");
+    expect(core.sent("review.comment")).toHaveLength(0);
+  });
+
   it("says which of a worker's files were not copied, keeps the item waiting, and marks it done", async () => {
     const core = await setup([review("r1", { mode: "isolated", files: [change("NOTES.md"), change("a.rs")] })]);
     core.conflicts = ["NOTES.md"];

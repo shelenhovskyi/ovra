@@ -189,6 +189,15 @@ export class FakeReviewCore implements Transport {
           data: { item: structuredClone(item), conflicts: [...this.conflicts], restored: [...this.restored] },
         };
       }
+      case "review.update": {
+        // Like the core: conflicting files are written only when asked; then the item is no longer behind.
+        const item = this.find(request.params.id);
+        const clashes = item.behind?.clashes ?? [];
+        const written = clashes.length === 0 || request.params.conflicts === true;
+        if (written) delete item.behind;
+        const data = { item: structuredClone(item), files: written ? 2 : 0, conflicts: [...clashes], written };
+        return { type: "review.updated", data };
+      }
       case "review.resolve": {
         const item = this.find(request.params.id);
         item.state = "approved";
