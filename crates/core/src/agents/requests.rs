@@ -621,7 +621,7 @@ pub(crate) async fn start(ctx: &Ctx<'_>, new: NewSession) -> Result<SessionInfo>
         queue: Vec::new(),
         interrupted: false,
         stuck: None,
-        schedule: new.schedule.clone(),
+        schedule: new.schedule.as_deref().map(Into::into),
     };
     // With its folder and role from the start, so that it counts in its
     // role, and its first message if it waits.

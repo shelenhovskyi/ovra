@@ -219,9 +219,10 @@ pub struct SessionInfo {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stuck: Option<Box<Stuck>>,
     /// The name of the schedule that started it (ADR 0017); `None` for a
-    /// person's start.
+    /// person's start. A boxed `str`: `SessionInfo` is near clippy's
+    /// size limit for the responses that carry it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub schedule: Option<String>,
+    pub schedule: Option<Box<str>>,
 }
 
 /// Why a working session may be stuck (`docs/specs/stuck-and-resume.md`).
