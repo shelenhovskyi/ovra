@@ -251,6 +251,7 @@ pub(crate) async fn handle(core: &Core, request: SchedulesRequest) -> Result<Res
                 Run::Done(outcome @ RunOutcome::Started { .. })
                     if schedule.next_ms.is_some_and(|at| at <= now + TICK_MS) =>
                 {
+                    lock(&core.schedules().busy).remove(&id);
                     (outcome, Some(time::next_after(&schedule.draft.when, now)))
                 }
                 Run::Done(outcome) => (outcome, None),
@@ -261,6 +262,16 @@ pub(crate) async fn handle(core: &Core, request: SchedulesRequest) -> Result<Res
             reply(SchedulesResponse::Schedule(Box::new(view(&saved, enabled))))
         }
     }
+}
+
+/// Sets when the next run is due, keeping the last run as it was.
+fn record_next(core: &Core, id: &ScheduleId, next: Option<u64>) -> Result<()> {
+    change(core, |s| {
+        if let Some(schedule) = s.schedules.iter_mut().find(|x| &x.id == id) {
+            schedule.next_ms = next;
+        }
+        Ok(())
+    })
 }
 
 fn find(core: &Core, id: &ScheduleId) -> Result<Schedule> {
@@ -323,7 +334,11 @@ pub(crate) async fn tick(core: &Core, now: u64) {
         let next = Some(time::next_after(&schedule.draft.when, now));
         let state = core.schedules();
         if lock(&state.fired).get(&schedule.id) == Some(&at) {
-            // Handled already; only its record could not be saved.
+            // Handled already, but its record could not be saved: only
+            // move on to the next run.
+            if let Err(err) = record_next(core, &schedule.id, next.flatten()) {
+                tracing::warn!(schedule = %schedule.id.0, "could not save a schedule's next run: {}", err.message);
+            }
             continue;
         }
         let outcome = if now.saturating_sub(at) > LATE_MS {

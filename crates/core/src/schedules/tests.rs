@@ -253,7 +253,10 @@ async fn research_turned_off_fails_the_run_which_is_not_started_again() {
         Ok(())
     });
     tick(&f.core, NOW + MINUTE).await;
-    assert_eq!(stored(&f.core, &schedule.id).last, None);
+    let after = stored(&f.core, &schedule.id);
+    assert_eq!(after.last, None);
+    // Only its next run moved on.
+    assert!(after.next_ms.is_some_and(|n| n > NOW + MINUTE));
 }
 
 #[tokio::test]

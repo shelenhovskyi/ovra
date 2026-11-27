@@ -547,7 +547,11 @@ where
     let values = Vec::<serde_json::Value>::deserialize(deserializer)?;
     Ok(values
         .into_iter()
-        .filter_map(|v| serde_json::from_value(v).ok())
+        .filter_map(|v| {
+            serde_json::from_value(v)
+                .map_err(|e| tracing::warn!("dropped a saved entry that cannot be read: {e}"))
+                .ok()
+        })
         .collect())
 }
 

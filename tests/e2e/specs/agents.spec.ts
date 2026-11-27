@@ -627,7 +627,7 @@ test("always allow adds a rule, and the next identical request is allowed by it"
   await expect(rule.getByRole("button", { name: "Remove Bash(npm test) exactly auto" })).toBeVisible();
 });
 
-test("a research agent changes nothing and its report is saved as a doc", async ({ page }) => {
+test("a research agent changes nothing, its report is saved as a doc, and a schedule runs one", async ({ page }) => {
   const dir = await openGitProject(page, "ovra-agents-research-");
   await page.getByTestId("agent-mode").click();
   await page.getByRole("menuitemradio", { name: /^Research/ }).click();
@@ -643,10 +643,8 @@ test("a research agent changes nothing and its report is saved as a doc", async 
   await expect(page.getByTestId("agent-report")).toContainText(`Saved as ${path}`);
   expect(readIfThere(join(dir, path))).toContain("# How does the readme read?");
   expect(readFileSync(join(dir, "README.md"), "utf8")).toBe("teh readme\n");
-});
 
-test("a schedule, once switched on in Settings, runs a research agent on Run now", async ({ page }) => {
-  await openGitProject(page, "ovra-agents-schedule-");
+  // A schedule, once switched on in Settings, runs the same kind of agent.
   await page.keyboard.press("ControlOrMeta+Comma");
   const settings = page.getByRole("region", { name: "Settings" });
   const panes = settings.getByRole("navigation", { name: "Settings panes" });
@@ -672,6 +670,8 @@ test("a schedule, once switched on in Settings, runs a research agent on Run now
     await row.getByRole("button", { name: "Run now" }).click();
     await expect(row.getByTestId("schedule-last")).toContainText("Last run started");
     await page.keyboard.press("ControlOrMeta+Comma");
+    // The research report is still open: back to the list of tasks.
+    await page.getByTestId("agents").getByRole("button", { name: "Tasks" }).click();
     await expect(page.getByTestId("agents").getByText("Scheduled · Nightly check")).toBeVisible();
   } finally {
     // The daemon is shared: other tests see Settings as they expect.
