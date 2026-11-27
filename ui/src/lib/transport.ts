@@ -363,7 +363,11 @@ function connectWebSocket(): Transport {
     const url = `${scheme}://${location.host}/ws/ssh/${encodeURIComponent(id)}?token=${encodeURIComponent(token)}`;
     const openSocket = () => {
       const socket = new WebSocket(url);
-      socket.addEventListener("open", () => link.set({ state: "open", reason: null, details: null }));
+      // Open once the machine answers: the bridge accepts the socket before
+      // it knows whether the machine's core starts.
+      socket.addEventListener("message", () => link.set({ state: "open", reason: null, details: null }), {
+        once: true,
+      });
       socket.addEventListener("close", (e) =>
         link.set({ state: "failed", reason: e.reason || "exited", details: null }),
       );

@@ -98,3 +98,24 @@ describe.each([
     expect(low).toEqual([]);
   });
 });
+
+describe("a remote machine's accent", () => {
+  const remoteAt = css.indexOf(":root[data-remote] {");
+  const remoteDark = { ...dark, ...tokens(css.slice(remoteAt, css.indexOf("}", remoteAt))) };
+  const lightRemoteAt = css.indexOf(":root[data-remote] {", remoteAt + 1);
+  const remoteLight = { ...light, ...tokens(css.slice(lightRemoteAt, css.indexOf("}", lightRemoteAt))) };
+
+  it.each([
+    ["dark", remoteDark, dark],
+    ["light", remoteLight, light],
+  ] as const)("keeps 4.5:1 in the %s theme and differs from the laptop's", (_, theme, own) => {
+    const c = (name: string) => parse(theme[name]);
+    const low: string[] = [];
+    const check = (what: string, value: number) => value < 4.5 && low.push(`${what} ${value.toFixed(2)}`);
+    for (const s of SURFACES) check(`accent on ${s}`, ratio(c("accent"), c(s)));
+    for (const s of ["s1", "s2"]) check(`accent on accent-soft/${s}`, ratio(c("accent"), over(c("accent-soft"), c(s))));
+    check("accent-ink on accent", ratio(c("accent-ink"), c("accent")));
+    expect(low).toEqual([]);
+    expect(theme.accent).not.toBe(own.accent);
+  });
+});

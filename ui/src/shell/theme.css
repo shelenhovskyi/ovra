@@ -381,3 +381,19 @@ select {
     overflow: auto;
   }
 }
+
+/* A remote machine's window (ADR 0016): its own accent, so it is never
+   mistaken for the laptop's. Same contrast rules as --accent (theme.test.ts). */
+:root[data-remote] {
+  --accent: #d59ad0;
+  --accent-soft: rgba(213, 154, 208, 0.13);
+  --accent-ink: #1c0a1b;
+}
+
+@media (prefers-color-scheme: light) {
+  :root[data-remote] {
+    --accent: #8e3589;
+    --accent-soft: rgba(142, 53, 137, 0.1);
+    --accent-ink: #ffffff;
+  }
+}
