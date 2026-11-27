@@ -86,6 +86,7 @@ const rows = $derived(closerRows(warnings));
     max-width: 100%;
     padding: 0 4px;
     margin-inline-start: -4px;
+    border: 0;
     border-radius: var(--radius-sm);
     color: var(--text-2);
     background: transparent;

@@ -119,3 +119,11 @@ describe("a remote machine's accent", () => {
     expect(theme.accent).not.toBe(own.accent);
   });
 });
+
+describe("buttons", () => {
+  it("gives a button no panel styles the theme's look, not the browser's bevel", () => {
+    const rule = css.match(/:where\(button\) \{([^}]*)\}/)?.[1] ?? "";
+    expect(rule).toContain("border: 1px solid transparent");
+    expect(rule).toContain("background-color: var(--s3)");
+  });
+});

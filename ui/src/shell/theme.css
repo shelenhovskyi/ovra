@@ -287,6 +287,16 @@ body {
   align-items: center;
   justify-content: center;
 }
+/* A button no panel styles gets the theme's plain look, not the browser's
+   grey bevel; most often a component that uses its parent's class names,
+   which scoped styles do not pass down. Zero specificity: any panel rule
+   wins. The transparent border shows in forced colours. */
+:where(button) {
+  color: var(--text);
+  background-color: var(--s3);
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+}
 /* Controls take the text font, not the browser's 13.33 px one. */
 :where(button, input, select, textarea) {
   font: inherit;

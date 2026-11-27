@@ -77,6 +77,26 @@ let {
     align-items: center;
     gap: var(--sp-2);
   }
+  /* A component of its own: the agents panel's button styles do not reach it. */
+  .quiet {
+    display: inline-flex;
+    align-items: center;
+    flex: none;
+    height: 28px;
+    padding: 0 8px;
+    font: inherit;
+    font-size: 13px;
+    color: var(--text);
+    background: var(--s3);
+    border: 0;
+    border-radius: var(--radius-sm);
+  }
+  .quiet:hover:not(:disabled) {
+    background: var(--s4);
+  }
+  .quiet:disabled {
+    opacity: 0.5;
+  }
   .text {
     flex: 1;
     min-width: 0;

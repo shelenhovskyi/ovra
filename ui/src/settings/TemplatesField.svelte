@@ -165,4 +165,18 @@ function firstLine(value: string): string {
   .add {
     align-self: flex-start;
   }
+  /* A component of its own: the Agents pane's button styles do not reach it. */
+  .quiet {
+    height: var(--ctl);
+    padding: 0 var(--sp-3);
+    font: inherit;
+    color: var(--text-2);
+    background: transparent;
+    border: 0;
+    border-radius: var(--r-md);
+  }
+  .quiet:hover {
+    color: var(--text);
+    background: var(--s4);
+  }
 </style>

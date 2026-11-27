@@ -114,6 +114,25 @@ async function writeTests(): Promise<void> {
     flex-wrap: wrap;
     gap: 8px;
   }
+  /* A component of its own: the inbox's button styles do not reach it. */
+  button {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font: inherit;
+    font-weight: 500;
+    padding: 5px 12px;
+    color: var(--text);
+    background: var(--s3);
+    border: 0;
+    border-radius: var(--radius);
+  }
+  button:hover {
+    background: var(--s4);
+  }
+  button[aria-disabled="true"] {
+    opacity: 0.55;
+  }
   .quiet {
     color: var(--text-2);
     background: transparent;
