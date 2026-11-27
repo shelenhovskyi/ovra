@@ -1835,8 +1835,8 @@ async fn the_workers_version_can_be_copied_over_mine_and_back() {
     let pruned = f.wt.pruned.lock().map(|p| p.clone()).unwrap_or_default();
     assert_eq!(
         pruned.last().map(|p| p.1.len()),
-        Some(3),
-        "base, before, after"
+        Some(5),
+        "base, and before and after both the keep and the replace"
     );
 
     let done = ok(
@@ -3712,6 +3712,7 @@ async fn a_workers_worktree_is_watched_once_and_let_go_when_it_ends() {
 
 mod behind;
 mod check;
+mod keep;
 
 /// A file change by `session` in its worktree, as the runtime maps one.
 fn edit_in(worker: &str, path: &str) -> crate::protocol::agents::ToolCall {

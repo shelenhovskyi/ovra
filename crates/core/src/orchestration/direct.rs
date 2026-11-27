@@ -87,9 +87,14 @@ struct Writer {
     edges: Mutex<Vec<turns::Edge>>,
 }
 
-/// Enough to put back what a reject reverted.
+/// Enough to put back what a reject reverted, or (`kept`) to take back a
+/// keep.
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 struct Undo {
+    /// It undoes a keep, not a reject: nothing was reverted, and `tracker`
+    /// is the attribution the keep ended.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    kept: bool,
     /// The tree just before the revert.
     snapshot: String,
     /// The files the revert restored from `baseline`.
@@ -348,6 +353,9 @@ impl Direct {
         if *lock(&writer.active) {
             *tracker = base.clone().map(Tracker::new);
             writer.keep(tracker);
+        } else if lock(&writer.undo).is_some() {
+            // A keep that can be undone: the ended session waits, untracked.
+            writer.keep(tracker);
         } else {
             self.release(session);
         }
@@ -512,6 +520,14 @@ impl Direct {
             files: Vec::new(),
             seen: now,
         };
+        let undoable = commit.is_none();
+        // An earlier keep's undo ends with this decision.
+        {
+            let mut slot = lock(&writer.undo);
+            if slot.as_ref().is_some_and(|u| u.kept) {
+                *slot = None;
+            }
+        }
         if let Some(message) = commit {
             let mine = paths(&files, ChangedBy::Agent)?;
             outcome.conflicts = names(&files, ChangedBy::Both);
@@ -519,6 +535,17 @@ impl Direct {
                 let id = worktrees.commit(writer.dir.clone(), mine, message).await?;
                 outcome.snapshot = Some(id);
             }
+        }
+        // Without a commit nothing on disk changed: the attribution is all
+        // an undo needs to give the review back.
+        if undoable && let Some(old) = tracker.take() {
+            *lock(&writer.undo) = Some(Undo {
+                kept: true,
+                snapshot: old.baseline.clone(),
+                reverted: Vec::new(),
+                baseline: old.baseline.clone(),
+                tracker: old,
+            });
         }
         outcome.base = self.reviewed(session, &writer, &mut tracker).await;
         outcome.files = files;
@@ -622,6 +649,7 @@ impl Direct {
         let old = tracker.take().ok_or_else(not_direct)?;
         lock(&writer.turns).decided();
         *lock(&writer.undo) = Some(Undo {
+            kept: false,
             snapshot: snapshot.clone(),
             reverted,
             baseline: old.baseline.clone(),
@@ -658,9 +686,14 @@ impl Direct {
         let worktrees = &*self.worktrees;
         let (_, writer) = self.held(session)?;
         let mut tracker = writer.lock(worktrees).await;
-        let undo = lock(&writer.undo)
-            .take()
-            .ok_or_else(|| conflict("there is no reject to undo"))?;
+        let undo = {
+            let mut slot = lock(&writer.undo);
+            if slot.as_ref().is_some_and(|u| u.kept) {
+                return Err(conflict("there is no reject to undo"));
+            }
+            slot.take()
+                .ok_or_else(|| conflict("there is no reject to undo"))?
+        };
         let changed = worktrees
             .changes(writer.dir.clone(), undo.baseline.clone())
             .await;
@@ -709,6 +742,65 @@ impl Direct {
             files: Vec::new(),
             seen: None,
         })
+    }
+
+    /// Whether the last keep of `session` can still be undone.
+    pub(crate) fn can_undo_keep(&self, session: &SessionId) -> bool {
+        self.find(session)
+            .is_some_and(|(_, w)| lock(&w.undo).as_ref().is_some_and(|u| u.kept))
+    }
+
+    /// Takes back the last keep: the session's attribution from just
+    /// before it comes back, and its baseline is answered, the base of the
+    /// review again. Refused once the agent changed files or runs a tool
+    /// since: that is new work, reviewed on its own.
+    pub(crate) async fn undo_keep(&self, session: &SessionId) -> Result<String> {
+        let worktrees = &*self.worktrees;
+        let (_, writer) = self.held(session)?;
+        let mut tracker = writer.lock(worktrees).await;
+        if tracker
+            .as_ref()
+            .is_some_and(|t| !t.agent.is_empty() || !t.tools.is_empty())
+        {
+            return Err(conflict(
+                "the agent changed files since you kept its changes; review those first",
+            ));
+        }
+        let undo = {
+            let mut slot = lock(&writer.undo);
+            if !slot.as_ref().is_some_and(|u| u.kept) {
+                return Err(conflict("there is no keep to undo"));
+            }
+            slot.take()
+                .ok_or_else(|| conflict("there is no keep to undo"))?
+        };
+        let baseline = undo.baseline.clone();
+        *tracker = Some(undo.tracker);
+        writer.keep(&tracker);
+        Ok(baseline)
+    }
+
+    /// Ends the undo of `session`'s last keep, if it has one: the person
+    /// kept other work since, or the agent works again. An ended session
+    /// with nothing else to keep is forgotten.
+    pub(crate) async fn end_keep_undo(&self, session: &SessionId) {
+        let Some((_, writer)) = self.find(session) else {
+            return;
+        };
+        let tracker = writer.lock(&*self.worktrees).await;
+        {
+            let mut slot = lock(&writer.undo);
+            if !slot.as_ref().is_some_and(|u| u.kept) {
+                return;
+            }
+            *slot = None;
+        }
+        if tracker.is_none() && !*lock(&writer.active) {
+            drop(tracker);
+            self.release(session);
+            return;
+        }
+        writer.keep(&tracker);
     }
 
     /// The person saved `path` of `project` through Ovra (the editor), or

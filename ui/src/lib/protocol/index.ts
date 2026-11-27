@@ -256,6 +256,7 @@ type PhaseThreeResponseFor<R extends Request> = R extends { method: "review.list
                   | "review.resolve"
                   | "review.take"
                   | "review.undo_take"
+                  | "review.undo_keep"
                   | "review.discard_hunk"
                   | "review.undo_discard";
               }

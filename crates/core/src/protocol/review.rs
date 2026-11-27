@@ -94,6 +94,10 @@ pub struct ReviewItem {
     /// The last `review.discard_hunk` can be undone (`review.undo_discard`).
     #[serde(default)]
     pub can_undo_discard: bool,
+    /// The keep can be undone (`review.undo_keep`): it made no commit, and
+    /// neither the agent nor another keep in the project came after it.
+    #[serde(default)]
+    pub can_undo_keep: bool,
     /// An open worker item's files as listed here (paths and contents);
     /// `review.approve` sends it back and is refused if the worker's files
     /// changed since. For an open direct item with protected files: those
@@ -266,6 +270,15 @@ pub enum ReviewRequest {
     /// `review.take`; the item is partly approved again.
     #[serde(rename = "review.undo_take")]
     UndoTake { id: ReviewId },
+    /// Takes back the item's keep (`ReviewItem::can_undo_keep`): the item
+    /// is open again with the same changes. For a worker, the files the
+    /// keep copied into the project go back to the person's versions from
+    /// just before; one changed since stays and is listed as a conflict.
+    /// For a direct session nothing on disk changes: its files were the
+    /// agent's all along, and discard can revert them again. Answers
+    /// `review.done` with the files put back in `restored`.
+    #[serde(rename = "review.undo_keep")]
+    UndoKeep { id: ReviewId },
     /// Throws away one hunk of an open item's file, as `review.diff` showed
     /// it, in the agent's workspace: a worker's worktree, or the project
     /// for a direct session. An added or deleted file is one hunk: it goes

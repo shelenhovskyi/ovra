@@ -49,6 +49,11 @@ export type ReviewItem = {
   /** The last `review.discard_hunk` can be undone (`review.undo_discard`). */
   can_undo_discard: boolean;
   /**
+   * The keep can be undone (`review.undo_keep`): it made no commit, and
+   * neither the agent nor another keep in the project came after it.
+   */
+  can_undo_keep: boolean;
+  /**
    * An open worker item's files as listed here; `review.approve` sends it
    * back and is refused if the worker's files changed since. For an open
    * direct item with protected files: those files, which an approve that
@@ -147,6 +152,12 @@ export type ReviewRequest =
   | { method: "review.take"; params: { id: ReviewId; include_protected?: boolean } }
   /** Puts back the person's versions from just before the last take. */
   | { method: "review.undo_take"; params: { id: ReviewId } }
+  /**
+   * Takes back the keep: the item is open again with the same changes. A
+   * worker's copied files go back to the person's versions (one changed
+   * since stays, as a conflict); a direct session's files stay on disk.
+   */
+  | { method: "review.undo_keep"; params: { id: ReviewId } }
   /**
    * Throws away one hunk of an open item's file, as `review.diff` showed it,
    * in the agent's workspace. An added or deleted file goes back as a whole.

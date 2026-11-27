@@ -40,6 +40,7 @@ export const review = (id: string, extra: Partial<ReviewItem> = {}): ReviewItem 
   not_copied: [],
   can_undo_take: false,
   can_undo_discard: false,
+  can_undo_keep: false,
   fingerprint: null,
   git_changes: [],
   git_unchecked: false,
@@ -165,6 +166,9 @@ export class FakeReviewCore implements Transport {
           item.not_copied = [...this.conflicts];
         }
         item.can_undo = request.method === "review.reject";
+        // Like the core: only a keep without a commit, and only the latest, can be undone.
+        if (request.method === "review.approve") for (const other of this.items) other.can_undo_keep = false;
+        item.can_undo_keep = request.method === "review.approve" && request.params.commit === null;
         const restored = request.method === "review.approve" ? [] : [...this.restored];
         return { type: "review.done", data: { item: structuredClone(item), conflicts: [...this.conflicts], restored } };
       }
@@ -197,6 +201,17 @@ export class FakeReviewCore implements Transport {
         if (written) delete item.behind;
         const data = { item: structuredClone(item), files: written ? 2 : 0, conflicts: [...clashes], written };
         return { type: "review.updated", data };
+      }
+      case "review.undo_keep": {
+        const item = this.find(request.params.id);
+        if (!item.can_undo_keep) throw new CoreError({ code: "conflict", message: "there is no keep to undo" });
+        item.state = "open";
+        item.not_copied = [];
+        item.can_undo_keep = false;
+        return {
+          type: "review.done",
+          data: { item: structuredClone(item), conflicts: [...this.conflicts], restored: [...this.restored] },
+        };
       }
       case "review.resolve": {
         const item = this.find(request.params.id);

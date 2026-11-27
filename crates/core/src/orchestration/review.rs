@@ -89,6 +89,9 @@ pub(super) struct Entry {
     /// person: the next comment tells it.
     #[serde(default)]
     pub(super) updates: super::behind::Updates,
+    /// The last keep, while it can be undone (`review.undo_keep`).
+    #[serde(default)]
+    kept: Option<Kept>,
 }
 
 /// Open, or published and so still the worker's live work.
@@ -120,6 +123,17 @@ struct Taken {
     after: String,
     /// The files it wrote.
     paths: Vec<String>,
+}
+
+/// What a keep without a commit changed, so `review.undo_keep` can take
+/// it back.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+struct Kept {
+    /// The workspace base before the keep: the review compares from it again.
+    base: String,
+    /// A worker's copy into the project folder: snapshots of the folder
+    /// from just before and just after, and the files it wrote.
+    copied: Option<Taken>,
 }
 
 /// Records what `session`'s review compares, creating its item. Direct
@@ -171,6 +185,7 @@ pub(crate) fn set_workspace(core: &Core, session: &SessionId, workspace: Workspa
         discards: BTreeSet::new(),
         check: None,
         updates: super::behind::Updates::default(),
+        kept: None,
     });
     orchestration.save(&state);
 }
@@ -290,6 +305,8 @@ pub(super) async fn handle(core: &Core, request: ReviewRequest) -> Result<Respon
                 include_protected,
             };
             let (item, conflicts) = approve(core, &id, choice).await?;
+            // One keep at a time can be undone in a project: the latest.
+            end_other_keeps(core, &item).await;
             let action = if item.state == ReviewState::PartlyApproved {
                 ReviewAction::PartlyApproved
             } else {
@@ -331,7 +348,9 @@ pub(super) async fn handle(core: &Core, request: ReviewRequest) -> Result<Respon
             let entry = update(core, &id, |e| {
                 e.state = ReviewState::Approved;
                 e.taken = None;
+                e.kept = None;
             })?;
+            end_keep_undo(core, &entry).await;
             super::tasks::clean_up(core, &entry.project).await;
             let resolved = item(core, &entry).await?;
             // The person settled what was left: the work counts as approved.
@@ -351,6 +370,12 @@ pub(super) async fn handle(core: &Core, request: ReviewRequest) -> Result<Respon
         ReviewRequest::UndoTake { id } => {
             let outcome = undo_take(core, &id).await?;
             audit(core, &outcome.0, ReviewAction::UndoneTake);
+            prune(core, &outcome.0.project).await;
+            Ok(done(outcome))
+        }
+        ReviewRequest::UndoKeep { id } => {
+            let outcome = undo_keep(core, &id).await?;
+            audit(core, &outcome.0, ReviewAction::UndoneKeep);
             prune(core, &outcome.0.project).await;
             Ok(done(outcome))
         }
@@ -515,6 +540,7 @@ async fn current(core: &Core, entry: &Entry) -> Result<(ReviewItem, Option<Strin
         not_copied: entry.not_copied.clone(),
         can_undo_take: entry.taken.is_some(),
         can_undo_discard: entry.discarded.is_some() && live(entry.state),
+        can_undo_keep: entry.kept.is_some() && entry.taken.is_none(),
         fingerprint,
         git_changes: git.changes,
         git_unchecked: git.unchecked,
@@ -885,10 +911,16 @@ async fn approve(
             })?;
             return Ok((item(core, &entry).await?, Vec::new()));
         }
+        let undoable = commit.is_none();
         let outcome = direct.approve(&entry.session, commit, &guard).await?;
         let diffs = freeze(core, &entry, &outcome.files, outcome.seen.as_ref()).await;
+        let kept = (undoable && direct.can_undo_keep(&entry.session)).then(|| Kept {
+            base: entry.workspace.base.clone(),
+            copied: None,
+        });
         let entry = update(core, id, |e| {
             e.state = ReviewState::Approved;
+            e.kept = kept;
             e.decided_git = Some(git);
             e.decided = outcome.files;
             e.decided_diffs = diffs;
@@ -932,6 +964,12 @@ async fn approve(
         .iter()
         .cloned()
         .partition(|f| f.blocked || (f.protected && !include_protected));
+    // Without a commit the copy can be taken back: the person's versions
+    // from just before it are kept as a snapshot.
+    let before = match commit {
+        None => worktrees.snapshot(root.clone()).await.ok(),
+        Some(_) => None,
+    };
     let mut conflicts = worktrees
         .apply(
             snapshot.clone(),
@@ -944,6 +982,21 @@ async fn approve(
         .into_iter()
         .filter(|p| !conflicts.iter().any(|c| c == p.as_str()))
         .collect();
+    let kept = match before {
+        Some(before) => worktrees
+            .snapshot(root.clone())
+            .await
+            .ok()
+            .map(|after| Kept {
+                base: ws.base.clone(),
+                copied: Some(Taken {
+                    before,
+                    after,
+                    paths: applied.iter().map(|p| p.as_str().to_owned()).collect(),
+                }),
+            }),
+        None => None,
+    };
     if let Some(message) = commit
         && !applied.is_empty()
     {
@@ -978,6 +1031,7 @@ async fn approve(
     let base = snapshot;
     let entry = update(core, id, |e| {
         e.decided_git = Some(git);
+        e.kept = kept;
         // Approved only if everything the person read is now theirs.
         e.state = if conflicts.is_empty() {
             ReviewState::Approved
@@ -1158,6 +1212,112 @@ async fn undo_take(core: &Core, id: &ReviewId) -> Result<(ReviewItem, Vec<String
         e.taken = None;
     })?;
     Ok((item(core, &entry).await?, conflicts, back))
+}
+
+/// `review.undo_keep`: the item is open again with the changes it had when
+/// it was kept. A worker's copy into the project is taken back: each file
+/// it wrote goes back to the person's version, unless it changed since.
+/// Once the worker's folder was removed (its task ended) nothing is left
+/// to review again: the copy is still taken back, and the item counts as
+/// discarded.
+async fn undo_keep(core: &Core, id: &ReviewId) -> Result<(ReviewItem, Vec<String>, Vec<String>)> {
+    let entry = find(core, id)?;
+    let Some(kept) = entry.kept.clone() else {
+        return Err(conflict("there is no keep to undo"));
+    };
+    if entry.taken.is_some() {
+        return Err(conflict("undo the replace first"));
+    }
+    if busy(core, &entry.session) {
+        return Err(conflict(
+            "the agent is at work again; undo the keep once it is idle or stopped",
+        ));
+    }
+    let mut conflicts = Vec::new();
+    let mut back = Vec::new();
+    let gone = entry.mode != SessionMode::Direct && super::tasks::cleaned(core, &entry.session);
+    let base = if entry.mode == SessionMode::Direct {
+        core.sessions().direct.undo_keep(&entry.session).await?
+    } else {
+        let ws = &entry.workspace;
+        let worktrees = core.worktrees();
+        // Since the keep, the base is the worker's folder as it was kept.
+        if !gone
+            && !worktrees
+                .changes(ws.dir.clone(), ws.base.clone())
+                .await?
+                .is_empty()
+        {
+            return Err(conflict(
+                "the worker changed files since you kept its changes; review those first",
+            ));
+        }
+        if let Some(copied) = kept.copied {
+            let root = core.root(&entry.project)?;
+            let since: BTreeSet<String> = worktrees
+                .changes(root.clone(), copied.after.clone())
+                .await?
+                .into_iter()
+                .flat_map(|d| std::iter::once(d.path).chain(d.from))
+                .collect();
+            (conflicts, back) = copied.paths.into_iter().partition(|p| since.contains(p));
+            if !back.is_empty() {
+                let rel = back
+                    .iter()
+                    .map(|p| RelPath::parse(p))
+                    .collect::<Result<Vec<_>>>()?;
+                worktrees.restore(root, copied.before, rel).await?;
+            }
+        }
+        kept.base
+    };
+    let entry = update(core, id, |e| {
+        e.kept = None;
+        e.not_copied = Vec::new();
+        if gone {
+            // The record of what was decided stays, now as discarded.
+            e.state = ReviewState::Rejected;
+            return;
+        }
+        e.state = ReviewState::Open;
+        e.workspace.base = base;
+        e.decided = Vec::new();
+        e.decided_diffs = BTreeMap::new();
+        e.decided_git = None;
+    })?;
+    Ok((item(core, &entry).await?, conflicts, back))
+}
+
+/// Ends the undo of every other keep in `kept`'s project.
+async fn end_other_keeps(core: &Core, kept: &ReviewItem) {
+    let others: Vec<Entry> = {
+        let orchestration = core.orchestration_state();
+        let mut state = orchestration.lock();
+        let mut ended = Vec::new();
+        for entry in state.reviews.iter_mut() {
+            if entry.project == kept.project && entry.id != kept.id && entry.kept.take().is_some() {
+                ended.push(entry.clone());
+            }
+        }
+        if !ended.is_empty() {
+            orchestration.save(&state);
+        }
+        ended
+    };
+    for entry in others {
+        end_keep_undo(core, &entry).await;
+        core.emit(ReviewEvent::Changed {
+            project: entry.project.clone(),
+            id: entry.id.clone(),
+        });
+    }
+}
+
+/// Lets direct mode forget the keep `entry` no longer offers to undo.
+async fn end_keep_undo(core: &Core, entry: &Entry) {
+    if entry.mode == SessionMode::Direct {
+        core.sessions().direct.end_keep_undo(&entry.session).await;
+    }
 }
 
 /// Puts a worker's worktree back to where it started, keeping the diff for
@@ -1413,10 +1573,12 @@ fn open_after(core: &Core, decided: &Entry) -> Entry {
         updates: super::behind::Updates::default(),
         ..decided.clone()
     };
-    // New work ends the undo of the decided item's last replace.
+    // New work ends the undo of the decided item's last replace, and of
+    // its keep: that would hide the new work in the reopened item.
     let mut ended_undo = false;
     if let Some(old) = state.reviews.iter_mut().find(|r| r.id == decided.id) {
         ended_undo = old.taken.take().is_some();
+        ended_undo |= old.kept.take().is_some();
     }
     state.reviews.push(entry.clone());
     orchestration.save(&state);
@@ -1502,7 +1664,9 @@ async fn prune(core: &Core, project: &ProjectId) {
     let keep: BTreeSet<String> = entries
         .into_iter()
         .flat_map(|e| {
+            let kept = e.kept.and_then(|k| k.copied).map(|t| [t.before, t.after]);
             let taken = e.taken.map(|t| [t.before, t.after]).into_iter().flatten();
+            let taken = taken.chain(kept.into_iter().flatten());
             let discarded = e.discarded.map(|d| d.snapshots()).into_iter().flatten();
             std::iter::once(e.workspace.base)
                 .chain(taken)

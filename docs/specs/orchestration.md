@@ -146,6 +146,16 @@ How direct mode tells them apart (`crates/core/src/orchestration/direct.rs`):
   the reject stays and is listed as a conflict. The item is open again and
   an ended session gets its attribution back. A comment that continues the
   session drops the undo.
+- `review.undo_keep` takes back a keep that made no commit
+  (`ReviewItem.can_undo_keep`). A worker's copy is undone like a replace:
+  the files it wrote go back to the person's versions from a snapshot taken
+  just before, except those changed since (conflicts), and the item is open
+  again with the same changes. If the worker's folder was already removed,
+  the copy is still undone and the item counts as discarded. A direct
+  session's files stay as they are: its attribution from before the keep
+  comes back and the item is open again, so discard can revert them. Only
+  the project's latest keep can be undone, and only until the agent
+  changes files again.
 - Anything unknown leans towards keeping files: a failed snapshot makes the
   agent's earlier files count as both, a session that ends during a tool
   drops that interval, and ignored files are never in the diff. A person's

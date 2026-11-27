@@ -29,7 +29,16 @@ export type Updated = {
 /** What the last approve, reject or undo did, and what it left for the person. */
 export type Outcome = {
   id: ReviewId;
-  action: "approved" | "rejected" | "undone" | "resolved" | "taken" | "untaken" | "discarded_part" | "undone_part";
+  action:
+    | "approved"
+    | "rejected"
+    | "undone"
+    | "unkept"
+    | "resolved"
+    | "taken"
+    | "untaken"
+    | "discarded_part"
+    | "undone_part";
   conflicts: string[];
   /** Files a reject restored, or an undo put back. */
   restored: string[];
@@ -211,6 +220,14 @@ export class ReviewInbox {
     return this.act(id, async () => {
       const { data } = await this.transport.call({ method: "review.undo_take", params: { id } });
       this.settle("untaken", data);
+    });
+  }
+
+  /** Takes back a keep without a commit: the item is open again; a worker's copied files go back. */
+  undoKeep(id: ReviewId): Promise<boolean> {
+    return this.act(id, async () => {
+      const { data } = await this.transport.call({ method: "review.undo_keep", params: { id } });
+      this.settle("unkept", data);
     });
   }
 

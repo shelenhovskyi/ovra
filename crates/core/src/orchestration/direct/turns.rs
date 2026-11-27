@@ -430,8 +430,12 @@ fn untracked_session() -> ProtocolError {
 
 /// A direct session without attribution: no baseline, or rejected.
 fn untracked(writer: &Writer) -> ProtocolError {
-    if lock(&writer.undo).is_some() {
-        return conflict("the session's changes were rejected; undo the reject to go back");
+    match lock(&writer.undo).as_ref().map(|u| u.kept) {
+        Some(false) => {
+            return conflict("the session's changes were rejected; undo the reject to go back");
+        }
+        Some(true) => return untracked_session(),
+        None => {}
     }
     ProtocolError::new(
         ErrorCode::Unavailable,

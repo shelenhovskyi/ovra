@@ -70,7 +70,8 @@ export type ReviewAction =
   | "taken"
   | "undone_take"
   | "hunk_discarded"
-  | "undone_discard";
+  | "undone_discard"
+  | "undone_keep";
 
 /** `newest_first` without `before` opens the end of the log; `before` pages back. */
 export type AuditOrder = "oldest_first" | "newest_first";

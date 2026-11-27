@@ -166,6 +166,7 @@ describe("Notifications", () => {
         not_copied: [],
         can_undo_take: false,
         can_undo_discard: false,
+        can_undo_keep: false,
         fingerprint: null,
         git_changes: [],
         git_unchecked: false,

@@ -86,6 +86,7 @@ pub(crate) fn allows(request: &Request) -> bool {
             | ReviewRequest::Resolve { .. }
             | ReviewRequest::Take { .. }
             | ReviewRequest::UndoTake { .. }
+            | ReviewRequest::UndoKeep { .. }
             | ReviewRequest::DiscardHunk { .. }
             | ReviewRequest::UndoDiscard { .. }
             | ReviewRequest::Comment { .. }
