@@ -72,7 +72,7 @@ it("turns a server on only after saying what it runs, and off at once", async ()
   await settle();
   on.$<HTMLInputElement>("server-switch")?.click();
   await settle();
-  expect(on.calls.map((c) => c.params)).toEqual([
+  expect(on.calls.map((c) => ("params" in c ? c.params : null))).toEqual([
     { project: "p1", server: "db", tool: "drop", on: false },
     { project: "p1", name: "db", on: false },
   ]);
