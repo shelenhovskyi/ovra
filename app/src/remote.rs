@@ -21,7 +21,12 @@ const CALL_WAIT: std::time::Duration = std::time::Duration::from_secs(300);
 pub(crate) struct Remotes {
     ssh: Arc<OpenSsh>,
     open: Mutex<HashMap<String, Arc<Open>>>,
+    /// The last status of each link, by machine id, for a window that
+    /// subscribes after it was sent.
+    statuses: Statuses,
 }
+
+type Statuses = Arc<Mutex<HashMap<String, serde_json::Value>>>;
 
 /// One machine's link: its sender once connected, and the calls waiting
 /// for a reply. Dropping it ends `ssh`.
@@ -56,6 +61,21 @@ impl Remotes {
         Self {
             ssh,
             open: Mutex::new(HashMap::new()),
+            statuses: Statuses::default(),
+        }
+    }
+
+    /// Hands a window that just subscribed the status it may have missed:
+    /// its own machine's, or every machine's for the main window.
+    pub(crate) fn replay(&self, mailboxes: &crate::mailbox::Mailboxes, label: &str) {
+        let statuses = lock(&self.statuses);
+        if label == "main" {
+            for status in statuses.values() {
+                mailboxes.send(label, status.clone());
+            }
+        } else if let Some(status) = window::machine(label).and_then(|id| statuses.get(id.as_str()))
+        {
+            mailboxes.send(label, status.clone());
         }
     }
 
@@ -99,6 +119,7 @@ impl Remotes {
             app.clone(),
             self.ssh.clone(),
             id.clone(),
+            self.statuses.clone(),
             sender_tx,
             waiting.clone(),
         ));
@@ -114,9 +135,13 @@ impl Remotes {
 
     /// Ends the link of `id`, if there is one, even while a call still
     /// holds on to it.
-    pub(crate) fn close(&self, id: &HostId) {
-        if let Some(open) = lock(&self.open).remove(id.as_str()) {
+    pub(crate) fn close(&self, app: &AppHandle, id: &HostId) {
+        let open = lock(&self.open).remove(id.as_str());
+        if let Some(open) = open
+            && !open.task.inner().is_finished()
+        {
             open.task.abort();
+            tell(app, &self.statuses, id, "closed", None);
         }
     }
 
@@ -190,26 +215,37 @@ fn build(app: &AppHandle, id: &HostId, host: &RemoteHost) -> Result<(), String> 
     builder.build().map(|_| ()).map_err(|e| e.to_string())
 }
 
+/// Tells the machine's window and the main window the link's new state.
+fn tell(
+    app: &AppHandle,
+    statuses: &Statuses,
+    id: &HostId,
+    state: &'static str,
+    failure: Option<&Failure>,
+) {
+    let status = Status {
+        id: id.as_str().to_owned(),
+        state,
+        reason: failure.map(|f| f.reason.as_str()),
+        details: failure.map(|f| f.details.clone()),
+    };
+    let message = serde_json::json!({ "sshStatus": status });
+    lock(statuses).insert(id.as_str().to_owned(), message.clone());
+    let mailboxes = app.state::<crate::mailbox::Mailboxes>();
+    mailboxes.send(&window::label(id), message.clone());
+    mailboxes.send("main", message);
+}
+
 async fn run(
     app: AppHandle,
     ssh: Arc<OpenSsh>,
     id: HostId,
+    statuses: Statuses,
     sender: watch::Sender<Option<ovra_ssh::Sender>>,
     waiting: Arc<Mutex<HashMap<u64, oneshot::Sender<String>>>>,
 ) {
     let label = window::label(&id);
-    let status = |state, failure: Option<&Failure>| {
-        let status = Status {
-            id: id.as_str().to_owned(),
-            state,
-            reason: failure.map(|f| f.reason.as_str()),
-            details: failure.map(|f| f.details.clone()),
-        };
-        let message = serde_json::json!({ "sshStatus": status });
-        let mailboxes = app.state::<crate::mailbox::Mailboxes>();
-        mailboxes.send(&label, message.clone());
-        mailboxes.send("main", message);
-    };
+    let status = |state, failure: Option<&Failure>| tell(&app, &statuses, &id, state, failure);
     status("connecting", None);
     let mut link = match ssh.connect(&id).await {
         Ok(link) => link,

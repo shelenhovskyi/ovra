@@ -98,4 +98,68 @@ describe("the Tauri transport", () => {
     send({ menu: "palette.search" });
     expect(picked).toEqual(["settings.open"]);
   });
+
+  it("opens a remote machine's window from the laptop's own", async () => {
+    const transport = connectTauri();
+    expect(transport.remote).toBeUndefined();
+    await transport.openRemote?.({ id: "abc", name: "Build" });
+    expect(tauri.invoke).toHaveBeenCalledWith("ovra_remote_show", { id: "abc" });
+  });
+});
+
+describe("a remote machine's Tauri window", () => {
+  const remoteWindow = () => {
+    tauri.state.channel = null;
+    (window as { __OVRA_REMOTE__?: unknown }).__OVRA_REMOTE__ = { id: "abc", name: "Build" };
+    try {
+      return connectTauri();
+    } finally {
+      delete (window as { __OVRA_REMOTE__?: unknown }).__OVRA_REMOTE__;
+    }
+  };
+
+  it("has no folder dialog, drops or remote windows of its own", () => {
+    const transport = remoteWindow();
+    expect(transport.remote?.machine).toEqual({ id: "abc", name: "Build" });
+    expect(transport.pickFolder).toBeUndefined();
+    expect(transport.onDrop).toBeUndefined();
+    expect(transport.importDrop).toBeUndefined();
+    expect(transport.openRemote).toBeUndefined();
+  });
+
+  it("follows its own machine's link only", async () => {
+    const transport = remoteWindow();
+    const seen: unknown[] = [];
+    transport.remote?.onLink((link) => seen.push(link.state));
+    await vi.waitFor(() => expect(tauri.state.channel).not.toBeNull());
+    send({ sshStatus: { id: "abc", state: "open", reason: null, details: null } });
+    send({ sshStatus: { id: "zzz", state: "failed", reason: "auth_failed", details: null } });
+    send({ sshStatus: { id: "abc", state: "closed", reason: "exited", details: "bye" } });
+    expect(seen).toEqual(["connecting", "open", "closed"]);
+  });
+
+  it("opens links through the app, which checks them, not through the machine", async () => {
+    const transport = remoteWindow();
+    await vi.waitFor(() => expect(tauri.state.channel).not.toBeNull());
+    tauri.invoke.mockClear();
+    tauri.invoke.mockResolvedValueOnce(null);
+    expect(await transport.call({ method: "open.url", params: { url: "https://example.com" } })).toEqual({
+      type: "ok",
+    });
+    expect(tauri.invoke).toHaveBeenCalledWith("ovra_open_url", { url: "https://example.com" });
+    expect(tauri.invoke).not.toHaveBeenCalledWith("ovra_call", expect.anything());
+    tauri.invoke.mockRejectedValueOnce("Ovra opens only web links that do not point at this computer.");
+    await expect(transport.call({ method: "open.url", params: { url: "http://10.0.0.1" } })).rejects.toThrow(
+      "only web links",
+    );
+  });
+
+  it("asks the app to reconnect and disconnect its own link", async () => {
+    const transport = remoteWindow();
+    await vi.waitFor(() => expect(tauri.state.channel).not.toBeNull());
+    transport.remote?.disconnect();
+    transport.remote?.reconnect();
+    await vi.waitFor(() => expect(tauri.invoke).toHaveBeenCalledWith("ovra_remote_reconnect"));
+    expect(tauri.invoke).toHaveBeenCalledWith("ovra_remote_disconnect");
+  });
 });

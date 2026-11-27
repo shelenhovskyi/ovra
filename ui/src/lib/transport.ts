@@ -42,6 +42,46 @@ export interface Transport {
   importDrop?(id: string, project: ProjectId, dir: string, clash: DropClash): Promise<DropImport>;
   /** Ids of the commands the person picks in the window's menu bar. Absent where there is none. */
   onMenu?(listener: (command: string) => void): () => void;
+  /** The remote machine this window shows (ADR 0016); absent in the laptop's own window. */
+  remote?: RemoteWindow;
+  /** Opens a remote machine in a window of its own, or focuses it. Absent in a remote window. */
+  openRemote?(machine: RemoteMachine): Promise<void>;
+}
+
+/** A remote machine as its window knows it: from the app, never from the machine. */
+export type RemoteMachine = { id: string; name: string };
+
+/** The link to a remote machine; `reason` and `details` come with `closed` and `failed`. */
+export type RemoteLink = {
+  state: "connecting" | "open" | "closed" | "failed";
+  reason: string | null;
+  /** What `ssh` said: the remote machine's own text, to show as plain text only. */
+  details: string | null;
+};
+
+export interface RemoteWindow {
+  machine: RemoteMachine;
+  /** Reports the link's state at once, then every change. */
+  onLink(listener: (link: RemoteLink) => void): () => void;
+  reconnect(): void;
+  disconnect(): void;
+}
+
+/** Keeps the last link state and tells listeners. */
+class LinkState {
+  private link: RemoteLink = { state: "connecting", reason: null, details: null };
+  private listeners = new Set<(link: RemoteLink) => void>();
+
+  set(link: RemoteLink): void {
+    this.link = link;
+    for (const listener of this.listeners) listener(link);
+  }
+
+  on(listener: (link: RemoteLink) => void): () => void {
+    this.listeners.add(listener);
+    listener(this.link);
+    return () => this.listeners.delete(listener);
+  }
 }
 
 /** A point in the page, in CSS pixels. */
@@ -142,10 +182,18 @@ type AppMessage =
   | { menu: string }
   | { drop: WindowDrop }
   | { dragOver: Point | null }
-  | { sshStatus: unknown };
+  | { sshStatus: RemoteLink & { id: string } };
+
+/** The machine the app said this window shows (`app/src/remote.rs`). */
+function appRemote(): RemoteMachine | null {
+  const given = (window as { __OVRA_REMOTE__?: RemoteMachine }).__OVRA_REMOTE__;
+  return given && typeof given.id === "string" && typeof given.name === "string" ? given : null;
+}
 
 export function connectTauri(): Transport {
   let router: FrameRouter;
+  const machine = appRemote();
+  const link = new LinkState();
   const menuListeners = new Set<(command: string) => void>();
   const dropListeners = new Set<(drop: WindowDrop) => void>();
   const overListeners = new Set<(at: Point | null) => void>();
@@ -158,6 +206,10 @@ export function connectTauri(): Transport {
       else if ("drop" in message) for (const listener of dropListeners) listener(message.drop);
       // The app follows the drag too, so its position is in CSS pixels on every platform.
       else if ("dragOver" in message) for (const listener of overListeners) listener(message.dragOver);
+      else if ("sshStatus" in message && machine && message.sshStatus.id === machine.id) {
+        const { state, reason, details } = message.sshStatus;
+        link.set({ state, reason, details });
+      }
     });
     await core.invoke("ovra_subscribe", { channel });
     return core.invoke;
@@ -168,7 +220,36 @@ export function connectTauri(): Transport {
       .then((reply) => router.deliver(reply))
       .catch((err: unknown) => router.failAll(err instanceof Error ? err : new Error(String(err))));
   });
-  return Object.assign(router, {
+  const menu = {
+    onMenu: (listener: (command: string) => void) => {
+      menuListeners.add(listener);
+      return () => menuListeners.delete(listener);
+    },
+  };
+  if (machine) {
+    // Links open in this computer's browser through the app, which refuses
+    // any that point at this computer: the machine's core cannot open them.
+    const call = router.call.bind(router);
+    router.call = (<R extends Request>(request: R) =>
+      request.method === "open.url"
+        ? ready
+            .then((invoke) => invoke("ovra_open_url", { url: request.params.url }))
+            .then(
+              () => ({ type: "ok" }),
+              (err: unknown) => {
+                throw err instanceof Error ? err : new Error(String(err));
+              },
+            )
+        : call(request)) as typeof router.call;
+    const remote: RemoteWindow = {
+      machine,
+      onLink: (listener) => link.on(listener),
+      reconnect: () => void ready.then((invoke) => invoke("ovra_remote_reconnect")),
+      disconnect: () => void ready.then((invoke) => invoke("ovra_remote_disconnect")),
+    };
+    return Object.assign(router, menu, { remote });
+  }
+  return Object.assign(router, menu, {
     pickFolder: () => ready.then((invoke) => invoke<string | null>("ovra_pick_folder")),
     onDrop: (listener: (drop: WindowDrop) => void) => {
       dropListeners.add(listener);
@@ -184,10 +265,7 @@ export function connectTauri(): Transport {
         .catch((err: unknown) => {
           throw err instanceof Error ? err : new Error(String(err));
         }),
-    onMenu: (listener: (command: string) => void) => {
-      menuListeners.add(listener);
-      return () => menuListeners.delete(listener);
-    },
+    openRemote: (remote: RemoteMachine) => ready.then((invoke) => invoke<void>("ovra_remote_show", { id: remote.id })),
   });
 }
 
@@ -268,15 +346,42 @@ export function connectSocket(openSocket: () => SocketLike, serverUp: () => Prom
 }
 
 function connectWebSocket(): Transport {
-  const token = new URLSearchParams(location.search).get("token") ?? "";
+  const query = new URLSearchParams(location.search);
+  const token = query.get("token") ?? "";
   const scheme = location.protocol === "https:" ? "wss" : "ws";
-  const url = `${scheme}://${location.host}/ws?token=${encodeURIComponent(token)}`;
   const serverUp = () =>
     fetch(`${location.origin}/`, { method: "HEAD", cache: "no-store" }).then(
       () => true,
       () => false,
     );
-  return connectSocket(() => new WebSocket(url), serverUp);
+  // e2e only: a daemon with `--fake-ssh` bridges `/ws/ssh/<id>` to a fake
+  // remote core. A failure closes the socket with its reason.
+  const id = query.get("remote");
+  if (id) {
+    const machine = { id, name: query.get("name") ?? id };
+    const link = new LinkState();
+    const url = `${scheme}://${location.host}/ws/ssh/${encodeURIComponent(id)}?token=${encodeURIComponent(token)}`;
+    const openSocket = () => {
+      const socket = new WebSocket(url);
+      socket.addEventListener("open", () => link.set({ state: "open", reason: null, details: null }));
+      socket.addEventListener("close", (e) =>
+        link.set({ state: "failed", reason: e.reason || "exited", details: null }),
+      );
+      return socket;
+    };
+    const remote: RemoteWindow = { machine, onLink: (listener) => link.on(listener), reconnect() {}, disconnect() {} };
+    return Object.assign(connectSocket(openSocket, serverUp), { remote });
+  }
+  const url = `${scheme}://${location.host}/ws?token=${encodeURIComponent(token)}`;
+  return Object.assign(
+    connectSocket(() => new WebSocket(url), serverUp),
+    {
+      openRemote: async (machine: RemoteMachine) => {
+        const page = `/?token=${encodeURIComponent(token)}&remote=${encodeURIComponent(machine.id)}&name=${encodeURIComponent(machine.name)}`;
+        window.open(page, `ssh-${machine.id}`);
+      },
+    },
+  );
 }
 
 export function connect(): Transport {

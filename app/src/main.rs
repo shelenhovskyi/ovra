@@ -54,6 +54,7 @@ async fn ovra_call(
 fn ovra_subscribe(
     window: tauri::WebviewWindow,
     mailboxes: tauri::State<'_, mailbox::Mailboxes>,
+    remotes: tauri::State<'_, remote::Remotes>,
     channel: tauri::ipc::Channel<serde_json::Value>,
 ) -> Result<(), ()> {
     let label = window.label();
@@ -61,6 +62,7 @@ fn ovra_subscribe(
         return Err(());
     }
     mailboxes.set(label, channel);
+    remotes.replay(&mailboxes, label);
     Ok(())
 }
 
@@ -106,7 +108,7 @@ fn ovra_remote_disconnect(
     remotes: tauri::State<'_, remote::Remotes>,
 ) -> Result<(), String> {
     let id = ovra_ssh::window::machine(window.label()).ok_or("not a remote window")?;
-    remotes.close(&id);
+    remotes.close(window.app_handle(), &id);
     Ok(())
 }
 
@@ -413,7 +415,7 @@ fn main() {
                 if let Some(id) = ovra_ssh::window::machine(window.label())
                     && let Some(remotes) = window.try_state::<remote::Remotes>()
                 {
-                    remotes.close(&id);
+                    remotes.close(window.app_handle(), &id);
                 }
             }
             let tauri::WindowEvent::DragDrop(drag) = event else {
