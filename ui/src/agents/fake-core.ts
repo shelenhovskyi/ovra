@@ -67,6 +67,8 @@ export class FakeAgentCore implements Transport {
   setupReport: SetupReport | null = null;
   /** What `agents.setup` answers for a provider other than Claude, when set. */
   setups: Partial<Record<AgentKind, AgentSetup>> = {};
+  /** The last id `agents.queue` gave. */
+  private queued = 0;
   /** What `agents.providers` answers. */
   providers: ProviderInfo[] = [
     {
@@ -192,6 +194,7 @@ export class FakeAgentCore implements Transport {
         const info = this.addSession(project, prompt.split("\n")[0] ?? "");
         info.account = request.params.account ?? null;
         info.mode = request.params.mode;
+        if (request.params.plan_first) info.planning = true;
         this.status(info.id, { state: "starting" });
         this.message(info.id, { kind: "user_text", text: prompt, from: "person" });
         return { type: "agents.session", data: { ...info } };
@@ -202,6 +205,7 @@ export class FakeAgentCore implements Transport {
         this.status(info.id, { state: "starting" });
         if (request.params.solo) {
           info.agent = request.params.agent ?? "claude";
+          if (request.params.plan_first) info.planning = true;
           info.mode = "isolated";
           const id = `t${this.tasks.length + 1}`;
           const task: Task = {
@@ -268,6 +272,30 @@ export class FakeAgentCore implements Transport {
         return { type: "agents.went_back", data: { ...this.wentBack, can_undo: this.wentBack.restored.length > 0 } };
       case "agents.undo_go_back":
         return { type: "agents.undid_go_back", data: this.wentBack };
+      case "agents.queue": {
+        const info = this.sessions.find((s) => s.id === request.params.session);
+        if (!info) throw new CoreError({ code: "not_found", message: "no such session" });
+        this.queued += 1;
+        info.queue = [...(info.queue ?? []), { id: this.queued, text: request.params.text }];
+        this.emit({ type: "agents.queue", data: { session: info.id, queue: [...info.queue] } });
+        return { type: "ok" };
+      }
+      case "agents.unqueue": {
+        const info = this.sessions.find((s) => s.id === request.params.session);
+        const queue = info?.queue ?? [];
+        if (!info || !queue.some((m) => m.id === request.params.id))
+          throw new CoreError({ code: "not_found", message: "the message was already sent" });
+        info.queue = queue.filter((m) => m.id !== request.params.id);
+        this.emit({ type: "agents.queue", data: { session: info.id, queue: [...info.queue] } });
+        return { type: "ok" };
+      }
+      case "agents.approve_plan": {
+        const info = this.sessions.find((s) => s.id === request.params.session);
+        if (!info?.planning) throw new CoreError({ code: "conflict", message: "not planning" });
+        info.planning = false;
+        this.emit({ type: "agents.planning", data: { session: info.id, planning: false } });
+        return { type: "ok" };
+      }
       case "agents.send":
       case "browser.attach":
       case "agents.interrupt":

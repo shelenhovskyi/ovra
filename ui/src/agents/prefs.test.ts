@@ -32,6 +32,16 @@ describe("AgentPrefs", () => {
     const again = new AgentPrefs(store);
     expect([again.attempts, again.showResources]).toEqual([true, true]);
   });
+
+  it("offers Plan first only once the person turns it on, and keeps the other choices", () => {
+    const store = memory();
+    const prefs = new AgentPrefs(store);
+    expect(prefs.planFirst).toBe(false);
+    prefs.attempts = true;
+    prefs.planFirst = true;
+    const again = new AgentPrefs(store);
+    expect([again.planFirst, again.attempts, again.showResources]).toEqual([true, true, false]);
+  });
 });
 
 describe("AgentPrefs templates and model", () => {

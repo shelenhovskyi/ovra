@@ -530,6 +530,7 @@ export class AgentSessions {
     agents: AgentKind[],
     context: ContextItem[] = [],
     model: AgentModel | null = null,
+    planFirst = false,
   ): Promise<SessionId> {
     const once = async (agent: AgentKind, attemptOf?: TaskId): Promise<Task> => {
       const { data } = await this.transport.call({
@@ -542,6 +543,7 @@ export class AgentSessions {
           ...(context.length > 0 ? { context } : {}),
           ...modelFor(agent, model),
           ...(attemptOf ? { attempt_of: attemptOf } : {}),
+          ...(planFirst ? { plan_first: true } : {}),
         },
       });
       return data;
@@ -583,6 +585,7 @@ export class AgentSessions {
     context: ContextItem[] = [],
     agent: AgentKind = "claude",
     model: AgentModel | null = null,
+    planFirst = false,
   ): Promise<SessionInfo> {
     // Messages may arrive before the reply: collect them from the start.
     const { data } = await this.transport.call({
@@ -595,6 +598,7 @@ export class AgentSessions {
         account,
         ...(context.length > 0 ? { context } : {}),
         ...modelFor(agent, model),
+        ...(planFirst ? { plan_first: true } : {}),
       },
     });
     const known = this.byId.get(data.id);
@@ -608,6 +612,22 @@ export class AgentSessions {
     const params = { session, text, ...(context.length > 0 ? { context } : {}) };
     await this.transport.call({ method: "agents.send", params });
     this.patch(session, { can_undo_go_back: false });
+  }
+
+  /** Sends `text` once the running turn ends (or now, if none runs) instead of interrupting the agent. */
+  async queue(session: SessionId, text: string, context: ContextItem[] = []): Promise<void> {
+    const params = { session, text, ...(context.length > 0 ? { context } : {}) };
+    await this.transport.call({ method: "agents.queue", params });
+  }
+
+  /** Takes a queued message back; fails once it was sent. */
+  async unqueue(session: SessionId, id: number): Promise<void> {
+    await this.transport.call({ method: "agents.unqueue", params: { session, id } });
+  }
+
+  /** Approves a planning session's plan: it may change files and goes ahead. */
+  async approvePlan(session: SessionId): Promise<void> {
+    await this.transport.call({ method: "agents.approve_plan", params: { session } });
   }
 
   /** The turns of a direct session that can be gone back to; none when the core no longer tracks it. */
@@ -737,6 +757,10 @@ export class AgentSessions {
     } else if (event.type === "agents.billing") {
       const known = this.byId.get(event.data.session);
       if (known) this.byId.set(event.data.session, { ...known, billing: event.data.billing });
+    } else if (event.type === "agents.queue") {
+      this.patch(event.data.session, { queue: event.data.queue });
+    } else if (event.type === "agents.planning") {
+      this.patch(event.data.session, { planning: event.data.planning });
     } else if (event.type === "agents.sandbox") {
       const known = this.byId.get(event.data.session);
       if (known) this.byId.set(event.data.session, { ...known, sandbox: event.data.sandbox, sandbox_reported: true });

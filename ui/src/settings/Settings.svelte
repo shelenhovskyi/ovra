@@ -23,6 +23,7 @@ import AgentsPane from "./AgentsPane.svelte";
 import AttemptsField from "./AttemptsField.svelte";
 import EditorPane from "./EditorPane.svelte";
 import ModelField from "./ModelField.svelte";
+import PlanFirstField from "./PlanFirstField.svelte";
 import ProviderCard from "./ProviderCard.svelte";
 import { type PaneId, panesFor, settings } from "./panes.svelte";
 import ResourcesField from "./ResourcesField.svelte";
@@ -184,6 +185,7 @@ function onListKeydown(event: KeyboardEvent): void {
           <AttemptsField />
           <ModelField />
           <TemplatesField />
+          <PlanFirstField />
           <KeepAwakeField />
         {:else if pane.id === "setup"}
           <SetupPane />

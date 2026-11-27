@@ -35,6 +35,7 @@ import type {
   SessionId,
   SessionInfo,
 } from "../lib/protocol";
+import { MAX_QUEUED, type QueuedMessage } from "../lib/protocol/agents";
 import { CoreError } from "../lib/transport";
 import { isMenuKey, type MenuEntry, openContextMenu } from "../menu/context-menu.svelte";
 import { projectSandbox } from "../settings/sandbox";
@@ -67,6 +68,8 @@ import { isBusy, isEnded } from "./status";
 import { providers } from "./providers.svelte";
 import { inFolder } from "./steps";
 import Transcript from "./Transcript.svelte";
+import PlanBar from "./PlanBar.svelte";
+import QueuedMessages from "./QueuedMessages.svelte";
 import WorkerSetup from "./WorkerSetup.svelte";
 import { secretLooking } from "./worktrees";
 import { REPORT_DIR, reportFile, reportOf, reportPath, taskPrompt } from "./report";
@@ -143,6 +146,12 @@ const offered = $derived(modesFor(agent, names.info(agent)?.capabilities));
 const how = $derived(offered.includes(mode) ? mode : (offered[0] ?? "own"));
 /** How many agents try the next task, each in its own copy (Settings > Agents offers it). */
 let tries = $state(1);
+/** The next task plans first, where Settings > Agents offers it. */
+let planFirst = $state(true);
+/** Plan first is offered: the person turned it on, and Ovra can hold the agent's file changes. */
+const offersPlan = $derived(
+  agentPrefs.planFirst && (how === "here" || how === "own") && names.info(agent)?.capabilities.enforced_policy === true,
+);
 /** Who makes each attempt; one agent unless the person turned attempts on and chose more. */
 const attempting = $derived(
   how === "own" && agentPrefs.attempts ? attemptAgents(agent, names.startable, tries) : [agent],
@@ -830,6 +839,7 @@ async function begin(
   who: AgentKind = "claude",
   attempts: AgentKind[] = [who],
   model: AgentModel | null = null,
+  plan = false,
 ): Promise<SessionId> {
   const id = project?.id;
   if (!id) throw new Error("No project is open");
@@ -843,8 +853,8 @@ async function begin(
     how === "split"
       ? await sessions.startTask(id, body, context, who, model)
       : how === "own"
-        ? await sessions.startAttempts(id, body, attempts, context, model)
-        : (await sessions.start(id, body, use, how === "research" ? "research" : "direct", context, who, model)).id;
+        ? await sessions.startAttempts(id, body, attempts, context, model, plan)
+        : (await sessions.start(id, body, use, how === "research" ? "research" : "direct", context, who, model, plan)).id;
   selected = started;
   await tick();
   const moved = document.activeElement !== before && document.activeElement !== document.body;
@@ -862,6 +872,7 @@ async function start(): Promise<void> {
   busy = true;
   startError = null;
   try {
+    const plan = offersPlan && planFirst;
     launched = await begin(
       body,
       how,
@@ -870,6 +881,7 @@ async function start(): Promise<void> {
       agent,
       attempting,
       model,
+      plan,
     );
     hints.mark("started");
     launchedPrompt = body;
@@ -924,12 +936,33 @@ function send(): Promise<void> {
     return Promise.resolve();
   }
   return run(async () => {
-    // The session's next message carries the picks.
-    await picks.attach(id);
-    await sessions.send(id, body, drafts.items(id));
+    if (canQueue) {
+      // It waits for the turn to end; picks go with the next message sent.
+      await sessions.queue(id, body, drafts.items(id));
+    } else {
+      // The session's next message carries the picks.
+      await picks.attach(id);
+      await sessions.send(id, body, drafts.items(id));
+    }
     reply = "";
     drafts.clear(id);
   });
+}
+
+/** A queued message back in the reply box, out of the queue. */
+function editQueued(message: QueuedMessage): Promise<void> {
+  const id = current?.id;
+  if (!id) return Promise.resolve();
+  return run(async () => {
+    await sessions.unqueue(id, message.id);
+    reply = reply.trim() ? `${reply.trimEnd()}\n\n${message.text}` : message.text;
+    await tick();
+    replyField?.focus();
+  });
+}
+
+function approvePlan(id: SessionId): Promise<void> {
+  return run(() => sessions.approvePlan(id));
 }
 
 function resume(): Promise<void> {
@@ -1073,6 +1106,9 @@ const busyAgent = $derived(
   current !== null && (current.status.state === "working" || current.status.state === "waiting_for_approval"),
 );
 const canReply = $derived(current !== null && current.status.state === "idle");
+/** A turn runs, or the agent waits to start: a reply waits in its queue. */
+const canQueue = $derived(current !== null && !isEnded(current.status) && current.status.state !== "idle");
+const queueFull = $derived((current?.queue?.length ?? 0) >= MAX_QUEUED);
 
 /**
  * Going back to an earlier turn (`docs/specs/checkpoints.md`): for direct
@@ -1469,6 +1505,17 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
         </div>
       {/if}
       {#if !isEnded(current.status) && !signedOut}
+        {#if current.planning}
+          <PlanBar working={busyAgent} disabled={busy || !canReply} onapprove={() => void approvePlan(current.id)} />
+        {/if}
+        <QueuedMessages
+          queue={current.queue ?? []}
+          working={busyAgent}
+          disabled={busy}
+          onedit={(m) => void editQueued(m)}
+          onremove={(m) => void run(() => sessions.unqueue(current.id, m.id))}
+          onsendnow={() => void interrupt(current.id)}
+        />
         <form
           class="compose"
           onsubmit={(event) => {
@@ -1480,7 +1527,7 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
           <textarea
             id="agent-reply"
             rows="2"
-            placeholder={canReply ? "Reply" : `${names.name(current.agent)} is working…`}
+            placeholder={canReply ? "Reply" : `${names.name(current.agent)} is working… A reply waits for it`}
             bind:this={replyField}
             bind:value={reply}
             oninput={() => {
@@ -1528,8 +1575,16 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
           {/if}
           <div class="row">
             {@render addContext(() => replyContext?.start())}
-            <span class="line">{canReply ? "Shift+Enter: new line" : ""}</span>
-            <button type="submit" class="primary" disabled={busy || !canReply || !reply.trim() || drafts.unconfirmed(current.id).length > 0}>Send</button>
+            <span class="line">{canReply ? "Shift+Enter: new line" : queueFull ? `${MAX_QUEUED} messages wait already` : "Sends when the agent finishes this step"}</span>
+            <button
+              type="submit"
+              class="primary"
+              title={canQueue ? "Waits for the agent; nothing is interrupted" : undefined}
+              disabled={busy ||
+                !(canReply || (canQueue && !queueFull)) ||
+                !reply.trim() ||
+                drafts.unconfirmed(current.id).length > 0}>{canQueue ? "Queue" : "Send"}</button
+            >
           </div>
         </form>
       {:else if current.resumable && !signedOut}
@@ -1818,6 +1873,12 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
               <option value={2}>2 attempts</option>
               <option value={3}>3 attempts</option>
             </select>
+          </label>
+        {/if}
+        {#if offersPlan}
+          <label class="plan-first" data-testid="plan-first" title="The agent shows a plan and changes no file until you approve it">
+            <input type="checkbox" bind:checked={planFirst} />
+            Plan first
           </label>
         {/if}
         {#if agent === "claude"}
@@ -2649,6 +2710,14 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
   }
   .agent-picker {
     min-width: 0;
+  }
+  .plan-first {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-1);
+    font-size: 13px;
+    color: var(--text-2);
+    white-space: nowrap;
   }
   .agent-picker select {
     max-width: 100%;

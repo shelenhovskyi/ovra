@@ -33,6 +33,7 @@ export class AgentPrefs {
   #attempts = $state(false);
   #pickModel = $state(false);
   #templates = $state<Template[]>([]);
+  #planFirst = $state(false);
 
   constructor(private readonly storage: Store | null) {
     try {
@@ -42,6 +43,7 @@ export class AgentPrefs {
         if ("attempts" in stored) this.#attempts = stored.attempts === true;
         if ("pickModel" in stored) this.#pickModel = stored.pickModel === true;
         if ("templates" in stored) this.#templates = templatesFrom(stored.templates);
+        if ("planFirst" in stored) this.#planFirst = stored.planFirst === true;
       }
     } catch {
       // Nothing kept, or unreadable: the defaults.
@@ -115,6 +117,20 @@ export class AgentPrefs {
     this.save();
   }
 
+  /**
+   * Whether the task form offers "Plan first": the agent proposes a plan and
+   * changes no file until the person approves it (`docs/specs/plan-first.md`).
+   * Off by default: a secondary choice.
+   */
+  get planFirst(): boolean {
+    return this.#planFirst;
+  }
+
+  set planFirst(on: boolean) {
+    this.#planFirst = on;
+    this.save();
+  }
+
   private save(): void {
     try {
       this.storage?.setItem(
@@ -124,6 +140,7 @@ export class AgentPrefs {
           attempts: this.#attempts,
           pickModel: this.#pickModel,
           templates: this.#templates,
+          planFirst: this.#planFirst,
         }),
       );
     } catch {

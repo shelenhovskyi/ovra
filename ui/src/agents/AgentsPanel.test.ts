@@ -656,7 +656,7 @@ describe("AgentsPanel", () => {
     await settle();
     expect(transcript()).toEqual(["Claude beta Looking."]);
     const reply = () => target.querySelector<HTMLTextAreaElement>("#agent-reply");
-    expect(reply()?.placeholder).toBe("Claude beta is working…");
+    expect(reply()?.placeholder).toBe("Claude beta is working… A reply waits for it");
     expect(target.querySelector("label[for=agent-reply]")?.textContent).toBe("Reply");
     core.status("s1", { state: "idle" });
     await settle();
@@ -948,7 +948,9 @@ describe("AgentsPanel", () => {
     expect(core.sent("agents.interrupt").map((c) => c.params)).toEqual([{ session: "s1" }]);
     type(target.querySelector("#agent-reply"), "and the docs");
     await settle();
-    expect(send()?.disabled).toBe(true);
+    // While it works, a reply waits in its queue instead.
+    expect(send()).toBeUndefined();
+    expect(button("Queue")?.disabled).toBe(false);
     core.status("s1", { state: "idle" });
     await settle();
     expect(send()?.disabled).toBe(false);
