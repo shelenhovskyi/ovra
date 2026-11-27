@@ -1098,7 +1098,7 @@ describe("Inbox", () => {
 
   it("lists one task's items in several repositories together, each named by its repository", async () => {
     const repos = ["p1", "p2"];
-    await setup(
+    const core = await setup(
       [
         review("r3", { session: "s2", mode: "isolated", files: [change("b.md")] }),
         review("r2", { project: "p2", session: "s1", mode: "isolated", task_repos: repos, files: [change("lib.rs")] }),
@@ -1117,5 +1117,35 @@ describe("Inbox", () => {
     $<HTMLButtonElement>("[data-item=r2]")?.click();
     await settle();
     expect($("[data-testid=inbox-repos]")?.textContent).toContain("The changes in api. This task also changed demo");
+    // Keep all keeps each repository on its own, the main one first, with its fingerprint.
+    $<HTMLButtonElement>("[data-testid=inbox-keep-all]")?.click();
+    await settle();
+    const kept = core.sent("review.approve").map((r) => (r.params as { id: string; commit: unknown }).id);
+    expect(kept).toEqual(["r1", "r2"]);
+    expect(core.sent("review.approve").every((r) => (r.params as { commit: unknown }).commit === null)).toBe(true);
+    expect($("[data-testid=inbox-keep-all]")).toBeNull();
+  });
+
+  it("lets Keep all wait while one repository's check failed", async () => {
+    const repos = ["p1", "p2"];
+    const failed = { state: "failed" as const, command: "cargo test" };
+    const core = await setup(
+      [
+        review("r2", { project: "p2", session: "s1", mode: "isolated", task_repos: repos, check: failed }),
+        review("r1", { session: "s1", mode: "isolated", task_repos: repos }),
+      ],
+      async (core) => {
+        core.projects.push({ id: "p2", name: "api", root: "/api", last_opened_ms: null, trusted: false });
+      },
+    );
+    await open();
+    $<HTMLButtonElement>("[data-item=r1]")?.click();
+    await settle();
+    expect($("[data-testid=inbox-keep-all-why]")?.textContent).toBe(
+      "The check failed in api: keep each repository on its own.",
+    );
+    $<HTMLButtonElement>("[data-testid=inbox-keep-all]")?.click();
+    await settle();
+    expect(core.sent("review.approve")).toHaveLength(0);
   });
 });

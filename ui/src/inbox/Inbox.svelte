@@ -67,7 +67,7 @@ import PrDialog from "./PrDialog.svelte";
 import PrPanel from "./PrPanel.svelte";
 import { ProtectedLooks } from "./protected.svelte";
 import { canOpenPr } from "./pull-request";
-import { repoLine, repoTag, sameRepo } from "./repos";
+import { keepAllWaits, repoLine, repoTag, sameRepo, taskParts } from "./repos";
 import { message as errorText, type Outcome, type ReviewInbox } from "./reviews.svelte";
 import { byRisk, riskReason } from "./risk";
 import { fileSteps, stepOf } from "./steps";
@@ -570,6 +570,39 @@ async function approve(review: ReviewItem): Promise<void> {
   }
 }
 
+/** The open items of the shown item's task across repositories (`docs/specs/multi-repo.md`). */
+const parts = $derived(item ? taskParts(item, inbox.items) : []);
+const partsWait = $derived(parts.length > 1 ? keepAllWaits(parts, repoName) : null);
+let keepingAll = $state(false);
+
+/**
+ * Keeps every open part of a task across repositories, main first, each as
+ * its own Keep without a commit: with the fingerprint listed here, its own
+ * check and its own refusals. Stops at the first part that is refused or
+ * leaves conflicts, which stays selected.
+ */
+async function keepAll(): Promise<void> {
+  if (keepingAll || partsWait || parts.length < 2) return;
+  keepingAll = true;
+  try {
+    const todo = [...parts];
+    for (const part of todo) {
+      const kept = await inbox.approve(part.id, null);
+      const now = inbox.items.find((i) => i.id === part.id);
+      if (!kept || now?.state !== "approved" || (inbox.outcome?.conflicts.length ?? 0) > 0) {
+        select(part.id);
+        announcement = `Kept all up to ${repoName(part.project)}, which needs a look.${inbox.outcome ? ` ${outcomeText(inbox.outcome)}` : ""}`;
+        await refocus();
+        return;
+      }
+    }
+    announcement = `Kept all ${todo.length} repositories.`;
+    await refocus();
+  } finally {
+    keepingAll = false;
+  }
+}
+
 /** The waiting item after `id` in the list as shown, else the first one before it. */
 function nextWaiting(id: ReviewId): ReviewItem | null {
   const shown = groups.flatMap((g) => g.items);
@@ -834,7 +867,22 @@ function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
                   <p class="protected" id="inbox-git" role="note" data-testid="inbox-git">{gitText}</p>
                 {/if}
                 {#if repoLine(item, repoName)}
-                  <p class="attempts" data-testid="inbox-repos">{repoLine(item, repoName)}</p>
+                  <p class="attempts" data-testid="inbox-repos">
+                    {repoLine(item, repoName)}
+                    {#if parts.length > 1}
+                      <button
+                        type="button"
+                        class="quiet"
+                        data-testid="inbox-keep-all"
+                        aria-disabled={keepingAll || partsWait !== null}
+                        aria-describedby={partsWait ? "inbox-keep-all-why" : undefined}
+                        onclick={() => void keepAll()}>Keep all {parts.length} repositories</button
+                      >
+                    {/if}
+                  </p>
+                  {#if partsWait}
+                    <p class="hint" id="inbox-keep-all-why" data-testid="inbox-keep-all-why">{partsWait}</p>
+                  {/if}
                 {/if}
                 {#if attempts}
                   <p class="attempts" data-testid="inbox-attempts">

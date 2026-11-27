@@ -74,8 +74,12 @@ and reviews and lands two unrelated results.
    changed. Keep moves on to the next item, so the next repository comes
    up. Only the main item counts as the agent's `request_review` and
    carries its summary; linked items show when they have changes, with
-   the same summary. There is no "Keep all": each repository's diff is kept only after
-   the person saw it, as today. A comment on any of them goes to the one
+   the same summary. "Keep all" keeps every open part, the main
+   repository first, as one Keep each without a commit: with the fingerprint
+   listed, its own check and refusals, stopping at the first part refused
+   or left with conflicts. It waits while a part's check runs, and is not
+   offered while a part's check failed or a part has protected files: then
+   each part is kept on its own. A comment on any of them goes to the one
    session. Checks across items of other workers compare only items of
    the same repository.
 8. **Lifecycle.** Stop, resume and clean-up treat the linked copies as

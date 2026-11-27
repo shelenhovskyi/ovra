@@ -22,5 +22,34 @@ export function repoLine(item: ReviewItem, name: (id: ProjectId) => string): str
   const repos = item.task_repos ?? [];
   if (repos.length < 2) return null;
   const others = repos.filter((r) => r !== item.project).map(name);
-  return `The changes in ${name(item.project)}. This task also changed ${others.join(", ")}: each repository has its own item here, and Keep moves on to the next.`;
+  return `The changes in ${name(item.project)}. This task also changed ${others.join(", ")}: each repository has its own item here. Keep moves on to the next, and Keep all keeps every one.`;
+}
+
+/** The open items of `item`'s task across repositories, in the task's order, `item`'s among them. */
+export function taskParts(item: ReviewItem, items: readonly ReviewItem[]): ReviewItem[] {
+  if (!acrossRepos(item)) return [];
+  const order = item.task_repos ?? [];
+  return items
+    .filter((i) => i.session === item.session && (i.state === "open" || i.state === "published"))
+    .sort((a, b) => order.indexOf(a.project) - order.indexOf(b.project));
+}
+
+/**
+ * Why Keep all waits for these parts, else null. Each part is still kept on
+ * its own, with its own fingerprint and check: a running or failed check,
+ * or protected files, need that part's own decision.
+ */
+export function keepAllWaits(parts: readonly ReviewItem[], name: (id: ProjectId) => string): string | null {
+  const named = (pick: (i: ReviewItem) => boolean) =>
+    parts
+      .filter(pick)
+      .map((i) => name(i.project))
+      .join(", ");
+  const running = named((i) => i.check?.state === "running");
+  if (running) return `Keep all waits for the check in ${running}.`;
+  const failed = named((i) => i.check?.state === "failed");
+  if (failed) return `The check failed in ${failed}: keep each repository on its own.`;
+  const guarded = named((i) => i.files.some((f) => f.protected));
+  if (guarded) return `${guarded} has protected files: keep each repository on its own.`;
+  return null;
 }
