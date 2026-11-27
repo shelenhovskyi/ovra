@@ -4,10 +4,11 @@
 //!
 //! [`OpenSsh`] keeps the person's remote machines and pins their host
 //! keys under Ovra's data folder (`ssh/hosts.json`, `ssh/<id>/known_hosts`).
-//! The frame link follows in its own step.
+//! [`OpenSsh::connect`] opens a [`Link`] to one of them.
 
 mod config;
 mod known;
+mod link;
 mod tools;
 
 use std::path::{Path, PathBuf};
@@ -18,6 +19,8 @@ use ovra_core::protocol::{ErrorCode, ProtocolError};
 use ovra_core::services::{BoxFuture, RemoteHosts, Result as ServiceResult};
 use ovra_core::ssh::{DaemonPath, Destination, HostId, MachineName, fingerprints_ok};
 use rand::Rng;
+
+pub use crate::link::{Failure, Link, Reason};
 
 use crate::config::Effective;
 use crate::known::Known;
@@ -134,7 +137,10 @@ impl OpenSsh {
                 .is_ok()
                 && fingerprints_ok(&host.fingerprints);
             if !checked {
-                return Err(internal(&"the saved list of remote machines was changed"));
+                return Err(internal(&format!(
+                    "{} was changed outside Ovra; fix or delete it",
+                    self.hosts_file().display()
+                )));
             }
         }
         Ok(hosts)
@@ -179,6 +185,66 @@ impl OpenSsh {
             let _ = std::fs::remove_dir_all(&folder);
         }
         saved.map(|()| host)
+    }
+}
+
+impl OpenSsh {
+    /// Connects to the machine `id` with the hardened command line, after
+    /// `ssh -G` showed that it won over the person's config.
+    pub async fn connect(&self, id: &HostId) -> Result<Link, Failure> {
+        let host = self
+            .read()
+            .map_err(|e| Failure::new(Reason::NoPin, e.message))?
+            .into_iter()
+            .find(|h| h.id == id.as_str())
+            .ok_or_else(|| Failure::new(Reason::NoPin, missing(id).message))?;
+        let pins = self.dir.join(id.as_str()).join("known_hosts");
+        if !pins.is_file() {
+            return Err(Failure::new(
+                Reason::NoPin,
+                "the pinned keys of this machine are gone; remove it and add it again",
+            ));
+        }
+        let unsafe_config = |e: ProtocolError| Failure::new(Reason::UnsafeConfig, e.message);
+        let destination = Destination::parse(&host.destination).map_err(unsafe_config)?;
+        let daemon = DaemonPath::parse(Some(&host.daemon)).map_err(unsafe_config)?;
+        let args = arguments(&pins, id, &destination, &daemon).map_err(unsafe_config)?;
+        let tools = self
+            .tools()
+            .await
+            .map_err(|e| Failure::new(Reason::NoSsh, e.message))?;
+
+        // The same options, without the remote command.
+        let mut check = tools.ssh();
+        if let Some(config) = &self.config {
+            check.arg("-F").arg(config);
+        }
+        check.arg("-G").args(&args[..args.len() - 2]);
+        let out = tools.run(check, None).await.map_err(unsafe_config)?;
+        if !out.status.success() {
+            return Err(Failure::new(
+                Reason::UnsafeConfig,
+                "your SSH config could not be read for this machine",
+            ));
+        }
+        let pins_text = pins.to_str().unwrap_or_default();
+        Effective::parse(&String::from_utf8_lossy(&out.stdout))
+            .check(pins_text, &format!("ovra-{}", id.as_str()))
+            .map_err(unsafe_config)?;
+
+        let mut command = tools.ssh();
+        if let Some(config) = &self.config {
+            command.arg("-F").arg(config);
+        }
+        command.args(&args);
+        tools::own_group(&mut command);
+        link::pipes(&mut command);
+        let child = command.spawn().map_err(|e| {
+            // Moved or upgraded since it was found: look again next time.
+            *lock(&self.tools) = None;
+            Failure::new(Reason::NoSsh, format!("could not run ssh: {e}"))
+        })?;
+        link::open(tools::Group(child)).await
     }
 }
 

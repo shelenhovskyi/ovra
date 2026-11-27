@@ -96,17 +96,7 @@ impl Tools {
         mut command: Command,
         input: Option<&str>,
     ) -> Result<Output, ProtocolError> {
-        command.env_clear();
-        for (name, value) in std::env::vars_os() {
-            let keep = name
-                .to_str()
-                .is_some_and(|n| KEPT.contains(&n) || n.starts_with("LC_"));
-            if keep {
-                command.env(name, value);
-            }
-        }
-        #[cfg(unix)]
-        command.process_group(0);
+        own_group(&mut command);
         command
             .stdin(if input.is_some() {
                 Stdio::piped()
@@ -114,8 +104,7 @@ impl Tools {
                 Stdio::null()
             })
             .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .kill_on_drop(true);
+            .stderr(Stdio::piped());
         let mut child = Group(
             command
                 .spawn()
@@ -157,6 +146,23 @@ impl Tools {
     }
 }
 
+/// Only the kept variables, its own process group, and killed when
+/// dropped: every OpenSSH process Ovra starts.
+pub(crate) fn own_group(command: &mut Command) {
+    command.env_clear();
+    for (name, value) in std::env::vars_os() {
+        let keep = name
+            .to_str()
+            .is_some_and(|n| KEPT.contains(&n) || n.starts_with("LC_"));
+        if keep {
+            command.env(name, value);
+        }
+    }
+    #[cfg(unix)]
+    command.process_group(0);
+    command.kill_on_drop(true);
+}
+
 /// A file this user can run: on Unix, one with an execute bit.
 fn runnable(path: &Path) -> bool {
     let Ok(meta) = std::fs::metadata(path) else {
@@ -173,7 +179,7 @@ fn runnable(path: &Path) -> bool {
 
 /// A child that, unless it was reaped, is killed with its process group
 /// when dropped (a timeout, too much output or a dropped call).
-struct Group(Child);
+pub(crate) struct Group(pub(crate) Child);
 
 impl Drop for Group {
     fn drop(&mut self) {

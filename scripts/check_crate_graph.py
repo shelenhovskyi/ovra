@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Fail if workspace crates depend on each other outside scripts/crate-graph.json,
-or pull in a banned crate (normal dependencies, transitively)."""
+or pull in a banned crate (normal dependencies, transitively, with the
+crate's own features)."""
 
 import json
 import pathlib
@@ -42,9 +43,21 @@ for name in sorted(members):
                 seen.add(dep)
                 stack.append(dep)
     reachable = {pkg_name[d] for d in seen}
-    for banned in rules["banned"].get(name, []):
-        if banned in reachable:
-            errors.append(f"{name}: depends on banned crate {banned}")
+    hits = [b for b in rules["banned"].get(name, []) if b in reachable]
+    if hits:
+        # `cargo metadata` unifies features across the workspace, so a
+        # crate seems to reach what only another member's features turn
+        # on. `cargo tree -p` resolves this crate's own features.
+        tree = subprocess.check_output(
+            ["cargo", "tree", "-q", "--locked", "-p", name, "-e", "normal",
+             "--target", "all", "--prefix", "none"],
+            cwd=ROOT,
+            text=True,
+        )
+        own = {line.split()[0] for line in tree.splitlines() if line.split()}
+        for banned in hits:
+            if banned in own:
+                errors.append(f"{name}: depends on banned crate {banned}")
 
 for e in errors:
     print(f"crate-graph: {e}", file=sys.stderr)

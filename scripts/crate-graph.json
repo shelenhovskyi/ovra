@@ -23,7 +23,7 @@
     "ovra-resources": ["ovra-core"],
     "ovra-power": ["ovra-core"],
     "ovra-remote": ["ovra-core", "ovra-transport"],
-    "ovra-ssh": ["ovra-core"],
+    "ovra-ssh": ["ovra-core", "ovra-transport"],
     "ovra-acp-client": ["ovra-core"],
     "ovra-security-tests": ["ovra-sandbox"],
     "ovra-daemon": [

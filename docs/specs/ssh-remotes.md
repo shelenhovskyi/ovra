@@ -184,7 +184,7 @@ Ovra never accepts a host key itself and never runs `ssh-keyscan`.
 - `ssh -G` and `ssh-keygen` run in their own process group for at most
   10 s, with their output capped; on timeout the whole group is killed, so
   a command the person's config leaves running (`Match exec "… &"`) cannot
-  hold Ovra up. They run off the core's request path.
+  hold Ovra up. They run off the core's request path. Windows has no process groups here: the call still ends on time, but such a command may outlive it.
 - The `ssh` process gets only a short list owned by `crates/ssh`: `PATH`,
   `HOME`, `USER`, `LOGNAME`, `LANG`, `LC_*`, `SSH_AUTH_SOCK` (so the local
   agent can authenticate; it is never forwarded), `XDG_RUNTIME_DIR`

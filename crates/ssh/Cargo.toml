@@ -9,9 +9,10 @@ publish = false
 
 [dependencies]
 ovra-core.workspace = true
+ovra-transport = { workspace = true, features = ["stdio"] }
 rand.workspace = true
 serde_json.workspace = true
-tokio = { workspace = true, features = ["io-util", "process", "time"] }
+tokio = { workspace = true, features = ["io-util", "process", "rt", "sync", "time"] }
 
 [target.'cfg(unix)'.dependencies]
 rustix = { version = "1", features = ["process"] }

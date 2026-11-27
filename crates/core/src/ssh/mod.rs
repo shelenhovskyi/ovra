@@ -141,8 +141,9 @@ impl MachineName {
 
 /// Control characters, bidi and other invisible format characters, line
 /// or paragraph separators, tag characters, variation selectors and
-/// private-use characters.
-fn hidden(c: char) -> bool {
+/// private-use characters. `ovra-ssh` strips them from what a remote
+/// machine says.
+pub fn hidden(c: char) -> bool {
     c.is_control()
         || matches!(c,
             '\u{00AD}' | '\u{034F}' | '\u{061C}' | '\u{180B}'..='\u{180F}'
