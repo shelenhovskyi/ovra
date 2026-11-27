@@ -17,6 +17,8 @@ export class FakeTerminals implements Transport {
   openGate: Promise<void> | null = null;
   /** When set, `terminals.scrollback` waits for this promise before answering. */
   scrollbackGate: Promise<void> | null = null;
+  /** The project's files, for `fs.list_files`. */
+  files: string[] = [];
   /** While true, every call fails at once, as the transport's do while the socket is closed. */
   down = false;
   private opened = 0;
@@ -95,6 +97,8 @@ export class FakeTerminals implements Transport {
         if (!exited) this.emit({ type: "terminals.exited", data: { id: request.params.id, code: 0 } });
         return { type: "ok" };
       }
+      case "fs.list_files":
+        return { type: "fs.files", data: { paths: this.files, total: this.files.length, version: 1 } };
       default:
         throw new CoreError({ code: "unavailable", message: `${request.method} is not faked` });
     }

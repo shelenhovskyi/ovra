@@ -6,8 +6,12 @@ import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
 import { untrack } from "svelte";
 import { inBrowserTab, isApple } from "../keys/shortcut";
+import { projectFiles } from "../palette/files";
+import { useOvra } from "../shell/context";
 import { copySelection, pasteClipboard } from "./clipboard";
+import { linkSpot } from "./file-links";
 import { clipboardKey, isCommandKey } from "./keys";
+import { fileLinkProvider, fileSet } from "./link-provider";
 import type { TerminalSession, TerminalSessions } from "./sessions.svelte";
 
 let {
@@ -35,6 +39,10 @@ let {
 function leaves(event: KeyboardEvent): boolean {
   return event.key === "Tab" && event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey;
 }
+
+const { transport, workspace } = useOvra();
+/** The project's root while it is the one shown; files of another project do not open. */
+const root = () => (workspace.project?.id === session.project ? workspace.project.root : null);
 
 const FALLBACK_SIZE = { cols: 80, rows: 24 };
 
@@ -108,6 +116,20 @@ $effect(() =>
     });
     t.textarea?.setAttribute("aria-describedby", hint);
     const subs = [
+      t.registerLinkProvider(
+        fileLinkProvider({
+          buffer: () => t.buffer.active,
+          root,
+          base: session.cwd ?? "",
+          files: () => projectFiles(transport, session.project).then(fileSet),
+          opens: (event) => (apple ? event.metaKey : event.ctrlKey),
+          open: (link) => {
+            if (root()) workspace.openFile(link.path, "edit", linkSpot(link));
+          },
+          hint: (text) => (text ? host.setAttribute("title", text) : host.removeAttribute("title")),
+          hintText: `Open file (${apple ? "Cmd" : "Ctrl"}+click)`,
+        }),
+      ),
       t.onData((data) => sessions.input(session, data)),
       t.onResize(({ cols, rows }) => sessions.resize(session, { cols, rows })),
     ];

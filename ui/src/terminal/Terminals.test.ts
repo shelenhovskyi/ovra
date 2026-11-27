@@ -1,3 +1,4 @@
+import type { ILink, ILinkProvider } from "@xterm/xterm";
 import { flushSync, mount, unmount } from "svelte";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { listCommands } from "../keys/commands";
@@ -16,6 +17,7 @@ type FakeXterm = {
   type: (data: string) => void;
   keyHandler: (event: KeyboardEvent) => boolean;
   textarea: HTMLTextAreaElement;
+  links: ILinkProvider[];
 };
 
 vi.mock("@xterm/xterm", () => ({
@@ -30,9 +32,26 @@ vi.mock("@xterm/xterm", () => ({
       type: () => {},
       keyHandler: () => true,
       textarea: document.createElement("textarea"),
+      links: [],
     };
     constructor() {
       xterms.push(this.record);
+    }
+    /** What was written, a row per line, one cell per character. */
+    get buffer() {
+      const rows = this.record.written.split(/\r?\n/);
+      const cell = (chars: string) => ({ getChars: () => chars, getWidth: () => 1 });
+      const getLine = (y: number) => {
+        const row = rows[y];
+        return row === undefined
+          ? undefined
+          : { isWrapped: false, length: row.length, getCell: (x: number) => cell(row[x] ?? "") };
+      };
+      return { active: { getLine } };
+    }
+    registerLinkProvider(provider: ILinkProvider) {
+      this.record.links.push(provider);
+      return { dispose() {} };
     }
     loadAddon() {}
     open(host: HTMLElement) {
@@ -227,6 +246,28 @@ describe("Terminals", () => {
     const key = (init: KeyboardEventInit) => new KeyboardEvent("keydown", init);
     expect(handler(key({ key: "`", code: "Backquote", ctrlKey: true }))).toBe(false);
     expect(handler(key({ key: "c", code: "KeyC", ctrlKey: true }))).toBe(true);
+  });
+
+  it("opens a project file named in the output on Ctrl+click, at its line and column", async () => {
+    const core = new FakeTerminals();
+    core.files = ["src/main.rs"];
+    // Its own project: the file list is cached per project for the whole window.
+    const { workspace } = setup({ ...PROJECT, id: "p-links" }, core);
+    await run("terminal.toggle");
+    const xterm = xterms[0];
+    if (!xterm) throw new Error("no xterm");
+    xterm.type("error at src/main.rs:42:7 and src/gone.rs:1");
+    await settle();
+    const links = await new Promise<ILink[] | undefined>((resolve) => xterm.links[0]?.provideLinks(1, resolve));
+    expect(links?.map((l) => l.text)).toEqual(["src/main.rs:42:7"]);
+    const link = links?.[0];
+    if (!link) throw new Error("no link");
+    link.activate(new MouseEvent("click"), link.text);
+    expect(workspace.openPath).toBeNull();
+    link.activate(new MouseEvent("click", { ctrlKey: true }), link.text);
+    expect(workspace.openPath).toBe("src/main.rs");
+    expect(workspace.mode).toBe("edit");
+    expect(workspace.reveal).toEqual({ path: "src/main.rs", line: 42, from: 6, to: 6 });
   });
 
   it("leaves the terminal on Shift+Tab and says so", async () => {
