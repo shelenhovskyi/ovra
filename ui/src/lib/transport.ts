@@ -187,7 +187,14 @@ type AppMessage =
 /** The machine the app said this window shows (`app/src/remote.rs`). */
 function appRemote(): RemoteMachine | null {
   const given = (window as { __OVRA_REMOTE__?: RemoteMachine }).__OVRA_REMOTE__;
-  return given && typeof given.id === "string" && typeof given.name === "string" ? given : null;
+  if (given && typeof given.id === "string" && typeof given.name === "string") return given;
+  // A machine's window without its identity must not pass for the laptop's.
+  const label = (window as { __TAURI_INTERNALS__?: { metadata?: { currentWindow?: { label?: unknown } } } })
+    .__TAURI_INTERNALS__?.metadata?.currentWindow?.label;
+  if (typeof label !== "string" || label.startsWith("ssh-")) {
+    throw new Error("This window does not say which machine it shows.");
+  }
+  return null;
 }
 
 export function connectTauri(): Transport {

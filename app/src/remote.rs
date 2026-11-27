@@ -65,17 +65,10 @@ impl Remotes {
         }
     }
 
-    /// Hands a window that just subscribed the status it may have missed:
-    /// its own machine's, or every machine's for the main window.
+    /// Hands a window that just subscribed the status it may have missed.
     pub(crate) fn replay(&self, mailboxes: &crate::mailbox::Mailboxes, label: &str) {
-        let statuses = lock(&self.statuses);
-        if label == "main" {
-            for status in statuses.values() {
-                mailboxes.send(label, status.clone());
-            }
-        } else if let Some(status) = window::machine(label).and_then(|id| statuses.get(id.as_str()))
-        {
-            mailboxes.send(label, status.clone());
+        for status in replay_for(label, &lock(&self.statuses)) {
+            mailboxes.send(label, status);
         }
     }
 
@@ -136,11 +129,13 @@ impl Remotes {
     /// Ends the link of `id`, if there is one, even while a call still
     /// holds on to it.
     pub(crate) fn close(&self, app: &AppHandle, id: &HostId) {
-        let open = lock(&self.open).remove(id.as_str());
-        if let Some(open) = open
-            && !open.task.inner().is_finished()
+        // Held until `closed` is told, so a `connect` in between cannot
+        // have its `connecting` overwritten by this older `closed`.
+        let mut open = lock(&self.open);
+        if let Some(link) = open.remove(id.as_str())
+            && !link.task.inner().is_finished()
         {
-            open.task.abort();
+            link.task.abort();
             tell(app, &self.statuses, id, "closed", None);
         }
     }
@@ -215,7 +210,40 @@ fn build(app: &AppHandle, id: &HostId, host: &RemoteHost) -> Result<(), String> 
     builder.build().map(|_| ()).map_err(|e| e.to_string())
 }
 
-/// Tells the machine's window and the main window the link's new state.
+/// The statuses a window that subscribes is owed: its own machine's, or
+/// every machine's for the main window (which the spec gives every
+/// status), and none for any other label.
+fn replay_for(
+    label: &str,
+    statuses: &HashMap<String, serde_json::Value>,
+) -> Vec<serde_json::Value> {
+    if label == "main" {
+        return statuses.values().cloned().collect();
+    }
+    window::machine(label)
+        .and_then(|id| statuses.get(id.as_str()).cloned())
+        .into_iter()
+        .collect()
+}
+
+/// The app message for a link's state; never in-band, so the machine
+/// cannot fake it.
+fn status_message(
+    id: &HostId,
+    state: &'static str,
+    failure: Option<&Failure>,
+) -> serde_json::Value {
+    let status = Status {
+        id: id.as_str().to_owned(),
+        state,
+        reason: failure.map(|f| f.reason.as_str()),
+        details: failure.map(|f| f.details.clone()),
+    };
+    serde_json::json!({ "sshStatus": status })
+}
+
+/// Keeps the link's new state for later subscribers and tells the
+/// machine's window and the main window.
 fn tell(
     app: &AppHandle,
     statuses: &Statuses,
@@ -223,13 +251,7 @@ fn tell(
     state: &'static str,
     failure: Option<&Failure>,
 ) {
-    let status = Status {
-        id: id.as_str().to_owned(),
-        state,
-        reason: failure.map(|f| f.reason.as_str()),
-        details: failure.map(|f| f.details.clone()),
-    };
-    let message = serde_json::json!({ "sshStatus": status });
+    let message = status_message(id, state, failure);
     lock(statuses).insert(id.as_str().to_owned(), message.clone());
     let mailboxes = app.state::<crate::mailbox::Mailboxes>();
     mailboxes.send(&window::label(id), message.clone());
@@ -287,4 +309,49 @@ pub(crate) fn open_url(url: &str) -> Result<(), String> {
     SystemOpener::new()
         .open_url(url.as_str())
         .map_err(|e| e.message)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn id(text: &str) -> HostId {
+        HostId::parse(text).unwrap_or_else(|e| panic!("{}", e.message))
+    }
+
+    fn statuses() -> HashMap<String, serde_json::Value> {
+        HashMap::from([
+            ("aaa".to_owned(), status_message(&id("aaa"), "open", None)),
+            ("bbb".to_owned(), status_message(&id("bbb"), "closed", None)),
+        ])
+    }
+
+    #[test]
+    fn a_remote_window_is_owed_only_its_own_machines_status() {
+        let statuses = statuses();
+        assert_eq!(
+            replay_for("ssh-aaa", &statuses),
+            vec![statuses["aaa"].clone()]
+        );
+        assert!(replay_for("ssh-ccc", &statuses).is_empty());
+        assert!(replay_for("other", &statuses).is_empty());
+        assert!(replay_for("ssh-", &statuses).is_empty());
+        let mut main = replay_for("main", &statuses);
+        main.sort_by_key(ToString::to_string);
+        assert_eq!(main, vec![statuses["aaa"].clone(), statuses["bbb"].clone()]);
+    }
+
+    #[test]
+    fn a_status_names_its_machine_and_why_it_ended() {
+        let failure = Failure {
+            reason: ovra_ssh::Reason::AuthFailed,
+            details: "denied".into(),
+        };
+        assert_eq!(
+            status_message(&id("aaa"), "failed", Some(&failure)),
+            serde_json::json!({ "sshStatus": {
+                "id": "aaa", "state": "failed", "reason": "auth_failed", "details": "denied"
+            }})
+        );
+    }
 }

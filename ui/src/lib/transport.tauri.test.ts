@@ -21,6 +21,12 @@ vi.mock("@tauri-apps/api/core", () => ({
   },
 }));
 
+/** The window's label, as Tauri tells the page. */
+const label = (name: string) => {
+  (window as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__ = { metadata: { currentWindow: { label: name } } };
+};
+label("main");
+
 /** Sends `message` on the window's channel, as the app does. */
 const send = (message: unknown) => tauri.state.channel?.(message);
 describe("the Tauri transport", () => {
@@ -111,12 +117,23 @@ describe("a remote machine's Tauri window", () => {
   const remoteWindow = () => {
     tauri.state.channel = null;
     (window as { __OVRA_REMOTE__?: unknown }).__OVRA_REMOTE__ = { id: "abc", name: "Build" };
+    label("ssh-abc");
     try {
       return connectTauri();
     } finally {
       delete (window as { __OVRA_REMOTE__?: unknown }).__OVRA_REMOTE__;
+      label("main");
     }
   };
+
+  it("refuses to pass for the laptop's window without the machine's identity", () => {
+    label("ssh-abc");
+    try {
+      expect(() => connectTauri()).toThrow("which machine");
+    } finally {
+      label("main");
+    }
+  });
 
   it("has no folder dialog, drops or remote windows of its own", () => {
     const transport = remoteWindow();

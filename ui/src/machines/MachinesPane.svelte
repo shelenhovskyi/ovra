@@ -10,7 +10,8 @@ import { Machines } from "./machines.svelte";
 const { transport } = useOvra();
 const machines = new Machines(transport);
 
-$effect(() => untrack(() => machines.follow()));
+// A remote window's core has no remote machines; it shows a pointer instead.
+$effect(() => (transport.remote ? undefined : untrack(() => machines.follow())));
 
 let adding = $state(false);
 let name = $state("");
