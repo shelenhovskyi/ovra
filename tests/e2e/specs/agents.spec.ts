@@ -59,6 +59,48 @@ async function openGitProject(page: Page, prefix: string, files: Record<string, 
   return dir;
 }
 
+test("plan first holds the agent's changes, and a reply queued meanwhile goes when its turn ends", async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem("ovra.agents.prefs", JSON.stringify({ planFirst: true })));
+  const dir = mkdtempSync(join(tmpdir(), "ovra-agents-plan-"));
+  writeFileSync(join(dir, "README.md"), "teh readme\n");
+  const url = process.env.OVRA_URL;
+  if (!url) throw new Error("OVRA_URL is not set; globalSetup did not run");
+  await page.clock.install();
+  await loadProject(page, dir, url);
+  await page.getByRole("textbox", { name: "Describe a task" }).fill("Plan the typo fix");
+  await expect(page.getByRole("checkbox", { name: "Plan first" })).toBeChecked();
+  await page.getByRole("button", { name: "Start", exact: true }).click();
+
+  const approvals = page.getByTestId("approvals");
+  const session = page.getByTestId("agent-session");
+  // Even a command the fake agent's settings would allow comes to the person.
+  const run = approvals.getByRole("group", { name: "Run ls -la" });
+  await expect(run).toBeVisible();
+  await expect(session.getByTestId("plan-bar")).toHaveText(
+    "Planning. The agent changes no files until you approve its plan.",
+  );
+  await session.getByRole("textbox", { name: "Reply" }).fill("Also look at the docs");
+  await session.getByRole("button", { name: "Queue" }).click();
+  await expect(session.getByTestId("queued-message")).toHaveText(/Also look at the docs/);
+
+  await arm(page);
+  await run.getByRole("button", { name: "Allow" }).click();
+  // Its edit is refused without a card; the turn ends and the queued reply
+  // starts the next one, which asks for `git status`.
+  const status = approvals.getByRole("group", { name: "Run git status" });
+  await expect(status).toBeVisible();
+  await expect(session.getByTestId("queued-message")).toHaveCount(0);
+  await expect(approvals.getByRole("group", { name: "Edit README.md" })).toHaveCount(0);
+  await arm(page);
+  await status.getByRole("button", { name: "Allow" }).click();
+  await expect(session.getByRole("status")).toHaveText("Done");
+  expect(readFileSync(join(dir, "README.md"), "utf8")).toBe("teh readme\n");
+
+  await session.getByRole("button", { name: "Approve plan" }).click();
+  await expect(session.getByTestId("plan-bar")).toHaveCount(0);
+  await expect(approvals.getByRole("group", { name: "Run git status" })).toBeVisible();
+});
+
 test("start an agent and answer its requests from the keyboard", async ({ page }) => {
   await openProject(page, "ovra-agents-keys-");
   await page.getByRole("textbox", { name: "Describe a task" }).fill("Fix the typo");
@@ -76,9 +118,9 @@ test("start an agent and answer its requests from the keyboard", async ({ page }
   // The task opens, ready for a reply; nothing moves focus to the request.
   await expect(page.getByRole("textbox", { name: "Reply" })).toBeFocused();
   // In a 1280x720 window the request, the header and the reply box all fit:
-  // Send is not cut off, and the header is one line.
+  // Queue (Send once it is done) is not cut off, and the header is one line.
   const agents = page.getByTestId("agents");
-  await expect(agents.getByRole("button", { name: "Send" })).toBeInViewport({ ratio: 1 });
+  await expect(agents.getByRole("button", { name: "Queue" })).toBeInViewport({ ratio: 1 });
   expect((await page.getByTestId("agents-capacity").boundingBox())?.height).toBeLessThan(24);
 
   // Y and N would type into the reply box: no key cap says otherwise until the card has focus.
