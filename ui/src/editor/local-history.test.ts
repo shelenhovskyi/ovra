@@ -65,7 +65,17 @@ test("only the newest versions stay; secret-looking and large files are never ke
   await history.record("p1", "big.txt", "x".repeat(1024 * 1024 + 1), "saved");
   expect(await history.versions("p1", "config/.env.local")).toEqual([]);
   expect(await history.versions("p1", "big.txt")).toEqual([]);
-  expect(["id.pem", "server.KEY", "credentials.json", "env.ts"].map(mayHoldSecrets)).toEqual([true, true, true, false]);
+  const names = [
+    "id.pem",
+    "server.KEY",
+    "credentials.json",
+    ".ssh/id_ed25519",
+    "a/.npmrc",
+    "prod.tfvars",
+    "secrets.yaml",
+  ];
+  expect(names.every(mayHoldSecrets)).toBe(true);
+  expect(["env.ts", "keys.ts", "secretary.md", "README.md"].some(mayHoldSecrets)).toBe(false);
 });
 
 test("a failing store leaves the file working, without history", async () => {

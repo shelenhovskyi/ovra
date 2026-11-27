@@ -25,11 +25,17 @@ export const VERSIONS_PER_FILE = 50;
 /** Texts above this many UTF-16 units are not kept. */
 const MAX_TEXT = 1024 * 1024;
 
-/** Names that may hold secrets (`.env*`, `*.pem`, `*.key`, `credentials*`), whose text stays out of the history. */
+/** File names whose text may be a secret: keys, tokens and passwords. */
+const SECRET_NAMES =
+  /^(\.env.*|.*\.(pem|key|p12|pfx|kdbx|tfvars|keystore|jks)|credentials.*|secrets?\..*|id_(rsa|dsa|ecdsa|ed25519).*|\.(npmrc|netrc|pgpass|pypirc|git-credentials|htpasswd))$/;
+
+/** Names that may hold secrets (`.env*`, `*.pem`, `*.key`, `id_rsa`, `.npmrc`, ...), whose text stays out of the history. */
 export function mayHoldSecrets(path: string): boolean {
-  const name = (path.split("/").at(-1) ?? "").toLowerCase();
-  return name.startsWith(".env") || name.endsWith(".pem") || name.endsWith(".key") || name.startsWith("credentials");
+  return SECRET_NAMES.test((path.split("/").at(-1) ?? "").toLowerCase());
 }
+
+/** Files whose newest text is remembered in memory; older ones are read again when saved. */
+const REMEMBERED = 100;
 
 export class LocalHistory {
   /** The newest text kept per file, so an unchanged save costs no read. */
@@ -53,7 +59,10 @@ export class LocalHistory {
         if (newest === undefined) newest = (await this.store.list(project, path))[0]?.text;
         if (newest === text) return;
         await this.store.add({ project, path, time, text, reason });
+        this.latest.delete(key);
         this.latest.set(key, text);
+        // A Map keeps insertion order: the first key is the one used longest ago.
+        if (this.latest.size > REMEMBERED) this.latest.delete(this.latest.keys().next().value as string);
         await this.store.prune(project, path, VERSIONS_PER_FILE);
       } catch {
         // No storage (private window, quota): the file works as before, without history.

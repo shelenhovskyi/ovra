@@ -27,6 +27,13 @@ describe("keys in a focused terminal", () => {
     expect(isCommandKey(press("c", "KeyC", { ctrl: true }), false, false)).toBe(false);
   });
 
+  it("leaves Alt+arrows to the shell, which moves by word with them", () => {
+    command("test.back", "Alt+ArrowLeft");
+    command("test.forward", "Alt+ArrowRight");
+    expect(isCommandKey(press("ArrowLeft", "ArrowLeft", { alt: true }), false, false)).toBe(false);
+    expect(isCommandKey(press("ArrowRight", "ArrowRight", { alt: true }), false, false)).toBe(false);
+  });
+
   it("runs commands on Cmd, Alt and Ctrl+Shift shortcuts", () => {
     command("test.close", "Mod+W");
     command("test.palette", "Mod+Shift+P");

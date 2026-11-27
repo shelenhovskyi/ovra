@@ -7,9 +7,15 @@ import { liveKeys, matchesShortcut, parseShortcut, type Shortcut } from "../keys
 
 type KeyEventLike = Parameters<typeof matchesShortcut>[0];
 
-/** Ctrl+<letter> and Ctrl+<punctuation> without Shift or Alt are shell keys on every platform. */
+/**
+ * Ctrl+<letter> and Ctrl+<punctuation> without Shift or Alt are shell keys
+ * on every platform, and so are Alt+arrows, which shells use to move by word
+ * (Go back and Go forward stay with the editor).
+ */
 function shellOwns(shortcut: Shortcut): boolean {
-  return shortcut.ctrl && !shortcut.shift && !shortcut.alt && !shortcut.meta && shortcut.key !== "`";
+  const plain = !shortcut.shift && !shortcut.meta;
+  if (plain && shortcut.alt && !shortcut.ctrl && shortcut.key.startsWith("arrow")) return true;
+  return plain && shortcut.ctrl && !shortcut.alt && shortcut.key !== "`";
 }
 
 /** Whether a keydown in the terminal should run an Ovra command instead of going to the shell. */

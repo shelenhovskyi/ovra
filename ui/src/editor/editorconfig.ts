@@ -45,55 +45,139 @@ export function parse(text: string): Parsed {
   return parsed;
 }
 
-/** The regular expression source for an EditorConfig glob. */
-function globSource(glob: string): string {
-  let out = "";
+/** One piece of a glob, matched by `matchTokens` without backtracking. */
+type Token =
+  | { kind: "char"; test: (c: string) => boolean }
+  /** `*`: any run without a slash. */
+  | { kind: "star" }
+  /** `**`: any run. */
+  | { kind: "globstar" }
+  /** `**` then a slash: no folder, or any folders each ending in a slash. */
+  | { kind: "dirs" }
+  /** `{1..3}`: a whole number in the range. */
+  | { kind: "number"; lo: number; hi: number };
+
+/** At most this many brace alternatives per glob; a header with more matches nothing. */
+const MAX_ALTERNATIVES = 256;
+
+/** Every glob `{a,b}` stands for, braces with a number range left in place; null when there are too many. */
+function expand(glob: string): string[] | null {
+  for (let i = 0; i < glob.length; i++) {
+    const c = glob.charAt(i);
+    if (c === "\\") {
+      i++;
+      continue;
+    }
+    if (c !== "{") continue;
+    const end = closingBrace(glob, i);
+    if (end < 0) return [glob];
+    const body = glob.slice(i + 1, end);
+    const options = splitTop(body);
+    if (options.length < 2) continue;
+    const out: string[] = [];
+    for (const option of options) {
+      const rest = expand(glob.slice(0, i) + option + glob.slice(end + 1));
+      if (!rest || out.length + rest.length > MAX_ALTERNATIVES) return null;
+      out.push(...rest);
+    }
+    return out;
+  }
+  return [glob];
+}
+
+/** The tokens of a glob without alternatives. */
+function tokenize(glob: string): Token[] {
+  const tokens: Token[] = [];
+  const char = (test: (c: string) => boolean) => tokens.push({ kind: "char", test });
   for (let i = 0; i < glob.length; i++) {
     const c = glob.charAt(i);
     if (c === "\\" && i + 1 < glob.length) {
-      out += literal(glob.charAt(++i));
+      const next = glob.charAt(++i);
+      char((x) => x === next);
     } else if (c === "*") {
-      if (glob.charAt(i + 1) === "*") {
-        out += ".*";
+      let stars = 1;
+      while (glob.charAt(i + 1) === "*") {
+        stars++;
         i++;
-      } else out += "[^/]*";
-    } else if (c === "?") {
-      out += "[^/]";
-    } else if (c === "[") {
-      const end = glob.indexOf("]", i + 1);
-      if (end < 0) {
-        out += "\\[";
-        continue;
       }
+      if (stars === 1) tokens.push({ kind: "star" });
+      else if (glob.charAt(i + 1) === "/") {
+        tokens.push({ kind: "dirs" });
+        i++;
+      } else tokens.push({ kind: "globstar" });
+    } else if (c === "?") {
+      char((x) => x !== "/");
+    } else if (c === "[" && glob.indexOf("]", i + 2) > 0) {
+      const end = glob.indexOf("]", i + 2);
       const body = glob.slice(i + 1, end);
-      out += body.startsWith("!") ? `[^/${body.slice(1)}]` : `[${body}]`;
+      const negated = body.startsWith("!");
+      const set = classTest(negated ? body.slice(1) : body);
+      char(negated ? (x) => x !== "/" && !set(x) : set);
       i = end;
     } else if (c === "{") {
       const end = closingBrace(glob, i);
-      if (end < 0) {
-        out += "\\{";
-        continue;
-      }
-      const body = glob.slice(i + 1, end);
-      const range = /^(-?\d+)\.\.(-?\d+)$/.exec(body);
+      const range = end > 0 ? /^(-?\d+)\.\.(-?\d+)$/.exec(glob.slice(i + 1, end)) : null;
       if (range) {
-        const lo = Math.min(Number(range[1]), Number(range[2]));
-        const hi = Math.max(Number(range[1]), Number(range[2]));
-        out += `(?:${Array.from({ length: Math.min(hi - lo, 9999) + 1 }, (_, k) => lo + k).join("|")})`;
-      } else {
-        const options = splitTop(body);
-        out += options.length > 1 ? `(?:${options.map(globSource).join("|")})` : `\\{${globSource(body)}\\}`;
-      }
-      i = end;
+        const [lo, hi] = [Number(range[1]), Number(range[2])];
+        tokens.push({ kind: "number", lo: Math.min(lo, hi), hi: Math.max(lo, hi) });
+        i = end;
+      } else char((x) => x === c);
     } else {
-      out += literal(c);
+      char((x) => x === c);
     }
   }
-  return out;
+  return tokens;
 }
 
-function literal(c: string): string {
-  return /[.+^$()|{}[\]\\/]/.test(c) ? `\\${c}` : c;
+/** A test for one character of a `[...]` body: single characters and `a-z` ranges. */
+function classTest(body: string): (c: string) => boolean {
+  const ranges: [string, string][] = [];
+  for (let i = 0; i < body.length; i++) {
+    const c = body.charAt(i);
+    if (body.charAt(i + 1) === "-" && i + 2 < body.length) {
+      ranges.push([c, body.charAt(i + 2)]);
+      i += 2;
+    } else ranges.push([c, c]);
+  }
+  return (x) => ranges.some(([lo, hi]) => x >= lo && x <= hi);
+}
+
+/**
+ * Whether `tokens` match all of `path`: the set of path positions reached
+ * after each token, so time grows with tokens times path length squared at
+ * worst, never exponentially, whatever the glob.
+ */
+function matchTokens(tokens: Token[], path: string): boolean {
+  const n = path.length;
+  let at = new Set<number>([0]);
+  for (const token of tokens) {
+    const next = new Set<number>();
+    for (const j of at) {
+      if (token.kind === "char") {
+        if (j < n && token.test(path.charAt(j))) next.add(j + 1);
+      } else if (token.kind === "star") {
+        for (let k = j; k <= n; k++) {
+          next.add(k);
+          if (path.charAt(k) === "/") break;
+        }
+      } else if (token.kind === "globstar") {
+        for (let k = j; k <= n; k++) next.add(k);
+      } else if (token.kind === "dirs") {
+        next.add(j);
+        for (let k = j; k < n; k++) if (path.charAt(k) === "/") next.add(k + 1);
+      } else {
+        const digits = /^-?\d+/.exec(path.slice(j, j + 20))?.[0];
+        // Only the whole run of digits: `v1` must not match the start of `v12`.
+        if (digits && !/^0\d/.test(digits.replace("-", ""))) {
+          const value = Number(digits);
+          if (value >= token.lo && value <= token.hi) next.add(j + digits.length);
+        }
+      }
+    }
+    if (next.size === 0) return false;
+    at = next;
+  }
+  return at.has(n);
 }
 
 /** The index of the `}` that closes the `{` at `open`, or -1. */
@@ -133,12 +217,8 @@ function splitTop(body: string): string[] {
  */
 export function matches(glob: string, path: string): boolean {
   const anchored = glob.includes("/") ? glob.replace(/^\//, "") : `**/${glob}`;
-  const source = globSource(anchored).replace(/^\.\*\\\//, "(?:.*/)?");
-  try {
-    return new RegExp(`^${source}$`).test(path);
-  } catch {
-    return false;
-  }
+  const globs = expand(anchored);
+  return !!globs && globs.some((one) => matchTokens(tokenize(one), path));
 }
 
 /** What `files` say about `path`, nearest file last; paths are project-relative, folders "" for the root. */

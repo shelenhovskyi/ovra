@@ -15,7 +15,7 @@ test("section globs match as EditorConfig says", () => {
   expect(matches("src/*.ts", "src/a.ts")).toBe(true);
   expect(matches("src/*.ts", "src/deep/a.ts")).toBe(false);
   expect(matches("/src/**.ts", "src/deep/a.ts")).toBe(true);
-  expect(matches("lib/**/a.ts", "lib/a.ts")).toBe(false);
+  expect(matches("lib/**/a.ts", "lib/a.ts")).toBe(true);
   expect(matches("Makefile", "sub/Makefile")).toBe(true);
   expect(matches("file?.txt", "file1.txt")).toBe(true);
   expect(matches("[!a]b.txt", "cb.txt")).toBe(true);
@@ -113,4 +113,13 @@ test("a buffer indents and saves as the project's .editorconfig files say, and r
   view.dispatch({ changes: { from: 1, insert: "  \nz  " }, selection: { anchor: 4 } });
   await c.save(false, true);
   expect(core.writes.at(-1)?.text).toBe("y\nz  ");
+});
+
+test("globs match without backtracking, and `**/` matches no folder too", () => {
+  expect(matches(`${"*a".repeat(12)}b`, "a".repeat(40))).toBe(false);
+  expect(matches("{0..9999}{0..9999}{0..9999}.txt", "12.txt")).toBe(false);
+  expect(matches("{a,b}{c,d}{e,f}{g,h}{i,j}{k,l}{m,n}{o,p}{q,r}", "acegikmoq")).toBe(false);
+  expect(matches("lib/**/a.ts", "lib/x/y/a.ts")).toBe(true);
+  expect(matches("v{1..3}.txt", "v12.txt")).toBe(false);
+  expect(matches("{src,lib}/*.{js,ts}", "lib/a.ts")).toBe(true);
 });
