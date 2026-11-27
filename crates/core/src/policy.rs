@@ -251,6 +251,12 @@ fn check(rule: &PolicyRule) -> Result<(), ProtocolError> {
     if rule.tool.starts_with(crate::orchestration::IDE_TOOL_PREFIX) {
         return bad("Ovra's own tools follow their role's rules, not policies");
     }
+    if rule.tool == keys::KEY_TOOL {
+        return match keys::refused(rule) {
+            Some(why) => bad(why),
+            None => Ok(()),
+        };
+    }
     if rule.tool == PUSH_TOOL {
         return match &rule.pattern {
             Some(pattern) if rule.exact || push_pattern(pattern).is_none() => bad(
@@ -524,6 +530,12 @@ fn added(
             })?;
             decide_push(&policy, &plan.target(), None)
         }
+        keys::KEY_TOOL => {
+            let name = request.input["key"].as_str().ok_or_else(|| {
+                ProtocolError::new(ErrorCode::BadRequest, "this key request is unreadable")
+            })?;
+            keys::decide(&policy, name, None)
+        }
         tool => decide(&policy, tool, &request.call, cwd, None),
     };
     if decided.is_some() {
@@ -573,9 +585,9 @@ pub(crate) fn decide(
     work_dir: &Path,
     sandbox: Option<&SandboxReport>,
 ) -> Option<(PolicyAction, String)> {
-    // Push rules decide Ovra's own pushes, never an agent's tool that
-    // happens to have the name.
-    if tool == PUSH_TOOL {
+    // Push and UseKey rules decide Ovra's own pushes and keys, never an
+    // agent's tool that happens to have the name.
+    if tool == PUSH_TOOL || tool == keys::KEY_TOOL {
         return None;
     }
     let matching = |action: PolicyAction| {
@@ -773,6 +785,7 @@ fn segment(pattern: &str, name: &str) -> bool {
     go(&p, &n)
 }
 
+pub(crate) mod keys;
 #[cfg(test)]
 mod tests;
 

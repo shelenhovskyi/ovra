@@ -4,6 +4,7 @@
 
 mod accounts;
 mod history;
+mod keys;
 mod net;
 mod permissions;
 mod requests;
@@ -83,6 +84,9 @@ struct Session {
     pid: Option<u32>,
     /// The images of its first message, until its agent starts.
     images: Vec<AgentImage>,
+    /// The person's answers about keys, by name, for this session's runs
+    /// (`docs/specs/secrets-consent.md`): `true` allowed.
+    keys: std::collections::HashMap<String, bool>,
 }
 
 /// A session that has not ended, as the resource monitor sees it.
@@ -122,6 +126,9 @@ pub(crate) struct Sessions {
     /// Held while a project's allowlist is stored and passed to proxies,
     /// so that running proxies end with the stored list.
     allowlists: Mutex<()>,
+    /// One question at a time per session and key: requests that would
+    /// carry the key meanwhile wait for its answer.
+    asking_keys: keys::Asking,
 }
 
 /// Where sessions' IDE tool calls go; set once when the core is built.
@@ -173,6 +180,7 @@ impl Sessions {
                 queued: None,
                 pid: None,
                 images: Vec::new(),
+                keys: Default::default(),
             };
             // What a go-back restored is kept with the checkpoints, if it
             // still can be undone.
@@ -196,6 +204,7 @@ impl Sessions {
             direct,
             net,
             allowlists: Mutex::new(()),
+            asking_keys: Mutex::default(),
         }
     }
 
@@ -238,6 +247,7 @@ impl Sessions {
             queued,
             pid: None,
             images,
+            keys: Default::default(),
         };
         let _ = self.store.save(&session.stored());
         list.push(session);
@@ -489,6 +499,13 @@ impl SessionView<'_> {
     }
     pub(crate) fn launch(&self) -> Option<Launch> {
         self.session.launch.clone()
+    }
+    /// The person's answer about key `name` in this session, if any.
+    pub(crate) fn key_answer(&self, name: &str) -> Option<bool> {
+        self.session.keys.get(name).copied()
+    }
+    pub(crate) fn set_key_answer(&mut self, name: &str, allowed: bool) {
+        self.session.keys.insert(name.to_owned(), allowed);
     }
     pub(crate) fn set_launch(&mut self, launch: Launch) {
         self.session.launch = Some(launch);

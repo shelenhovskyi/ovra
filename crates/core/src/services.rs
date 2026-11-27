@@ -620,7 +620,9 @@ pub struct NetReporter {
 /// Asks whether a session may use a key, by the project's `UseKey` rules
 /// or the person (`docs/specs/secrets-consent.md`). `true`: add it.
 #[derive(Clone)]
-pub struct KeyConsent(Arc<dyn Fn(&SecretInfo) -> BoxFuture<'static, bool> + Send + Sync>);
+pub struct KeyConsent(Arc<AskKey>);
+
+type AskKey = dyn Fn(&SecretInfo) -> BoxFuture<'static, bool> + Send + Sync;
 
 impl KeyConsent {
     pub fn new(

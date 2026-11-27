@@ -1095,3 +1095,53 @@ fn always_allow_offers_ovras_branches_and_never_another_one() {
     };
     assert_eq!(always_push(&target, None), None);
 }
+
+#[test]
+fn use_key_rules_name_one_key_and_never_match_an_agents_tool() {
+    use super::keys;
+    let bash = crate::protocol::agents::ToolCall::default();
+    assert!(check(&rule("UseKey", Some("github"), PolicyAction::Auto)).is_ok());
+    assert!(check(&rule("UseKey", None, PolicyAction::Deny)).is_ok());
+    for bad in [
+        rule("UseKey", None, PolicyAction::Auto),
+        rule("UseKey", Some("a b"), PolicyAction::Ask),
+    ] {
+        assert!(check(&bad).is_err(), "{bad:?}");
+    }
+    let policy = Policy {
+        rules: vec![
+            rule("UseKey", Some("github"), PolicyAction::Auto),
+            rule("UseKey", Some("stripe"), PolicyAction::Deny),
+        ],
+    };
+    let contained = sandboxed(SandboxNetwork::Proxy);
+    let decided = |name: &str, sandbox| {
+        keys::decide(&policy, name, sandbox).map(|(a, r)| format!("{a:?} {r}"))
+    };
+    assert_eq!(
+        decided("github", Some(&contained)).as_deref(),
+        Some("Auto UseKey(github)")
+    );
+    assert_eq!(
+        decided("github", None),
+        None,
+        "auto counts only in a sandbox"
+    );
+    assert_eq!(
+        decided("stripe", None).as_deref(),
+        Some("Deny UseKey(stripe)")
+    );
+    assert_eq!(decided("npm", Some(&contained)), None);
+    // An agent's own tool called UseKey is no key.
+    assert_eq!(
+        super::decide(&policy, "UseKey", &bash, Path::new("/w"), Some(&contained)),
+        None
+    );
+    assert_eq!(
+        keys::always("github", Some(&contained))
+            .map(|r| text(&r))
+            .as_deref(),
+        Some("UseKey(github)")
+    );
+    assert_eq!(keys::always("github", None), None);
+}

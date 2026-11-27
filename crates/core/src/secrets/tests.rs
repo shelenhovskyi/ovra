@@ -111,6 +111,76 @@ fn only_what_the_netproxy_can_send_safely_is_kept() {
 }
 
 #[test]
+fn a_placeholder_never_replaces_an_agents_own_login() {
+    let with = |variable: &str| {
+        let secret = SecretInfo {
+            variable: Some(variable.into()),
+            ..info("gh", "api.github.com", "Authorization", "Bearer ")
+        };
+        verdict(secret, "ghp_x")
+    };
+    for ok in [
+        "GH_TOKEN",
+        "STRIPE_API_KEY",
+        "HF_TOKEN",
+        "DEPLOY_SECRET",
+        "GITLAB_PAT",
+    ] {
+        assert_eq!(with(ok), "ok", "{ok}");
+    }
+    for refused in [
+        "",
+        "_TOKEN",
+        "gh_token",
+        "PATH",
+        "LD_PRELOAD",
+        "GH TOKEN",
+        "GH-TOKEN",
+        "ANTHROPIC_API_KEY",
+        "CLAUDE_CODE_OAUTH_TOKEN",
+        "OPENAI_API_KEY",
+        "GEMINI_API_KEY",
+        "GOOGLE_API_KEY",
+        "AWS_SECRET",
+        "AZURE_KEY",
+        "CODEX_TOKEN",
+        "OVRA_TOKEN",
+        &format!("{}_KEY", "A".repeat(61)),
+    ] {
+        assert!(with(refused).contains("variable"), "{refused:?}");
+    }
+}
+
+#[tokio::test]
+async fn two_keys_never_set_the_same_variable() {
+    let core = Core::builder("test")
+        .projects(Arc::new(MemoryProjects::default()))
+        .secrets(Arc::new(MemorySecrets::default()))
+        .build();
+    let call = |json: serde_json::Value| {
+        let core = core.clone();
+        async move {
+            let request: Request = serde_json::from_value(json).unwrap_or_else(|e| panic!("{e}"));
+            core.handle(request).await
+        }
+    };
+    let root = crate::test_path!("/w");
+    let added = call(json!({"method": "projects.add", "params": {"root": root}})).await;
+    assert!(added.is_ok(), "{added:?}");
+    let set = |name: &str, host: &str| {
+        json!({"method": "secrets.set", "params": {"project": "p1",
+            "secret": {"name": name, "host": host, "header": "Authorization",
+                "prefix": "Bearer ", "variable": "GH_TOKEN"},
+            "value": "v"}})
+    };
+    assert!(call(set("gh", "api.github.com")).await.is_ok());
+    // The same key again keeps its variable.
+    assert!(call(set("gh", "api.github.com")).await.is_ok());
+    let taken = call(set("other", "api.example.com")).await;
+    assert_eq!(taken.err().map(|e| e.code), Some(ErrorCode::Conflict));
+}
+
+#[test]
 fn a_value_never_shows_in_debug_output() {
     let request: Request = serde_json::from_value(json!({"method": "secrets.set", "params": {
         "project": "p1",

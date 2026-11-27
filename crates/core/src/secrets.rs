@@ -76,9 +76,13 @@ pub(crate) async fn handle(
             core.project_store().get(&project)?;
             let changed = project.clone();
             let set = blocking(move || {
-                let taken = secrets.list(&project)?.into_iter().find(|other| {
-                    other.name != secret.name
-                        && same_host(&other.host, &secret.host)
+                let others: Vec<SecretInfo> = secrets
+                    .list(&project)?
+                    .into_iter()
+                    .filter(|other| other.name != secret.name)
+                    .collect();
+                let taken = others.iter().find(|other| {
+                    same_host(&other.host, &secret.host)
                         && other.header.eq_ignore_ascii_case(&secret.header)
                 });
                 if let Some(other) = taken {
@@ -87,6 +91,20 @@ pub(crate) async fn handle(
                         format!(
                             "{} already sends {} to {}",
                             other.name, other.header, other.host
+                        ),
+                    ));
+                }
+                let variable = secret.variable.as_ref();
+                if let Some(other) = others
+                    .iter()
+                    .find(|other| variable.is_some() && other.variable.as_ref() == variable)
+                {
+                    return Err(ProtocolError::new(
+                        ErrorCode::Conflict,
+                        format!(
+                            "{} already sets {}",
+                            other.name,
+                            variable.map_or("", String::as_str)
                         ),
                     ));
                 }
@@ -153,6 +171,14 @@ pub(crate) fn check(secret: &SecretInfo, value: &SecretValue) -> Result<(), Prot
             secret.name
         ));
     }
+    if let Some(variable) = &secret.variable
+        && !variable_ok(variable)
+    {
+        return bad(format!(
+            "{}: the variable is up to {MAX_NAME} of `A-Z 0-9 _`, ends in _TOKEN, _KEY, _SECRET or _PAT, and is not one an agent's own login reads",
+            secret.name
+        ));
+    }
     let value = value.expose();
     if value.is_empty() || value.len() > MAX_VALUE || has_control(value) {
         return bad(format!(
@@ -163,7 +189,35 @@ pub(crate) fn check(secret: &SecretInfo, value: &SecretValue) -> Result<(), Prot
     Ok(())
 }
 
-fn name_ok(name: &str) -> bool {
+/// A placeholder variable may end only so: a name for a token.
+const VARIABLE_ENDINGS: [&str; 4] = ["_TOKEN", "_KEY", "_SECRET", "_PAT"];
+/// Variables agents' own logins and Ovra read: a placeholder there would
+/// replace a real credential (`docs/specs/secrets-consent.md`).
+const AGENT_VARIABLES: [&str; 9] = [
+    "ANTHROPIC_",
+    "CLAUDE_",
+    "OPENAI_",
+    "GEMINI_",
+    "GOOGLE_",
+    "AWS_",
+    "AZURE_",
+    "CODEX_",
+    "OVRA_",
+];
+
+fn variable_ok(variable: &str) -> bool {
+    variable.len() <= MAX_NAME
+        && variable.starts_with(|c: char| c.is_ascii_uppercase())
+        && variable
+            .bytes()
+            .all(|b| b.is_ascii_uppercase() || b.is_ascii_digit() || b == b'_')
+        && VARIABLE_ENDINGS
+            .iter()
+            .any(|e| variable.ends_with(e) && variable.len() > e.len())
+        && !AGENT_VARIABLES.iter().any(|p| variable.starts_with(p))
+}
+
+pub(crate) fn name_ok(name: &str) -> bool {
     name.len() <= MAX_NAME
         && name
             .chars()

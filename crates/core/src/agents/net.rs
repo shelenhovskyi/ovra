@@ -36,10 +36,20 @@ impl Sessions {
         };
         let allow = projects.allowlist(project)?;
         let core = lock(&self.ide).as_ref().map(|link| link.core.clone());
-        let reporter = NetReporter::new(project.clone(), session.clone(), sink).with_core(core);
+        let mut reporter = NetReporter::new(project.clone(), session.clone(), sink.clone())
+            .with_core(core.clone());
+        // Without a core nobody can be asked: no key is added.
+        if let Some(core) = core {
+            let consent = super::keys::consent(core, project.clone(), session.clone(), sink);
+            reporter = reporter.with_key_consent(consent);
+        }
         // The bindings, never values: the proxy reads a value when it
         // adds it.
         let bound = secrets.list(project)?;
+        let variables = bound
+            .iter()
+            .filter_map(|s| Some((s.variable.clone()?, s.placeholder())))
+            .collect();
         // It reaches its own provider's hosts, no other's (ADR 0011).
         let agent = self.find(session, |s| s.info().agent)?;
         let started = net
@@ -75,7 +85,7 @@ impl Sessions {
         Ok(ProfileNetwork::Proxy {
             address: started.address,
             ca_bundle: started.ca_bundle,
-            variables: Vec::new(),
+            variables,
         })
     }
 
