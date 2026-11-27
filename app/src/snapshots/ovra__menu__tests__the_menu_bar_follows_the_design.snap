@@ -18,6 +18,7 @@ File
   New Task             CmdOrCtrl+N -> agents.new_session
   Open Folder…         CmdOrCtrl+O -> tree.open_folder
   Open Recent… -> palette.switch_project
+  Connect to Remote Machine… -> machines.connect
   ---
   Save                 CmdOrCtrl+S -> editor.save
   Close Tab            CmdOrCtrl+W -> editor.close_tab
@@ -52,7 +53,7 @@ Agents
   Reviews              CmdOrCtrl+Shift+R -> inbox.toggle
   Agent Browser        CmdOrCtrl+Shift+B -> browser.toggle
   Servers              CmdOrCtrl+Alt+S -> servers.toggle
-  Audit Log -> audit.toggle
+  Audit Log            Alt+CmdOrCtrl+L -> audit.toggle
 Window
   (Minimize)
   (Zoom)

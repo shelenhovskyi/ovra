@@ -96,6 +96,7 @@ pub(crate) const MENU_BAR: &[Group] = &[
             run("agents.new_session", "New Task", "Mod+N"),
             run("tree.open_folder", "Open Folder…", "Mod+O"),
             run_unbound("palette.switch_project", "Open Recent…"),
+            run_unbound("machines.connect", "Connect to Remote Machine…"),
             Sep,
             run("editor.save", "Save", "Mod+S"),
             run("editor.close_tab", "Close Tab", "Mod+W"),
