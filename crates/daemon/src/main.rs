@@ -166,7 +166,6 @@ async fn serve() -> anyhow::Result<()> {
         .opener(Arc::new(SystemOpener::new()))
         .keep_awake(keep_awake(&args))
         .remote(remote)
-        .ssh(Arc::new(ovra_ssh::OpenSsh::new(&args.data_dir)))
         .build();
     if let Some(server) = restore {
         server.restore(core.clone());

@@ -153,7 +153,11 @@ Ovra never accepts a host key itself and never runs `ssh-keyscan`.
   for a port other than 22, in the `userknownhostsfile` files `ssh -G`
   names, with `ssh-keygen -F` (which understands hashed hosts, the
   Debian and Ubuntu default). Keys marked `@revoked` are dropped; a host
-  known only through `@cert-authority` is refused in v1.
+  known only through `@cert-authority` is refused in v1, and so is a
+  config with `RevokedHostKeys` (`ssh-keygen -Q` cannot check keys Ovra
+  holds only in memory, so v1 shows none rather than a revoked one). Only
+  absolute paths are read: `ssh -G` joins the list with spaces, so a path
+  with a space cannot be told from two.
 - If keys are found, the dialog shows their fingerprints: "Your SSH already
   trusts this machine with key SHA256:…". The person adds the machine;
   Ovra writes normalised lines `ovra-<id> <type> <key>` into the machine's
@@ -170,14 +174,23 @@ Ovra never accepts a host key itself and never runs `ssh-keyscan`.
 
 ### The `ssh` binary and its environment
 
-- `ssh` is resolved once to an absolute path from `PATH`, skipping empty
-  and relative entries, checked to be OpenSSH 8.7 or later (`ssh -V`,
+- `ssh` and `ssh-keygen` are resolved once to absolute paths from `PATH`,
+  skipping empty and relative entries and files without an execute bit,
+  checked to be OpenSSH 8.7 or later (`ssh -V`,
   which every option below needs), and shown in Settings > Remote
   machines. Older or missing answers `no_ssh` with the reason.
+  Assumption: a macOS app gets the system's short `PATH`, so it finds
+  `/usr/bin/ssh` rather than one from Homebrew; that is OpenSSH too.
+- `ssh -G` and `ssh-keygen` run in their own process group for at most
+  10 s, with their output capped; on timeout the whole group is killed, so
+  a command the person's config leaves running (`Match exec "… &"`) cannot
+  hold Ovra up. They run off the core's request path.
 - The `ssh` process gets only a short list owned by `crates/ssh`: `PATH`,
   `HOME`, `USER`, `LOGNAME`, `LANG`, `LC_*`, `SSH_AUTH_SOCK` (so the local
-  agent can authenticate; it is never forwarded) and `XDG_RUNTIME_DIR`
-  (where `IdentityAgent` sockets of gpg-agent or 1Password live). No proxy
+  agent can authenticate; it is never forwarded), `XDG_RUNTIME_DIR`
+  (where `IdentityAgent` sockets of gpg-agent or 1Password live), and on
+  Windows `SYSTEMROOT`, `USERPROFILE`, `HOMEDRIVE` and `HOMEPATH` (how the
+  system and Win32-OpenSSH find `~/.ssh`). No proxy
   variables (they can carry passwords) and nothing else, so `SendEnv`,
   which adds up and cannot be cleared from the command line, has nothing
   secret to send. Assumption: a `ProxyCommand` that needs more (AWS SSM,
@@ -325,22 +338,22 @@ ssh -T -x -a
 
 ## Threat model
 
-| #   | Threat                                                                                    | Answer                                                                                                                                                                                                                                                                           |
-| --- | ----------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| T1  | Someone between the laptop and the machine poses as it                                    | Pinned keys under `HostKeyAlias=ovra-<id>`, `StrictHostKeyChecking=yes`, Ovra's own pin file; `KnownHostsCommand`, SSHFP (`VerifyHostKeyDNS`) and GSSAPI key exchange off; a changed key refuses. First trust is OpenSSH's own.                                                  |
-| T2  | A compromised remote machine attacks the laptop                                           | Every remote frame is untrusted. No agent, X11, port or tunnel forwarding. Frames go only to that window, checked and capped. Local UI assets only, own webview storage. The window's capability reaches no local files; links, notifications and status are checked by the app. |
-| T3  | Local credentials leak to the remote machine                                              | The SSH agent and Kerberos tickets are never forwarded; `ssh` gets only a short variable list, so `SendEnv` has nothing secret to send; Ovra's keys (secrets), Claude credentials and `gh` login are never sent. Claude and `gh` sign in on the remote machine itself.           |
-| T4  | A crafted destination or path injects options or commands                                 | Strict character sets per part, `--` before the destination, a fixed remote command, arguments without a local shell, a quoted pin path.                                                                                                                                         |
-| T5  | The person's `~/.ssh/config` turns on forwarding, a shared master, or changes the session | Command-line options win, checked again with `ssh -G`; `ControlPath=none` avoids reusing a master that has forwarding.                                                                                                                                                           |
-| T6  | Other users on the remote machine reach the core                                          | `--stdio` has no listener; the data directory is 0700. Step 6 must keep that (a 0700 socket with a peer uid check).                                                                                                                                                              |
-| T7  | Agents on the remote machine reach the laptop or its network                              | No reverse channel exists. The remote netproxy refuses loopback and private addresses as before. Links to the laptop's loopback and private hosts are refused.                                                                                                                   |
-| T8  | Agents run unsandboxed on a machine without bubblewrap                                    | Agents, language servers, dev servers and the browser refuse to start there.                                                                                                                                                                                                     |
-| T9  | A remote machine floods or crashes the UI                                                 | 16 MiB line cap, frame checks, bounded queue with resync, capped stderr, close on violation.                                                                                                                                                                                     |
-| T10 | Local agents change the pins, the host list or `ssh`                                      | Both files are under the data directory, a protected path; `ssh` is an absolute path. This holds where the laptop's own sandbox is available; on a laptop without one (macOS until verified, Windows) local agents could change them.                                            |
-| T11 | The phone companion exposes a remote machine                                              | It never runs in `--stdio`; `ssh.*` is not on its allowlist; a phone sees only the laptop's core.                                                                                                                                                                                |
-| T12 | The person thinks they act locally but act on the remote machine                          | "on <name>" bar and accent on every remote window, from the app, not the remote.                                                                                                                                                                                                 |
-| T13 | Agents keep running unattended after the laptop leaves                                    | Ping every 15 s, sessions stop after 60 s without frames; one core per data directory.                                                                                                                                                                                           |
-| T14 | The headless token reaches the person's machines                                          | `/ws/ssh/<id>` exists only in e2e builds.                                                                                                                                                                                                                                        |
+| #   | Threat                                                                                    | Answer                                                                                                                                                                                                                                                                                                                                                                                                             |
+| --- | ----------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| T1  | Someone between the laptop and the machine poses as it                                    | Pinned keys under `HostKeyAlias=ovra-<id>`, `StrictHostKeyChecking=yes`, Ovra's own pin file; `KnownHostsCommand`, SSHFP (`VerifyHostKeyDNS`) and GSSAPI key exchange off; a changed key refuses. First trust is OpenSSH's own.                                                                                                                                                                                    |
+| T2  | A compromised remote machine attacks the laptop                                           | Every remote frame is untrusted. No agent, X11, port or tunnel forwarding. Frames go only to that window, checked and capped. Local UI assets only, own webview storage. The window's capability reaches no local files; links, notifications and status are checked by the app.                                                                                                                                   |
+| T3  | Local credentials leak to the remote machine                                              | The SSH agent and Kerberos tickets are never forwarded; `ssh` gets only a short variable list, so `SendEnv` has nothing secret to send; Ovra's keys (secrets), Claude credentials and `gh` login are never sent. Claude and `gh` sign in on the remote machine itself.                                                                                                                                             |
+| T4  | A crafted destination or path injects options or commands                                 | Strict character sets per part, `--` before the destination, a fixed remote command, arguments without a local shell, a quoted pin path.                                                                                                                                                                                                                                                                           |
+| T5  | The person's `~/.ssh/config` turns on forwarding, a shared master, or changes the session | Command-line options win, checked again with `ssh -G`; `ControlPath=none` avoids reusing a master that has forwarding.                                                                                                                                                                                                                                                                                             |
+| T6  | Other users on the remote machine reach the core                                          | `--stdio` has no listener; the data directory is 0700. Step 6 must keep that (a 0700 socket with a peer uid check).                                                                                                                                                                                                                                                                                                |
+| T7  | Agents on the remote machine reach the laptop or its network                              | No reverse channel exists. The remote netproxy refuses loopback and private addresses as before. Links to the laptop's loopback and private hosts are refused.                                                                                                                                                                                                                                                     |
+| T8  | Agents run unsandboxed on a machine without bubblewrap                                    | Agents, language servers, dev servers and the browser refuse to start there.                                                                                                                                                                                                                                                                                                                                       |
+| T9  | A remote machine floods or crashes the UI                                                 | 16 MiB line cap, frame checks, bounded queue with resync, capped stderr, close on violation.                                                                                                                                                                                                                                                                                                                       |
+| T10 | Local agents change the pins, the host list or `ssh`                                      | Both files are under the data directory, a protected path; `ssh` is an absolute path. This holds where the laptop's own sandbox is available; on a laptop without one (macOS until verified, Windows) local agents could change them. A `PATH` entry that local agents can write could put another `ssh` first, which would run outside the sandbox with `SSH_AUTH_SOCK`; that holds for `git` and `gh` today too. |
+| T11 | The phone companion exposes a remote machine                                              | It never runs in `--stdio`; `ssh.*` is not on its allowlist; a phone sees only the laptop's core.                                                                                                                                                                                                                                                                                                                  |
+| T12 | The person thinks they act locally but act on the remote machine                          | "on <name>" bar and accent on every remote window, from the app, not the remote.                                                                                                                                                                                                                                                                                                                                   |
+| T13 | Agents keep running unattended after the laptop leaves                                    | Ping every 15 s, sessions stop after 60 s without frames; one core per data directory.                                                                                                                                                                                                                                                                                                                             |
+| T14 | The headless token reaches the person's machines                                          | `/ws/ssh/<id>` exists only in e2e builds.                                                                                                                                                                                                                                                                                                                                                                          |
 
 Remaining risks, documented in ADR 0016: the person's own `ProxyCommand`
 or `ProxyJump` runs as they configured it, and jump hosts use the person's
@@ -367,7 +380,13 @@ each.
   servers refused without a sandbox, sessions stopped when stdin closes and
   after 60 s without frames (fake clock), a second `--stdio` takes over or
   answers `busy`, no `remote.*`, `/ws/ssh` answers 404 without the e2e
-  feature.
+  feature. Headless mode has no remote machines (`ssh.*` is unavailable
+  there) outside e2e builds.
+- Assumption: the `crates/ssh` tests for hosts and pins run the real
+  `ssh -G` and `ssh-keygen` against a config and `known_hosts` of their own
+  (nothing connects); their output is what the parsing must match, which a
+  fake would only guess. Where OpenSSH 8.7+ is missing they say so and
+  pass. The link's tests use a fake `ssh`.
 - App: the remote capability file has only the listed commands (repo rule
   test); a local event never reaches `ssh-<id>`; `ovra_open_url` refuses
   loopback, private and non-http URLs.

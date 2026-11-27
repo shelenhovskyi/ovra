@@ -3595,7 +3595,6 @@ dependencies = [
  "ovra-sandbox",
  "ovra-secrets",
  "ovra-servers",
- "ovra-ssh",
  "ovra-store",
  "ovra-transport",
  "ovra-worktree",
