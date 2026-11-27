@@ -28,6 +28,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  if (mainView.current) mainView.close(false);
   if (app) unmount(app);
   app = null;
   target.remove();
@@ -188,17 +189,36 @@ describe("Notifications", () => {
     flushSync();
   });
 
-  it("moves the stack to the top while Reviews is open, off its Keep and Discard", () => {
+  it("moves the stack to the top while Reviews is open, unless the top would cover focus", () => {
     app = mount(TestHost, { target, props: { transport: new FakeAgentCore(), workspace: new Workspace() } });
     flushSync();
-    const stack = () => target.querySelector("[data-testid=notifications]");
-    expect(stack()?.classList.contains("top")).toBe(false);
+    const stack = target.querySelector<HTMLElement>("[data-testid=notifications]");
+    if (!stack) throw new Error("no stack");
+    const atTop = () => stack.classList.contains("top");
+    stack.getBoundingClientRect = () => DOMRect.fromRect({ x: 500, y: 0, width: 380, height: 60 });
+    expect(atTop()).toBe(false);
     mainView.show("reviews");
     flushSync();
-    expect(stack()?.classList.contains("top")).toBe(true);
+    expect(atTop()).toBe(true);
+
+    // A focused control just under the title bar, where the stack would sit.
+    const field = document.createElement("input");
+    field.getBoundingClientRect = () => DOMRect.fromRect({ x: 600, y: 60, width: 200, height: 24 });
+    target.append(field);
+    field.focus();
+    flushSync();
+    expect(atTop()).toBe(false);
+    // Focus moves on, out of the way: back to the top.
+    const other = document.createElement("button");
+    other.getBoundingClientRect = () => DOMRect.fromRect({ x: 0, y: 600, width: 80, height: 24 });
+    target.append(other);
+    other.focus();
+    flushSync();
+    expect(atTop()).toBe(true);
+
     mainView.close(false);
     flushSync();
-    expect(stack()?.classList.contains("top")).toBe(false);
+    expect(atTop()).toBe(false);
   });
 
   it("counts waiting requests in the window title", async () => {

@@ -149,8 +149,12 @@ function onkeydown(event: KeyboardEvent): void {
   .quiet {
     height: var(--control-h-sm);
     padding: 0 8px;
+    font: inherit;
     font-size: 13px;
     color: var(--text-2);
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: var(--radius-sm);
   }
   .quiet:hover:not(:disabled) {
     color: var(--text);
@@ -163,6 +167,8 @@ function onkeydown(event: KeyboardEvent): void {
     font-weight: 500;
     color: var(--danger);
     background: var(--danger-soft);
+    border: 1px solid transparent;
+    border-radius: var(--radius-sm);
   }
   .error {
     margin: 4px 0 0;

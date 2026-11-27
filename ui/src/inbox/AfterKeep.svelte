@@ -121,13 +121,13 @@ async function writeTests(): Promise<void> {
     gap: 6px;
     font: inherit;
     font-weight: 500;
-    padding: 5px 12px;
+    padding: 4px 11px;
     color: var(--text);
     background: var(--s3);
-    border: 0;
+    border: 1px solid transparent;
     border-radius: var(--radius);
   }
-  button:hover {
+  button:not([aria-disabled="true"]):hover {
     background: var(--s4);
   }
   button[aria-disabled="true"] {
@@ -137,7 +137,7 @@ async function writeTests(): Promise<void> {
     color: var(--text-2);
     background: transparent;
   }
-  .quiet:hover {
+  .quiet:not([aria-disabled="true"]):hover {
     background: var(--s3);
   }
 </style>

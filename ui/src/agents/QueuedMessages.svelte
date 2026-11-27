@@ -83,12 +83,12 @@ let {
     align-items: center;
     flex: none;
     height: 28px;
-    padding: 0 8px;
+    padding: 0 7px;
     font: inherit;
     font-size: 13px;
     color: var(--text);
     background: var(--s3);
-    border: 0;
+    border: 1px solid transparent;
     border-radius: var(--radius-sm);
   }
   .quiet:hover:not(:disabled) {

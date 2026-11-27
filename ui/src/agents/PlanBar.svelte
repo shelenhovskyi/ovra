@@ -32,6 +32,22 @@ let {
     padding: var(--sp-2) var(--sp-3);
     border-top: 1px solid var(--border);
   }
+  /* A component of its own: the agents panel's button styles do not reach it. */
+  .primary {
+    flex: none;
+    height: 32px;
+    padding: 0 14px;
+    font: inherit;
+    font-weight: 500;
+    color: var(--accent-ink);
+    background: var(--accent);
+    border: 1px solid transparent;
+    border-radius: var(--radius-sm);
+  }
+  .primary:disabled {
+    color: var(--text-2);
+    background: var(--s3);
+  }
   p {
     margin: 0;
     font: var(--t-small);

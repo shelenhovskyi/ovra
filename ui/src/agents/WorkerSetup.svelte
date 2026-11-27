@@ -92,8 +92,11 @@ async function retry(skip: boolean): Promise<void> {
     overflow-wrap: anywhere;
   }
   .link {
+    min-height: 0;
     padding: 0;
     font: inherit;
+    background: none;
+    border: 0;
     color: var(--accent);
     text-decoration: underline;
   }
@@ -105,8 +108,12 @@ async function retry(skip: boolean): Promise<void> {
   .quiet {
     height: var(--control-h-sm);
     padding: 0 8px;
+    font: inherit;
     font-size: 13px;
     color: var(--text-2);
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: var(--radius-sm);
   }
   .quiet:hover:not(:disabled) {
     color: var(--text);

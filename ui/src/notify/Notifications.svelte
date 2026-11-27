@@ -108,19 +108,31 @@ const polite = $derived(shown.filter((t) => t.level === "info"));
 
 /** Reviews keeps its decision (Keep changes, Discard) at the bottom: the stack sits at the top there. */
 const reviewsOpen = $derived(mainView.current === "reviews");
-/** The gap under the stack, as in the styles. */
+/** The gaps under and over the stack, as in the styles. */
 const BOTTOM = 32;
+const TOP = 44;
 let stack = $state<HTMLElement>();
-/** The stack moves to the top while, at the bottom, it would cover what has focus (WCAG 2.4.11). */
+/**
+ * The stack moves to the top while, at the bottom, it would cover what has
+ * focus (WCAG 2.4.11). In Reviews it starts at the top, and goes to the
+ * bottom only while the top would cover focus.
+ */
 let atTop = $state(false);
 
 function place(): void {
   const focus = document.activeElement;
-  if (!stack || stack.contains(focus)) return;
+  if (!stack) return;
+  if (stack.contains(focus)) {
+    // Focus on a toast: it stays where it is, except off Reviews' decision.
+    if (reviewsOpen) atTop = true;
+    return;
+  }
   const box = stack.getBoundingClientRect();
   const bottom = window.innerHeight - BOTTOM;
-  const there = { left: box.left, right: box.right, top: bottom - box.height, bottom };
-  atTop = focus instanceof HTMLElement && focus !== document.body && overlaps(there, focus.getBoundingClientRect());
+  const low = { left: box.left, right: box.right, top: bottom - box.height, bottom };
+  const high = { left: box.left, right: box.right, top: TOP, bottom: TOP + box.height };
+  const focused = focus instanceof HTMLElement && focus !== document.body ? focus.getBoundingClientRect() : null;
+  atTop = reviewsOpen ? !(focused && overlaps(high, focused)) : !!focused && overlaps(low, focused);
 }
 
 // Shown again: look once the cards are back on the page.
@@ -131,14 +143,18 @@ $effect(() => {
 // Again whenever the stack changes size, focus moves or the window resizes.
 $effect(() => {
   void shown.length;
+  void reviewsOpen;
   place();
 });
 
 $effect(() => {
-  const again = () => {
-    place();
-    look();
-  };
+  // Untracked: focus events fire inside other components' effects (a panel
+  // focusing itself), which must not come to depend on what place() reads.
+  const again = () =>
+    untrack(() => {
+      place();
+      look();
+    });
   document.addEventListener("focusin", again);
   window.addEventListener("resize", again);
   return () => {
@@ -179,7 +195,7 @@ $effect(() => {
     <button type="button" class="act" onclick={showApprovals}>Show</button>
   </div>
 {/if}
-<div class="notifications" class:top={atTop || reviewsOpen} data-testid="notifications" bind:this={stack}>
+<div class="notifications" class:top={atTop} data-testid="notifications" bind:this={stack}>
   <div aria-live="assertive">
     {#each urgent as item (item.id)}{@render toast(item)}{/each}
   </div>
