@@ -2,7 +2,8 @@
 
 Status: both features approved by the owner on 2026-11-25 (from the review
 of an agent's ideas); the details below are the agent's, within that
-approval. Builds on `docs/specs/orchestration.md`,
+approval. "Honest done" (person's own sessions, saved results, weakened
+checks) added 2026-11-27, approved with the owner's improvement list. Builds on `docs/specs/orchestration.md`,
 `docs/specs/worktree-setup.md` and `docs/specs/agent-resources.md`.
 
 ## 1. Check before review
@@ -38,16 +39,26 @@ finds out only after Keep.
   caches and a netproxy with the project's allowlist. The check runs the
   worker's code, so it gets no more than the worker has. The same
   environment as a setup step.
-- **Stale results.** When the worker works again (a comment, a message),
-  its check is dropped (a running one is killed): the files it judged are
-  gone. The next request runs it again.
+- **A person's own agents.** A session the person started (one agent here,
+  in the main checkout, or one agent in its own copy) has nobody to ask for
+  review: its check runs when a turn ends with changes by the agent that no
+  check has judged yet. A direct session's check runs in the main
+  checkout's pod, where its dev servers run. Workers of a task with a
+  coordinator still run it only when review is asked for.
+- **Stale results.** When the agent works again (a comment, a message), an
+  unfinished check is killed. A finished result stays with the item, with
+  the look of the files it judged; once the files differ it shows as
+  "on earlier files", and the person can press Run again
+  (`review.run_check`), as for a failed check. A turn that changes nothing
+  keeps the result.
 - The run does not take one of the agent places: it is short, and the
   worker it belongs to is idle while it runs.
 - Its output comes from code an agent wrote: it is shown as plain text
   with terminal escapes, control characters and direction overrides
   removed, and never sent to an agent.
-- Results are kept in memory with the review item, not across restarts.
-  The log keeps the last 2000 lines (each cut at 2000 characters).
+- A finished result is saved with the review item and survives a restart;
+  its log stays in memory only and keeps the last 2000 lines (each cut at
+  2000 characters).
 
 ### What the person sees
 
@@ -57,11 +68,30 @@ finds out only after Keep.
   text. Nothing when the project has no check.
 - The list row gets no marker: the state line is enough.
 
+### Weakened checks
+
+Agents that cannot make a test pass sometimes edit the test, skip it or
+silence the check, then say they are done. Ovra reads the diff, not the
+agent's words. `review.warnings { id }` lists what the agent's own changes
+do to tests and checks: a deleted test file, edited lines of an existing
+test, removed assertions (more removed than added), skipped or `only`
+tests, silenced lint, type or compiler checks (`eslint-disable`,
+`@ts-ignore`, `#[allow(`, `# noqa`, ...), and changed check config (CI
+workflows, `justfile`, lint, type and test runner config). Test files are
+found by the usual names. At most three line warnings per file and kind.
+Reviews shows them as a quiet "Look closer" list under the check line; a
+press opens that file's diff. Nothing blocks Keep: changing a test on
+purpose is normal work. The lines come from the agent and are shown as
+plain text, cut at 160 characters, without hidden characters.
+
 ### Protocol
 
 - `ReviewItem::check: Option<ReviewCheck>`: `state` (`running`, `passed`,
-  `failed`), `command` (as shown), `detail` (why it failed, in words).
+  `failed`, `not_run`), `command` (as shown), `detail` (why it failed, in
+  words), `stale` (it judged files that changed since).
 - `review.check_log { id }` answers `review.check_log { lines }`.
+- `review.run_check { id }` runs it again for an open item; answers `ok`.
+- `review.warnings { id }` answers `review.warnings { warnings }`.
 - `review.changed` is sent when a check starts and ends.
 
 ### Not now
@@ -69,7 +99,6 @@ finds out only after Keep.
 - Telling the coordinator the result, so it can send the worker back.
   Useful, but it puts command output in front of an agent; a follow-up
   with its own review.
-- Checks for direct sessions (the person's own checkout).
 
 ## 2. Starts that wait for a place
 

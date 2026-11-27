@@ -12,6 +12,7 @@ import type {
   PullRequest,
   ReviewId,
   ReviewItem,
+  ReviewWarning,
 } from "../lib/protocol";
 import { CoreError, type Transport } from "../lib/transport";
 
@@ -122,6 +123,21 @@ export class ReviewInbox {
   async checkLog(id: ReviewId): Promise<string[]> {
     const { data } = await this.transport.call({ method: "review.check_log", params: { id } });
     return data.lines;
+  }
+
+  /** What the agent's changes did to the project's tests and checks. */
+  async warnings(id: ReviewId): Promise<ReviewWarning[]> {
+    const { data } = await this.transport.call({ method: "review.warnings", params: { id } });
+    return data.warnings;
+  }
+
+  /** Runs the project's check again for the item; its line follows the core's change. */
+  async runCheck(id: ReviewId): Promise<void> {
+    try {
+      await this.transport.call({ method: "review.run_check", params: { id } });
+    } catch (err) {
+      this.error = message(err);
+    }
   }
 
   /** Shows every item and open diff as they are now. */

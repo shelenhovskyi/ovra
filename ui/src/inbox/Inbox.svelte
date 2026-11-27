@@ -27,6 +27,7 @@ import {
   approveDetail,
   approveHint,
   attemptsLeft,
+  canRunAgain,
   checkText,
   defaultCommitMessage,
   fileMarkers,
@@ -57,6 +58,7 @@ import { Explainer } from "./explain.svelte";
 import HunkDiff from "./HunkDiff.svelte";
 import { commentsAfterDiscard } from "./hunks";
 import { REVIEWS_KEYS } from "./keys";
+import LookCloser from "./LookCloser.svelte";
 import { handleOpenFor } from "./open";
 import PrDialog from "./PrDialog.svelte";
 import PrPanel from "./PrPanel.svelte";
@@ -726,12 +728,16 @@ function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
                         logFor = logOpen ? null : item.id;
                       }}>{logOpen ? "Hide log" : "Show log"}</button
                     >
+                    {#if canRunAgain(item.check) && (item.state === "open" || item.state === "published")}
+                      <button type="button" class="quiet" onclick={() => inbox.runCheck(item.id)}>Run again</button>
+                    {/if}
                   </p>
                   {#if logOpen}
                     <pre class="check-log" id="inbox-check-log" data-testid="inbox-check-log">{checkLog ??
                         "Loading…"}</pre>
                   {/if}
                 {/if}
+                <LookCloser {inbox} {item} onopen={(path) => (selectedPath = path)} />
                 {#if gitText}
                   <p class="protected" id="inbox-git" role="note" data-testid="inbox-git">{gitText}</p>
                 {/if}

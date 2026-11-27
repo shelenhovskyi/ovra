@@ -112,7 +112,7 @@ describe("Inbox", () => {
     core.checkLogs.set("r1", ["\u001b[31merror\u001b[0m: 1 test failed", "done"]);
     await open();
     const line = $("[data-testid=inbox-check]");
-    expect(line?.textContent?.replace(/\s+/g, " ").trim()).toBe("Check failed: exit code 1 Show log");
+    expect(line?.textContent?.replace(/\s+/g, " ").trim()).toBe("Check failed: exit code 1 Show log Run again");
     expect(line?.querySelector("span")?.title).toBe("just check");
     expect($("[data-testid=inbox-check-log]")).toBeNull();
     button(/^Show log$/)?.click();
@@ -130,6 +130,51 @@ describe("Inbox", () => {
     button(/^Hide log$/)?.click();
     await settle();
     expect($("[data-testid=inbox-check-log]")).toBeNull();
+  });
+
+  it("offers to run a check again that judged earlier files, or failed", async () => {
+    const core = await setup([review("r1", { check: { state: "passed", command: "just check", stale: true } })]);
+    await open();
+    const line = $("[data-testid=inbox-check]");
+    expect(line?.textContent).toContain("Check passed, on earlier files");
+    button(/^Run again$/)?.click();
+    await settle();
+    expect(core.calls.filter((c) => c.method === "review.run_check")).toEqual([
+      { method: "review.run_check", params: { id: "r1" } },
+    ]);
+
+    // Passed on these files: nothing to run again.
+    core.items = [{ ...core.items[0], check: { state: "passed", command: "just check" } } as (typeof core.items)[0]];
+    core.emit({ type: "review.changed", data: { project: "p1", id: "r1" } });
+    await settle();
+    expect(button(/^Run again$/)).toBeFalsy();
+  });
+
+  it("points at the tests and checks the agent weakened, and opens their diff", async () => {
+    const core = await setup([review("r1", { files: [change("README.md"), change("src/a.test.ts")] })], async (c) => {
+      c.warnings.set("r1", [
+        { kind: "test_skipped", path: "src/a.test.ts", line: 4, text: "it.skip('adds', () => {" },
+        { kind: "check_config", path: "tsconfig.json" },
+      ]);
+    });
+    await open();
+    const closer = $("[data-testid=inbox-closer]");
+    expect(closer?.querySelector("h4")?.textContent).toBe("Look closer");
+    expect(closer?.textContent).toContain("The agent changed tests and checks.");
+    const rows = [...(closer?.querySelectorAll("li") ?? [])].map((li) => li.textContent?.replace(/\s+/g, " ").trim());
+    expect(rows).toEqual([
+      "Skipped a test a.test.ts:4 it.skip('adds', () => {",
+      "Changed how the project is checked tsconfig.json",
+    ]);
+    closer?.querySelector<HTMLButtonElement>("li button")?.click();
+    await settle();
+    expect(core.calls.some((c) => c.method === "review.diff" && c.params.path === "src/a.test.ts")).toBe(true);
+  });
+
+  it("shows nothing to look closer at when the diff leaves tests and checks alone", async () => {
+    await setup([review("r1")]);
+    await open();
+    expect($("[data-testid=inbox-closer]")).toBeNull();
   });
 
   it("shows nothing about a check when the project has none", async () => {

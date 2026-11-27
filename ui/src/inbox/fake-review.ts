@@ -10,6 +10,7 @@ import type {
   Request,
   ResponseFor,
   ReviewItem,
+  ReviewWarning,
   SessionInfo,
   Task,
 } from "../lib/protocol";
@@ -62,6 +63,8 @@ export class FakeReviewCore implements Transport {
   diffFingerprint: string | null = null;
   /** What `review.check_log` answers, by item. */
   checkLogs = new Map<string, string[]>();
+  /** What `review.warnings` answers, by item; none by default. */
+  warnings = new Map<string, ReviewWarning[]>();
   /** What `pr.prepare` says of the person's `gh`. */
   gh: GhStatus = { installed: true, version: "2.60.0", host: "github.com", login: "octo", signed_in: true };
   /** Files `pr.prepare` says conflict with the base. */
@@ -200,6 +203,12 @@ export class FakeReviewCore implements Transport {
         return { type: "review.done", data: { item: structuredClone(item), conflicts: [], restored: [path] } };
       }
       case "review.comment":
+        this.find(request.params.id);
+        return { type: "ok" };
+      case "review.warnings":
+        this.find(request.params.id);
+        return { type: "review.warnings", data: { warnings: this.warnings.get(request.params.id) ?? [] } };
+      case "review.run_check":
         this.find(request.params.id);
         return { type: "ok" };
       case "review.check_log": {

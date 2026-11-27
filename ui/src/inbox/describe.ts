@@ -385,6 +385,11 @@ export function defaultCommitMessage(item: ReviewItem): string {
 
 /** The quiet line for the project's check before review. */
 export function checkText(check: ReviewCheck): string {
+  const text = checkState(check);
+  return check.stale && check.state !== "running" ? `${text}, on earlier files` : text;
+}
+
+function checkState(check: ReviewCheck): string {
   switch (check.state) {
     case "running":
       return "Check running";
@@ -395,6 +400,11 @@ export function checkText(check: ReviewCheck): string {
     case "not_run":
       return check.detail ? `Check not run: ${check.detail}` : "Check not run";
   }
+}
+
+/** Whether the person may run the check again: it did not pass on these files. */
+export function canRunAgain(check: ReviewCheck): boolean {
+  return check.state !== "running" && (check.stale === true || check.state !== "passed");
 }
 
 /**
