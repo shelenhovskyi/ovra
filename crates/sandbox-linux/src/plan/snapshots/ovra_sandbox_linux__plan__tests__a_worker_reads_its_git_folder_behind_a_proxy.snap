@@ -166,6 +166,8 @@ CURL_CA_BUNDLE
 --env
 GIT_SSL_CAINFO
 --env
+GH_TOKEN
+--env
 PATH
 --env
 TMPDIR
@@ -194,6 +196,7 @@ env REQUESTS_CA_BUNDLE = Some("ROOT/data/proxy/ca.pem")
 env CURL_CA_BUNDLE = Some("ROOT/data/proxy/ca.pem")
 env GIT_SSL_CAINFO = Some("ROOT/data/proxy/ca.pem")
 env SSL_CERT_DIR = None
+env GH_TOKEN = Some("ovra-key-github")
 env PATH = Some("/usr/bin")
 env TMPDIR = Some("/tmp")
 env OVRA_PORT = Some("41010")

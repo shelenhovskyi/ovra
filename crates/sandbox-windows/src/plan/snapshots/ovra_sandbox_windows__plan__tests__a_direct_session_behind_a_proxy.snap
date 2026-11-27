@@ -100,6 +100,7 @@ expression: root.show(&line)
 --env REQUESTS_CA_BUNDLE
 --env CURL_CA_BUNDLE
 --env GIT_SSL_CAINFO
+--env GH_TOKEN
 --env PATH
 --
 ROOT/home/.local/bin/claude.exe
@@ -123,6 +124,7 @@ environment:
   CURL_CA_BUNDLE = ROOT/data/net/ca.pem
   GIT_SSL_CAINFO = ROOT/data/net/ca.pem
   SSL_CERT_DIR = (removed)
+  GH_TOKEN = ovra-key-github
   PATH = ROOT/home/.cargo/bin;ROOT/sys/bin
   GITHUB_TOKEN = (removed)
   CLAUDE_CODE_OAUTH_TOKEN = (removed)

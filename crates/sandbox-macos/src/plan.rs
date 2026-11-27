@@ -332,11 +332,17 @@ impl Plan {
             ProfileNetwork::Blocked => {}
             ProfileNetwork::Open => plan.net = Net::Open,
             ProfileNetwork::Proxy {
-                address, ca_bundle, ..
+                address,
+                ca_bundle,
+                variables,
             } => {
                 plan.net = Net::Bridge(real(Path::new(address))?);
                 if let Some(bundle) = ca_bundle {
                     plan.trust(real(bundle)?);
+                }
+                // Keys' placeholders (`docs/specs/secrets-consent.md`).
+                for (name, placeholder) in variables {
+                    plan.set.push((name.into(), Some(placeholder.into())));
                 }
             }
         }

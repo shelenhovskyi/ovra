@@ -50,6 +50,7 @@ expression: root.show(&line)
 --env REQUESTS_CA_BUNDLE
 --env CURL_CA_BUNDLE
 --env GIT_SSL_CAINFO
+--env GH_TOKEN
 --env OVRA_PORT
 --env OVRA_WORKTREE_ROOT
 --env OVRA_MAIN_ROOT
@@ -74,6 +75,7 @@ env:
   CURL_CA_BUNDLE=ROOT/tmp/ca.pem
   GIT_SSL_CAINFO=ROOT/tmp/ca.pem
   -SSL_CERT_DIR
+  GH_TOKEN=ovra-key-github
   OVRA_PORT=41000
   OVRA_WORKTREE_ROOT=ROOT/projects/app
   OVRA_MAIN_ROOT=ROOT/projects/main

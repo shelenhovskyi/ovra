@@ -809,7 +809,9 @@ impl Plan {
             Kind::Server { .. } => (Vec::new(), line.env),
         };
         if let ProfileNetwork::Proxy {
-            address, ca_bundle, ..
+            address,
+            ca_bundle,
+            variables,
         } = &self.network
         {
             args.extend([os("--bridge"), os(real(Path::new(address))?)]);
@@ -834,6 +836,11 @@ impl Plan {
                     env.push((os(name), Some(bundle.clone())));
                 }
                 env.push((os("SSL_CERT_DIR"), None));
+            }
+            // Keys' placeholders, so tools that need a token start; the
+            // proxy adds the real one (`docs/specs/secrets-consent.md`).
+            for (name, placeholder) in variables {
+                env.push((os(name), Some(os(placeholder))));
             }
         }
         env.push((os("PATH"), Some(self.path.clone())));

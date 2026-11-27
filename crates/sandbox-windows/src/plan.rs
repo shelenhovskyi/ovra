@@ -239,7 +239,9 @@ impl Plan {
         plan.path = plan.path_entries(&home, &setup.path);
         plan.private(setup, &work_dir)?;
         if let ProfileNetwork::Proxy {
-            address, ca_bundle, ..
+            address,
+            ca_bundle,
+            variables,
         } = &profile.network
         {
             let proxy = OsString::from(format!("http://{address}"));
@@ -259,6 +261,10 @@ impl Plan {
                     plan.set.push((name.into(), Some(bundle.clone().into())));
                 }
                 plan.set.push(("SSL_CERT_DIR".into(), None));
+            }
+            // Keys' placeholders (`docs/specs/secrets-consent.md`).
+            for (name, placeholder) in variables {
+                plan.set.push((name.into(), Some(placeholder.into())));
             }
         }
         plan.denied

@@ -162,7 +162,7 @@ fn an_agent_session() {
     profile.network = ProfileNetwork::Proxy {
         address: socket.display().to_string(),
         ca_bundle: Some(bundle),
-        variables: Vec::new(),
+        variables: vec![("GH_TOKEN".into(), "ovra-key-github".into())],
     };
     profile.work_env = Some(WorkEnv {
         port: 41000,

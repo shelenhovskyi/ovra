@@ -148,7 +148,7 @@ fn a_direct_session_behind_a_proxy() {
         network: ProfileNetwork::Proxy {
             address: "127.0.0.1:49152".into(),
             ca_bundle: Some(bundle),
-            variables: Vec::new(),
+            variables: vec![("GH_TOKEN".into(), "ovra-key-github".into())],
         },
     };
     let plan = Plan::new(&setup, &profile, &claude).unwrap();

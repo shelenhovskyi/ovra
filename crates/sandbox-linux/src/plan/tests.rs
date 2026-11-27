@@ -211,7 +211,7 @@ fn a_worker_reads_its_git_folder_behind_a_proxy() {
     profile.network = ProfileNetwork::Proxy {
         address: socket.display().to_string(),
         ca_bundle: Some(bundle),
-        variables: Vec::new(),
+        variables: vec![("GH_TOKEN".into(), "ovra-key-github".into())],
     };
     profile.work_env = Some(WorkEnv {
         port: 41010,
