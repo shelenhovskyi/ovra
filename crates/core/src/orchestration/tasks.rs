@@ -292,11 +292,12 @@ async fn start(
 }
 
 /// Refuses a task in a project that is not a git repository: each of its
-/// agents works on its own copy (a worktree).
-async fn needs_git(core: &Core, project: &ProjectId, what: &str) -> Result<()> {
+/// agents works on its own copy (a worktree). Answers the snapshot that
+/// proved it, which a solo task's worker starts from.
+async fn needs_git(core: &Core, project: &ProjectId, what: &str) -> Result<String> {
     let root = core.root(project)?;
     match core.worktrees().snapshot(root).await {
-        Ok(_) => Ok(()),
+        Ok(snapshot) => Ok(snapshot),
         Err(err) => Err(ProtocolError::new(
             ErrorCode::BadRequest,
             format!(
@@ -345,7 +346,7 @@ pub(crate) async fn start_solo(
     if plan_first {
         agents::can_plan_first(&core.agents_ctx(), agent)?;
     }
-    needs_git(core, &project, "One agent, own copy").await?;
+    let base = needs_git(core, &project, "One agent, own copy").await?;
     let state = core.orchestration_state();
     let Some(worktrees_dir) = state.worktrees_dir.clone() else {
         return Err(ProtocolError::new(
@@ -410,6 +411,7 @@ pub(crate) async fn start_solo(
         plan_first,
         schedule,
         repos: &repos,
+        base: Some(base),
     };
     let result = create_worker(core, &entry, &worktrees_dir, new).await;
     {
@@ -785,6 +787,7 @@ pub(super) async fn spawn(
         plan_first: false,
         schedule: None,
         repos: &[],
+        base: None,
     };
     let result = create_worker(core, &entry, &worktrees_dir, new).await;
     {
@@ -890,6 +893,9 @@ struct NewWorker<'a> {
     schedule: Option<String>,
     /// Linked repositories it gets a copy of (`docs/specs/multi-repo.md`).
     repos: &'a [ProjectId],
+    /// The snapshot of the project it starts from, when the caller just
+    /// took one; `None` takes it now.
+    base: Option<String>,
 }
 
 /// A worker's session, waiting `preparing` or `queued`, and its worktree
@@ -919,10 +925,14 @@ async fn create_worker(
         plan_first,
         schedule,
         repos,
+        base,
     } = new;
     let root = core.root(&task.project)?;
     let worktrees = core.worktrees();
-    let base = worktrees.snapshot(root.clone()).await?;
+    let base = match base {
+        Some(base) => base,
+        None => worktrees.snapshot(root.clone()).await?,
+    };
     let dir: PathBuf = worktrees_dir
         .join(&task.project.0)
         .join(&task.id.0)

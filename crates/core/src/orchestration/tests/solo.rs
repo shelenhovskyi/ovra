@@ -20,7 +20,10 @@ async fn start_solo(core: &Core, agent: &str) -> Task {
 async fn one_agent_works_in_its_own_worktree_and_is_reviewed_like_a_worker() {
     let f = fx(say()).await;
     let mut rx = f.core.subscribe();
+    let commits = f.wt.commit_count();
     let task = start_solo(&f.core, "claude").await;
+    // The snapshot that proves a repository is the one its copy starts from.
+    assert_eq!(f.wt.commit_count(), commits + 1, "one snapshot");
     assert_eq!(task.coordinator, None);
     let [worker] = task.workers.as_slice() else {
         panic!("one worker: {task:?}");
