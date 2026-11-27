@@ -1,7 +1,6 @@
 # 0015. A task may change several repositories
 
-- Status: proposed (idea and architecture change approved by the owner on
-  2026-11-27; details in `docs/specs/multi-repo.md`)
+- Status: accepted (owner, 2026-11-27; details in `docs/specs/multi-repo.md`)
 - Date: 2026-11-27
 
 ## Context

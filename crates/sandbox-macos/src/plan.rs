@@ -262,6 +262,11 @@ impl Plan {
         if !profile.expose.is_empty() {
             return Err(invalid("only a server pod exposes ports"));
         }
+        if !profile.more_work_dirs.is_empty() {
+            return Err(invalid(
+                "the macOS sandbox cannot protect a task's other repositories yet",
+            ));
+        }
         for path in std::iter::once(&work_dir)
             .chain(&profile.read)
             .chain(&profile.write)

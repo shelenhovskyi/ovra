@@ -160,6 +160,34 @@ fn a_direct_session_behind_a_proxy() {
 }
 
 #[test]
+fn a_tasks_other_repositories_are_refused_until_they_can_be_protected() {
+    let root = Root::new("more-work-dirs");
+    let work = root.dir("projects/app");
+    let claude = root.file("home/.local/bin/claude.exe");
+    let setup = root.setup(&["sys/bin"]);
+    let profile = SandboxProfile {
+        more_work_dirs: vec![root.dir("projects/api")],
+        kind: ovra_core::services::ProfileKind::Agent,
+        agent_state: claude_state(None),
+        project: None,
+        work_env: None,
+        work_dir: work,
+        work_dir_read_only: false,
+        read: Vec::new(),
+        write: Vec::new(),
+        expose: Vec::new(),
+        forward: Vec::new(),
+        network: ProfileNetwork::Blocked,
+    };
+    let err = Plan::new(&setup, &profile, &claude).unwrap_err();
+    assert!(
+        err.message.contains("other repositories"),
+        "{}",
+        err.message
+    );
+}
+
+#[test]
 fn a_worker_reads_its_git_folder() {
     let root = Root::new("worker");
     let main_git = root.dir("projects/app/.git");

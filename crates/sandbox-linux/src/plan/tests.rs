@@ -936,3 +936,61 @@ fn a_layered_config_folder_is_private_with_its_entries_bound_back() {
     )
     .unwrap();
 }
+
+#[test]
+fn a_linked_repositorys_copy_is_writable_with_the_same_protected_paths() {
+    let root = Root::new("more-work-dirs");
+    let main = root.dir("data/worktrees/app/t1/solo");
+    let linked = root.dir("data/worktrees/api/t1/solo");
+    root.file("data/worktrees/api/t1/solo/.claude/settings.json");
+    root.file("data/worktrees/api/t1/solo/docs/CLAUDE.md");
+    let mut setup = root.setup("/usr/bin");
+    setup.protected = Protected {
+        work_dir: &[".claude", "**/CLAUDE.md", ".ovra"],
+    };
+    let mut profile = profile(&main);
+    profile.more_work_dirs.push(linked.clone());
+    let plan = Plan::new(&setup, &profile).unwrap();
+    assert!(plan.mounts.contains(&Mount::Rw(linked.clone())));
+    for path in [".claude", "docs/CLAUDE.md", ".ovra", "CLAUDE.md"] {
+        let path = linked.join(path);
+        assert!(plan.mounts.contains(&Mount::Ro(path.clone())), "{path:?}");
+    }
+    // Made in both copies, and gone again with the session.
+    assert!(plan.temporary.contains(&main.join(".ovra")));
+    assert!(plan.temporary.contains(&linked.join(".ovra")));
+    // Each protected path comes after the folder it is in.
+    let at = |m: &Mount| plan.mounts.iter().position(|x| x == m).unwrap();
+    assert!(at(&Mount::Rw(linked.clone())) < at(&Mount::Ro(linked.join(".claude"))));
+}
+
+#[test]
+fn more_work_dirs_that_overlap_or_are_not_an_agents_are_refused() {
+    let root = Root::new("more-overlap");
+    let main = root.dir("work/app");
+    let inside = root.dir("work/app/sub");
+    let outer = root.dir("work");
+    let other = root.dir("other");
+    let setup = root.setup("/usr/bin");
+    for dir in [&inside, &outer, &main] {
+        let mut profile = profile(&main);
+        profile.more_work_dirs.push(dir.clone());
+        let err = Plan::new(&setup, &profile).unwrap_err();
+        assert!(err.message.contains("overlap"), "{}", err.message);
+    }
+    let mut twice = profile(&main);
+    twice.more_work_dirs = vec![other.clone(), other.clone()];
+    assert!(Plan::new(&setup, &twice).is_err());
+    let mut research = profile(&main);
+    research.work_dir_read_only = true;
+    research.more_work_dirs.push(other.clone());
+    assert!(Plan::new(&setup, &research).is_err());
+    let mut pod = profile(&main);
+    pod.kind = ovra_core::services::ProfileKind::Pod;
+    pod.agent_state = None;
+    pod.more_work_dirs.push(other.clone());
+    assert!(Plan::new(&setup, &pod).is_err());
+    let mut missing = profile(&main);
+    missing.more_work_dirs.push(root.0.join("nowhere"));
+    assert!(Plan::new(&setup, &missing).is_err());
+}

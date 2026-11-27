@@ -170,6 +170,11 @@ impl Plan {
         if !profile.expose.is_empty() {
             return Err(invalid("the Windows sandbox cannot run server pods yet"));
         }
+        if !profile.more_work_dirs.is_empty() {
+            return Err(invalid(
+                "the Windows sandbox cannot protect a task's other repositories yet",
+            ));
+        }
         // Grants stay on a folder after its sessions (the project's SID is
         // the same for each), so an earlier direct session's write access
         // would still apply: a read-only folder needs a SID of its own first.

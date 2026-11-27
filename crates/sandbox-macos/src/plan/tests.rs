@@ -177,6 +177,20 @@ fn an_agent_session() {
 }
 
 #[test]
+fn a_tasks_other_repositories_are_refused_until_they_can_be_protected() {
+    let root = Root::new("more-work-dirs");
+    let setup = root.setup();
+    let mut profile = root.profile();
+    profile.more_work_dirs.push(root.dir("projects/api"));
+    let err = Plan::agent(&setup, &profile, &root.line()).unwrap_err();
+    assert!(
+        err.message.contains("other repositories"),
+        "{}",
+        err.message
+    );
+}
+
+#[test]
 fn a_research_session_writes_nothing_in_its_folder() {
     let root = Root::new("research");
     let setup = root.setup();

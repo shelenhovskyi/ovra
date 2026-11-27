@@ -260,10 +260,12 @@ impl Plan {
         if !work_dir.is_dir() {
             return Err(invalid(format!("{} is not a folder", work_dir.display())));
         }
+        let more = more_work_dirs(&work_dir, profile)?;
         let exposes_home = |p: &Path| home.starts_with(real(p).unwrap_or_else(|_| p.to_path_buf()));
         for path in std::iter::once(&work_dir)
             .chain(&profile.read)
             .chain(&profile.write)
+            .chain(&more)
         {
             if exposes_home(path) {
                 return Err(invalid(format!(
@@ -285,7 +287,10 @@ impl Plan {
         // Every agent's own configuration stays read-only, whatever the
         // project, the provider and the account: the default account's and
         // every other one's.
-        for path in std::iter::once(&work_dir).chain(&profile.write) {
+        for path in std::iter::once(&work_dir)
+            .chain(&profile.write)
+            .chain(&more)
+        {
             let path = real(path).unwrap_or_else(|_| path.clone());
             if holds_agent_state(&path, &home) {
                 return Err(invalid(format!(
@@ -318,7 +323,8 @@ impl Plan {
                     .read
                     .iter()
                     .chain(&profile.write)
-                    .filter_map(|p| real(p).ok()),
+                    .filter_map(|p| real(p).ok())
+                    .chain(more.iter().cloned()),
             )
             .collect();
         let caches = cache_key(profile.project.as_ref(), &work_dir);
@@ -337,6 +343,9 @@ impl Plan {
         } else {
             plan.rw(work_dir.clone());
         }
+        for dir in &more {
+            plan.rw(dir.clone());
+        }
         let mut hidden: Vec<PathBuf> = setup.hidden.iter().filter_map(|h| real(h).ok()).collect();
         hidden.sort_by_key(|h| h.components().count());
         // Held while folders are made and recorded, so no cleaner of an
@@ -349,25 +358,37 @@ impl Plan {
             ))
         })?;
         // A read-only work dir needs no protected paths: nothing in it is
-        // writable, so nothing is made there either.
-        let absent = |name: &str| !read_only && fs::symlink_metadata(work_dir.join(name)).is_err();
-        let missing: Vec<PathBuf> = FOLDERS_MADE
-            .into_iter()
-            .filter(|name| absent(name))
-            .map(|name| work_dir.join(name))
+        // writable, so nothing is made there either. Every more work dir is
+        // writable and protected the same way.
+        let writable_dirs: Vec<&PathBuf> = std::iter::once(&work_dir)
+            .filter(|_| !read_only)
+            .chain(&more)
             .collect();
-        let missing_files: Vec<PathBuf> = files_made(setup.protected.work_dir)
-            .filter(|name| absent(name))
-            .map(|name| work_dir.join(name))
+        let absent = |dir: &Path, name: &str| fs::symlink_metadata(dir.join(name)).is_err();
+        let missing: Vec<PathBuf> = writable_dirs
+            .iter()
+            .flat_map(|dir| {
+                FOLDERS_MADE
+                    .into_iter()
+                    .filter(|name| absent(dir, name))
+                    .map(|name| dir.join(name))
+            })
+            .collect();
+        let missing_files: Vec<PathBuf> = writable_dirs
+            .iter()
+            .flat_map(|dir| {
+                files_made(setup.protected.work_dir)
+                    .filter(|name| absent(dir, name))
+                    .map(|name| dir.join(name))
+            })
             .collect();
         // Skipped with its refusal of protected names that are links: a
         // link in a read-only bind leads nowhere writable that the plan
         // does not already allow.
-        let protected = if read_only {
-            Vec::new()
-        } else {
-            protected_paths(setup, &work_dir, &home, &hidden)?
-        };
+        let mut protected = Vec::new();
+        for dir in &writable_dirs {
+            protected.extend(protected_paths(setup, dir, &home, &hidden)?);
+        }
         // A pod's folders stay: removing them could drop the bind under an
         // agent's session that started meanwhile.
         if plan.kind == Kind::Agent {
@@ -998,6 +1019,40 @@ fn nothing_lost(mounts: &[Mount]) -> Result<()> {
 
 /// The folder name `claude` keeps a project's transcripts under: its path
 /// with every character but letters and digits replaced by `-`.
+/// `profile`'s more work dirs as real paths. Each must be a folder apart
+/// from `work_dir` and from the others, neither inside nor holding one:
+/// otherwise one's protected paths could be bound writable by another.
+fn more_work_dirs(work_dir: &Path, profile: &SandboxProfile) -> Result<Vec<PathBuf>> {
+    if profile.more_work_dirs.is_empty() {
+        return Ok(Vec::new());
+    }
+    if profile.kind != ProfileKind::Agent || profile.work_dir_read_only {
+        return Err(invalid(
+            "only an agent's writable sandbox takes more work dirs".to_owned(),
+        ));
+    }
+    let mut dirs: Vec<PathBuf> = vec![work_dir.to_path_buf()];
+    for dir in &profile.more_work_dirs {
+        let dir = real(dir)?;
+        if !dir.is_dir() {
+            return Err(invalid(format!("{} is not a folder", dir.display())));
+        }
+        if let Some(other) = dirs
+            .iter()
+            .find(|d| d.starts_with(&dir) || dir.starts_with(d))
+        {
+            return Err(invalid(format!(
+                "{} and {} overlap: each work dir must be a folder of its own",
+                dir.display(),
+                other.display()
+            )));
+        }
+        dirs.push(dir);
+    }
+    dirs.remove(0);
+    Ok(dirs)
+}
+
 fn project_key(work_dir: &Path) -> String {
     work_dir
         .to_string_lossy()
