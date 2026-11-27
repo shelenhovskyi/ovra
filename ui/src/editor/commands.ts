@@ -8,6 +8,7 @@ import type { Workspace } from "../shell/workspace.svelte";
 import { registerEditorContext } from "./agent-context";
 import { foldCommands } from "./folding";
 import { editorReady, goToChange, readBlame, showChangeAtCursor, toggleBlame } from "./git/extension";
+import { showLocalHistory } from "./history-list";
 import type { LspAction } from "./lsp/actions";
 import { modeMemory } from "./mode-memory";
 import {
@@ -208,6 +209,15 @@ export function registerEditorCommands(workspace: Target): () => void {
       run: previousChange,
     }),
     // No default shortcuts: free ones that browsers leave alone are scarce; the palette reaches these.
+    registerCommand({
+      id: "editor.local_history",
+      title: "Local history: put back an earlier version",
+      keywords: ["versions", "timeline", "restore", "revert"],
+      run: () =>
+        showLocalHistory(workspace, async () => {
+          if (workspace.mode !== "edit") await toggle(workspace);
+        }),
+    }),
     registerCommand({ id: "editor.toggle_blame", title: "Git: toggle blame", run: toggleBlame }),
     registerCommand({ id: "editor.read_blame", title: "Git: read blame of cursor line", run: readCursorBlame }),
     registerCommand({ id: "editor.show_git_change", title: "Git: show change at cursor", run: showChange }),

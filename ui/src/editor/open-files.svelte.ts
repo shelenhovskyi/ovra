@@ -18,6 +18,7 @@ import { autoSaver } from "./autosave";
 import { Buffers } from "./buffers.svelte";
 import { drafts } from "./drafts.svelte";
 import { highlighter } from "./highlight/highlighter";
+import { localHistory } from "./local-history";
 import { LanguageClients } from "./lsp/clients";
 import { modeMemory } from "./mode-memory";
 
@@ -666,7 +667,14 @@ export function persistOpenFiles(transport: Transport, workspace: Workspace): ()
         workspace.group = 0;
       });
       if (!project) return;
-      const buffers = new Buffers({ transport, project, drafts, highlighter, autoSave: autoSaver });
+      const buffers = new Buffers({
+        transport,
+        project,
+        drafts,
+        highlighter,
+        autoSave: autoSaver,
+        history: localHistory,
+      });
       const files = new OpenFiles(transport, project, buffers);
       const lsp = new LanguageClients({
         transport,

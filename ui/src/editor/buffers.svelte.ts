@@ -48,6 +48,7 @@ import { treeSitterHighlighting } from "./highlight/extension";
 import type { LanguageSource } from "./highlight/protocol";
 import { dedentLines, fileIndentation, indentLines, indentTab, newlineKeepIndent, smartIndent } from "./indent";
 import { commentTokens, type Language, languageFor, languageSource } from "./languages";
+import type { LocalHistory, VersionReason } from "./local-history";
 import { formatBeforeSave } from "./lsp/format";
 import { editorPrefs } from "./prefs.svelte";
 import { goToLine, runSearch, searchPhrases } from "./search";
@@ -152,6 +153,8 @@ type Options = {
   autoSave?: AutoSaver;
   /** The project's `.editorconfig` files; Buffers gives each buffer the project's. */
   editorConfigs?: EditorConfigs;
+  /** Keeps the versions of files this editor sees (local-history.ts). */
+  history?: LocalHistory;
 };
 
 export class Buffer {
@@ -335,6 +338,7 @@ export class Buffer {
       });
       this.mtime = data.mtime_ms;
       this.saved = doc;
+      this.keep(doc.toString(), "saved");
       this.conflict = false;
       this.deleted = false;
       this.trashed = false;
@@ -351,6 +355,11 @@ export class Buffer {
       }
       return false;
     }
+  }
+
+  /** Keeps `text` (as on disk, with "\n" line breaks) in the local history. */
+  private keep(text: string, reason: VersionReason): void {
+    void this.options.history?.record(this.options.project, this.path, text.replaceAll("\r\n", "\n"), reason);
   }
 
   /** Trims line ends and adds the last line break as `.editorconfig` says, as an edit the person can undo. */
@@ -383,6 +392,7 @@ export class Buffer {
     this.trashed = false;
     if (file) this.error = null;
     if (file?.body.kind !== "text" || file.mtime_ms === this.mtime) return;
+    this.keep(file.body.text, "changed_on_disk");
     if (this.dirty) this.conflict = true;
     else this.replace(file.body.text, file.mtime_ms);
   }
@@ -420,6 +430,7 @@ export class Buffer {
       this.source = null; // Unknown grammar or query: plain text.
     }
     if (this.disposed) return;
+    this.keep(file.body.text, "opened");
     this.mtime = file.mtime_ms;
     this.lineEnding = lineEndingOf(file.body.text);
     this.state = this.create(draft ? draft.text : file.body.text);

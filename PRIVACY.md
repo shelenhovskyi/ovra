@@ -15,7 +15,9 @@ no accounts.
 - **Headless mode stays local.** `ovra-daemon` listens on `127.0.0.1` only and
   requires a per-launch token ([SECURITY.md](SECURITY.md)).
 - **Local data.** Ovra keeps its project list and session data on your
-  machine.
+  machine, and earlier versions of the files you open in its editor (local
+  history: up to 50 per file, never for names like `.env*`, `*.pem` or `*.key`)
+  in the app's own storage.
 
 ## Our commitment
 
