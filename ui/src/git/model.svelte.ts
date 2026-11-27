@@ -176,6 +176,11 @@ export class GitModel {
   choosing = $state(false);
   /** The next commit replaces the last one ("Change last commit…"). */
   amend = $state(false);
+  /**
+   * The commit message being written. Kept here, not in the commit box, so that it
+   * survives the box going and coming back while the status reloads.
+   */
+  message = $state("");
   /** "Get commits", "Send commits" or "Publish branch" is under way. */
   syncing = $state<"pull" | "push" | "publish" | null>(null);
   /** How many commits the last "Get commits" brought, until dismissed. */
@@ -185,6 +190,8 @@ export class GitModel {
   private again = false;
   /** The fetch under way, with its status reload: "Get commits" and "Send commits" wait for it, so their refs win. */
   private fetching: Promise<void> | null = null;
+  /** The action `act` runs, with its status reload. */
+  private acting: Promise<boolean> | null = null;
   private readonly fetches: FetchState;
   private disposed = false;
   private readonly offs: (() => void)[];
@@ -303,6 +310,11 @@ export class GitModel {
     };
     this.loading = run();
     return this.loading;
+  }
+
+  /** Resolves once no action (nor a fetch) runs: a key pressed meanwhile waits here rather than being lost. */
+  async idle(): Promise<void> {
+    while ((this.acting || this.fetching) && !this.disposed) await (this.acting ?? this.fetching);
   }
 
   /** Resolves once the status load under way, if any, is done. */
@@ -510,14 +522,29 @@ export class GitModel {
    * Runs one action at a time, records its outcome and refreshes afterwards, also after a failure.
    * A `slow` one (it runs the person's hooks) offers Cancel once it has run for `SLOW_MS`.
    */
-  private async act(
+  private act(
     scope: GitErrorScope,
     run: () => Promise<void>,
     done: string | null,
     fail: (err: unknown) => Omit<GitError, "scope"> = (err) => ({ message: message(err) }),
     slow?: "commit" | "branch",
   ): Promise<boolean> {
-    if (this.busy) return false;
+    if (this.busy) return Promise.resolve(false);
+    const acting = this.acted(scope, run, done, fail, slow);
+    this.acting = acting;
+    void acting.finally(() => {
+      if (this.acting === acting) this.acting = null;
+    });
+    return acting;
+  }
+
+  private async acted(
+    scope: GitErrorScope,
+    run: () => Promise<void>,
+    done: string | null,
+    fail: (err: unknown) => Omit<GitError, "scope">,
+    slow?: "commit" | "branch",
+  ): Promise<boolean> {
     this.busy = true;
     this.error = null;
     const timer = slow ? setTimeout(() => (this.slow = slow), SLOW_MS) : undefined;

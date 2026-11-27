@@ -408,6 +408,44 @@ it("commits with Mod+Enter, says why it waits and shows a hook's output", async 
   model.stopping = false;
 });
 
+it("keeps the commit message through a failed status reload and commits once a running stage is done", async () => {
+  const core = new FakeGitCore();
+  core.status = repo({ files: [changed("a.ts", { staged: "modified" }), changed("b.ts")] });
+  await setup(core);
+  const type = (value: string) => {
+    const box = $<HTMLTextAreaElement>("textarea");
+    if (!box) throw new Error("no commit message");
+    box.value = value;
+    box.dispatchEvent(new Event("input", { bubbles: true }));
+    return box;
+  };
+  type("Fix a");
+  // A reload that fails takes the commit box away; the next one brings it back with the text.
+  core.failNext.set("git.status", new CoreError({ code: "internal", message: "index busy" }));
+  core.emit({ type: "fs.git_changed", data: { project: "p1" } });
+  await settle();
+  expect($("[data-testid=git-error]")).not.toBeNull();
+  core.emit({ type: "fs.git_changed", data: { project: "p1" } });
+  await settle();
+  expect($<HTMLTextAreaElement>("textarea")?.value).toBe("Fix a");
+
+  // Mod+Enter while a stage still runs waits for it, then commits: the press is not lost.
+  let release = () => {};
+  core.holdNext.set("git.stage", (r) => {
+    release = r;
+  });
+  void gitModel("p1")?.stage(["b.ts"]);
+  await settle();
+  type("Fix a and b").dispatchEvent(new KeyboardEvent("keydown", { code: "Enter", ctrlKey: true, bubbles: true }));
+  await settle();
+  expect(core.calls.some((c) => c.method === "git.commit")).toBe(false);
+  release();
+  await settle();
+  expect(core.calls.filter((c) => c.method === "git.commit")).toMatchObject([{ params: { message: "Fix a and b" } }]);
+  await settle();
+  expect(text("[data-testid=git-committed]")).toMatch(/: Fix a and b$/);
+});
+
 it("switches branches, shows why a switch failed and creates a branch", async () => {
   const core = new FakeGitCore();
   core.branches.push(

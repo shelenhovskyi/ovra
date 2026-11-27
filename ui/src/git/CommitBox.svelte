@@ -15,7 +15,6 @@ let { model, status, assist, staging }: { model: GitModel; status: RepoStatus; a
   $props();
 
 const shortcut = formatShortcut("Mod+Enter", isApple());
-let text = $state("");
 /** The person's own text that an agent's draft replaced, for Undo. */
 let replaced = $state<string | null>(null);
 let box = $state<HTMLTextAreaElement>();
@@ -27,14 +26,14 @@ $effect(() => {
   const draft = assist.draft;
   if (draft == null) return;
   assist.draft = null;
-  replaced = text.trim() && text !== draft ? text : null;
-  text = draft;
+  replaced = model.message.trim() && model.message !== draft ? model.message : null;
+  model.message = draft;
   void tick().then(() => box?.focus());
 });
 
 function undoDraft(): void {
   if (replaced === null) return;
-  text = replaced;
+  model.message = replaced;
   replaced = null;
   box?.focus();
 }
@@ -49,14 +48,29 @@ const files = (n: number) => `${n} ${n === 1 ? "file" : "files"}`;
 const label = $derived(model.amend ? "Change last commit" : count === 0 ? "Commit" : `Commit ${files(count)}`);
 const why = $derived.by(() => {
   if (!model.amend && count === 0) return "Stage the files to commit first.";
-  if (!text.trim() && !model.amend) return "Write what you changed first.";
+  if (!model.message.trim() && !model.amend) return "Write what you changed first.";
   return null;
 });
 
 /** Blanks the reason for a moment, so that its live region reads it out again. */
 let repeating = $state(false);
 
+/** A commit asked for, maybe still waiting for a stage or the like to finish. */
+let committing = false;
+
 async function commit(): Promise<void> {
+  if (committing) return;
+  committing = true;
+  try {
+    // Pressed while a stage, say, still runs: commit once it is done, not never.
+    if (model.busy) await model.idle();
+    await commitNow();
+  } finally {
+    committing = false;
+  }
+}
+
+async function commitNow(): Promise<void> {
   if (model.busy) return;
   if (why) {
     // Say why nothing happened, where it shows, and once more on each press.
@@ -64,12 +78,12 @@ async function commit(): Promise<void> {
     repeating = true;
     await tick();
     repeating = false;
-    if (!text.trim()) box?.focus();
+    if (!model.message.trim()) box?.focus();
     return;
   }
   if (unstaged.length > 0 && !(await model.stage(unstaged))) return;
-  if (await model.commit(text.trim(), model.amend)) {
-    text = "";
+  if (await model.commit(model.message.trim(), model.amend)) {
+    model.message = "";
     replaced = null;
     tried = false;
     model.amend = false;
@@ -106,7 +120,7 @@ function onkeydown(event: KeyboardEvent): void {
       spellcheck="true"
       placeholder="What did you change? For example: Fix the login button"
       aria-keyshortcuts={isApple() ? "Meta+Enter" : "Control+Enter"}
-      bind:value={text}
+      bind:value={model.message}
       bind:this={box}
     ></textarea>
   </label>
