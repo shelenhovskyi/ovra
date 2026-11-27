@@ -9,7 +9,7 @@ use tauri::menu::{
     AboutMetadata, HELP_SUBMENU_ID, Menu, MenuEvent, MenuItem, PredefinedMenuItem, Submenu,
     WINDOW_SUBMENU_ID,
 };
-use tauri::{AppHandle, Emitter, Runtime};
+use tauri::{AppHandle, Manager, Runtime};
 
 /// An item macOS implements itself.
 #[derive(Clone, Copy, Debug)]
@@ -250,7 +250,16 @@ fn native_item<R: Runtime>(
 /// Hands a picked command item to the window.
 pub(crate) fn forward<R: Runtime>(app: &AppHandle<R>, event: MenuEvent) {
     if let Some(id) = command_for(event.id().as_ref()) {
-        let _ = app.emit("ovra://menu", id);
+        // To the focused window only: a remote window runs the command
+        // against its own machine, and no other window hears it.
+        let focused = app
+            .webview_windows()
+            .into_iter()
+            .find(|(_, w)| w.is_focused().unwrap_or(false))
+            .map_or_else(|| "main".to_owned(), |(label, _)| label);
+        if let Some(mailboxes) = app.try_state::<crate::mailbox::Mailboxes>() {
+            mailboxes.send(&focused, serde_json::json!({ "menu": id }));
+        }
     }
 }
 

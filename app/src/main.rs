@@ -3,7 +3,9 @@
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod mailbox;
 mod menu;
+mod remote;
 
 use std::sync::Arc;
 use std::time::Instant;
@@ -24,13 +26,95 @@ use ovra_secrets::KeychainSecrets;
 use ovra_servers::PodServers;
 use ovra_store::Store;
 use ovra_worktree::{GitRepo, GitWorktrees};
-use tauri::{Emitter, Manager};
+use serde_json::json;
+use tauri::Manager;
 use tauri_plugin_dialog::DialogExt;
 
-/// Carries one client frame to the core and returns the reply frame.
+/// Carries one client frame to the core of the calling window and returns
+/// the reply frame: the laptop's for `main`, the machine's for `ssh-<id>`.
 #[tauri::command]
-async fn ovra_call(client: tauri::State<'_, Client>, frame: String) -> Result<String, ()> {
-    Ok(ovra_transport::dispatch(&client, &frame).await)
+async fn ovra_call(
+    window: tauri::WebviewWindow,
+    client: tauri::State<'_, Client>,
+    remotes: tauri::State<'_, remote::Remotes>,
+    frame: String,
+) -> Result<String, ()> {
+    if window.label() == "main" {
+        return Ok(ovra_transport::dispatch(&client, &frame).await);
+    }
+    match ovra_ssh::window::machine(window.label()) {
+        Some(id) => Ok(remotes.call(&id, frame).await),
+        None => Err(()),
+    }
+}
+
+/// The calling window's channel for everything the app tells it: frames,
+/// menu commands, drops and link status (`mailbox`).
+#[tauri::command]
+fn ovra_subscribe(
+    window: tauri::WebviewWindow,
+    mailboxes: tauri::State<'_, mailbox::Mailboxes>,
+    channel: tauri::ipc::Channel<serde_json::Value>,
+) -> Result<(), ()> {
+    let label = window.label();
+    if label != "main" && ovra_ssh::window::machine(label).is_none() {
+        return Err(());
+    }
+    mailboxes.set(label, channel);
+    Ok(())
+}
+
+/// Refuses a command meant for the main window from any other, should a
+/// capability ever grant it to one.
+fn main_only(window: &tauri::WebviewWindow) -> Result<(), String> {
+    if window.label() == "main" {
+        Ok(())
+    } else {
+        Err("only the main window may do this".to_owned())
+    }
+}
+
+/// Opens the window of remote machine `id`, or focuses it, and connects.
+/// For the main window only.
+#[tauri::command]
+fn ovra_remote_show(
+    window: tauri::WebviewWindow,
+    app: tauri::AppHandle,
+    remotes: tauri::State<'_, remote::Remotes>,
+    id: String,
+) -> Result<(), String> {
+    main_only(&window)?;
+    let id = ovra_core::ssh::HostId::parse(&id).map_err(|e| e.message)?;
+    remotes.show(&app, &id)
+}
+
+/// Connects the calling remote window to its machine again.
+#[tauri::command]
+fn ovra_remote_reconnect(
+    window: tauri::WebviewWindow,
+    remotes: tauri::State<'_, remote::Remotes>,
+) -> Result<(), String> {
+    let id = ovra_ssh::window::machine(window.label()).ok_or("not a remote window")?;
+    remotes.connect(window.app_handle(), &id);
+    Ok(())
+}
+
+/// Ends the calling remote window's link; the window stays.
+#[tauri::command]
+fn ovra_remote_disconnect(
+    window: tauri::WebviewWindow,
+    remotes: tauri::State<'_, remote::Remotes>,
+) -> Result<(), String> {
+    let id = ovra_ssh::window::machine(window.label()).ok_or("not a remote window")?;
+    remotes.close(&id);
+    Ok(())
+}
+
+/// Opens a web link from a remote window in the laptop's browser, unless
+/// it points at this computer or its network.
+#[tauri::command]
+fn ovra_open_url(url: String) -> Result<(), String> {
+    remote::open_url(&url)
 }
 
 /// Shows the system's folder dialog over `window` and returns the chosen
@@ -39,6 +123,7 @@ async fn ovra_call(client: tauri::State<'_, Client>, frame: String) -> Result<St
 /// the window gets no dialog permission of its own.
 #[tauri::command]
 async fn ovra_pick_folder(window: tauri::WebviewWindow) -> Result<Option<String>, String> {
+    main_only(&window)?;
     let dialog = window.dialog().file().set_parent(&window);
     let picked = tauri::async_runtime::spawn_blocking(move || dialog.blocking_pick_folder())
         .await
@@ -118,7 +203,9 @@ fn on_drop(window: &tauri::Window, paths: &[std::path::PathBuf], at: tauri::Phys
         x: at.x,
         y: at.y,
     };
-    let _ = window.emit_to("main", "ovra://drop", frame);
+    if let Some(mailboxes) = window.try_state::<mailbox::Mailboxes>() {
+        mailboxes.send("main", json!({ "drop": frame }));
+    }
 }
 
 /// Where files dragged in from outside are while they are over the main
@@ -128,7 +215,9 @@ fn on_drag_over(window: &tauri::Window, at: Option<tauri::PhysicalPosition<f64>>
         return;
     }
     let at = at.map(|at| css_point(window, at));
-    let _ = window.emit_to("main", "ovra://drag-over", at);
+    if let Some(mailboxes) = window.try_state::<mailbox::Mailboxes>() {
+        mailboxes.send("main", json!({ "dragOver": at }));
+    }
 }
 
 /// A drag position from the window's drop handler in CSS pixels. Tauri
@@ -152,12 +241,14 @@ fn css_point(
 /// the person's answer until it expires; any other outcome uses it up.
 #[tauri::command]
 async fn ovra_import_drop(
+    window: tauri::WebviewWindow,
     importer: tauri::State<'_, Importer>,
     drop_id: String,
     project: ProjectId,
     target_dir: String,
     clash: ClashAnswer,
 ) -> Result<ImportReply, String> {
+    main_only(&window)?;
     let into = RelPath::parse(&target_dir).map_err(|e| e.message)?;
     let root = importer.projects.get(&project).map_err(|e| e.message)?.root;
     let clash = match clash {
@@ -237,6 +328,7 @@ fn main() {
             let secrets: Arc<dyn Secrets> = Arc::new(KeychainSecrets::new(&data_dir));
             let servers_dir = ovra_servers::servers_dir()?;
             let fs = Arc::new(FsIndex::new());
+            let ssh = Arc::new(ovra_ssh::OpenSsh::new(&data_dir));
             // Phone access (ADR 0014) serves the mobile app from the
             // app's own embedded files.
             let resolver = app.handle().clone();
@@ -283,12 +375,14 @@ fn main() {
                     None,
                 )))
                 .remote(remote.clone())
-                .ssh(Arc::new(ovra_ssh::OpenSsh::new(&data_dir)))
+                .ssh(ssh.clone())
                 .sandbox(ovra_sandbox::for_this_os(&data_dir))
                 .build();
             let restored = core.clone();
             tauri::async_runtime::spawn(async move { remote.restore(restored) });
             app.manage(ServersDir(servers_dir));
+            app.manage(remote::Remotes::new(ssh));
+            app.manage(mailbox::Mailboxes::default());
             app.manage(Importer {
                 fs: fs.clone(),
                 projects: store.clone(),
@@ -302,12 +396,26 @@ fn main() {
             tauri::async_runtime::spawn(async move {
                 // A lagging window gets `info.resync` and keeps receiving.
                 while let Some(event) = Core::next_event(&mut events).await {
-                    let _ = handle.emit("ovra://frame", ovra_transport::event_frame(event));
+                    // The laptop's events reach its own window only.
+                    let frame = ovra_transport::event_frame(event);
+                    handle
+                        .state::<mailbox::Mailboxes>()
+                        .send("main", json!({ "frame": frame }));
                 }
             });
             Ok(())
         })
         .on_window_event(|window, event| {
+            if let tauri::WindowEvent::Destroyed = event {
+                if let Some(mailboxes) = window.try_state::<mailbox::Mailboxes>() {
+                    mailboxes.forget(window.label());
+                }
+                if let Some(id) = ovra_ssh::window::machine(window.label())
+                    && let Some(remotes) = window.try_state::<remote::Remotes>()
+                {
+                    remotes.close(&id);
+                }
+            }
             let tauri::WindowEvent::DragDrop(drag) = event else {
                 return;
             };
@@ -323,8 +431,13 @@ fn main() {
         })
         .invoke_handler(tauri::generate_handler![
             ovra_call,
+            ovra_subscribe,
             ovra_pick_folder,
-            ovra_import_drop
+            ovra_import_drop,
+            ovra_remote_show,
+            ovra_remote_reconnect,
+            ovra_remote_disconnect,
+            ovra_open_url
         ])
         .build(tauri::generate_context!());
     match result {

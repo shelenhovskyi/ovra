@@ -136,23 +136,30 @@ function inTauri(): boolean {
   return "__TAURI_INTERNALS__" in window;
 }
 
+/** What the app sends on a window's channel (`app/src/mailbox.rs`). */
+type AppMessage =
+  | { frame: string }
+  | { menu: string }
+  | { drop: WindowDrop }
+  | { dragOver: Point | null }
+  | { sshStatus: unknown };
+
 export function connectTauri(): Transport {
   let router: FrameRouter;
   const menuListeners = new Set<(command: string) => void>();
   const dropListeners = new Set<(drop: WindowDrop) => void>();
   const overListeners = new Set<(at: Point | null) => void>();
-  const ready = Promise.all([import("@tauri-apps/api/core"), import("@tauri-apps/api/event")]).then(([core, event]) => {
-    void event.listen<string>("ovra://frame", (e) => router.deliver(e.payload));
-    void event.listen<string>("ovra://menu", (e) => {
-      for (const listener of menuListeners) listener(e.payload);
+  // Everything the app tells this window comes on the window's own channel:
+  // app events would reach every window, a remote machine's too.
+  const ready = import("@tauri-apps/api/core").then(async (core) => {
+    const channel = new core.Channel<AppMessage>((message) => {
+      if ("frame" in message) router.deliver(message.frame);
+      else if ("menu" in message) for (const listener of menuListeners) listener(message.menu);
+      else if ("drop" in message) for (const listener of dropListeners) listener(message.drop);
+      // The app follows the drag too, so its position is in CSS pixels on every platform.
+      else if ("dragOver" in message) for (const listener of overListeners) listener(message.dragOver);
     });
-    void event.listen<WindowDrop>("ovra://drop", (e) => {
-      for (const listener of dropListeners) listener(e.payload);
-    });
-    // The app follows the drag too, so its position is in CSS pixels on every platform.
-    void event.listen<Point | null>("ovra://drag-over", (e) => {
-      for (const listener of overListeners) listener(e.payload);
-    });
+    await core.invoke("ovra_subscribe", { channel });
     return core.invoke;
   });
   router = new FrameRouter((frame) => {

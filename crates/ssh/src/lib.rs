@@ -10,6 +10,7 @@ mod config;
 mod known;
 mod link;
 mod tools;
+pub mod window;
 
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, PoisonError};

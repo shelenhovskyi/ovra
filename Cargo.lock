@@ -3536,10 +3536,12 @@ dependencies = [
  "ovra-transport",
  "ovra-worktree",
  "serde",
+ "serde_json",
  "tauri",
  "tauri-build",
  "tauri-plugin-dialog",
  "tauri-plugin-notification",
+ "tokio",
 ]
 
 [[package]]
@@ -3843,6 +3845,7 @@ dependencies = [
  "serde_json",
  "tempfile",
  "tokio",
+ "url",
 ]
 
 [[package]]

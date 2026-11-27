@@ -133,14 +133,19 @@ drops every `ssh.*` frame that comes from a remote machine.
   `known_hosts` no longer has those keys. `name` is 1 to 40 printable
   characters, no control or bidi characters.
 - `ssh.remove { id }`, `ssh.rename { id, name }`.
-- `ssh.connect { id }` opens the machine's window, or focuses it when a
-  link is already open; `ssh.disconnect { id }`.
-- Event `ssh.status { id, state, reason }` with `connecting`, `open`,
-  `closed`, `failed` and a `reason`: `host_key_changed`, `no_pin`,
+- Opening a machine's window is the app's, not the core's, since only the
+  app opens windows: the main window calls the app command
+  `ovra_remote_show { id }`, which opens the window or focuses it and
+  connects unless a link is open; a remote window calls
+  `ovra_remote_reconnect` and `ovra_remote_disconnect` for itself only.
+  Headless mode has no such commands (its e2e bridge connects when the
+  page opens `/ws/ssh/<id>`).
+- The app message `sshStatus { id, state, reason, details }`, sent
+  to that window and the main window, has `connecting`, `open`, `closed`
+  and `failed` and a `reason`: `host_key_changed`, `no_pin`,
   `auth_failed`, `no_daemon`, `version_mismatch`, `busy`, `no_ssh`,
-  `unsafe_config`, `exited`. It reaches the remote window on an app-only
-  channel, never in-band, so a remote machine cannot fake its status or
-  name.
+  `unsafe_config`, `exited`. It is never in-band, so a remote machine
+  cannot fake its status or name.
 - Hosts are kept in `<data>/ssh/hosts.json` (0600, atomic writes), pins in
   `<data>/ssh/<id>/known_hosts` (0600).
 
@@ -283,18 +288,29 @@ ssh -T -x -a
   drops `ssh.*` events, and closes the link on the first bad frame. The
   queue to the window is bounded; when it fills, the bridge drops events
   and sends `info.resync`, as the WebSocket transport does.
-- **Routing by window, never by frame.** Every emit from the app is
-  `emit_to(label)`, including the frame event and menu commands, so a
-  remote window never sees the local core's events or another remote's.
+- **Routing by window, never by frame.** The app sends nothing as a Tauri
+  event: an event reaches every window that listens for it, whatever
+  window it was sent to. Each window hands the app its own
+  `tauri::ipc::Channel` (`ovra_subscribe`), and frames, menu commands,
+  drops and link status go on the one window's channel only, so a remote
+  window never sees the local core's events or another remote's, nor the
+  main window a remote's. No window may listen to Tauri events.
   `ovra_call` picks its core from the calling window's label: `main` goes
   to the local core, `ssh-<id>` to that link, anything else is refused.
 - **Capability.** A remote window has label `ssh-<id>` and its own Tauri
-  capability with only `ovra_call`, the frame event and `ovra_open_url`.
+  capability with only `ovra_call`, `ovra_subscribe`, reconnect and
+  disconnect of itself, `ovra_open_url` and window dragging (a test keeps
+  the list).
   It has no folder dialog, no drops or imports, no notifications of its
   own and no window commands that reach the laptop's files. Its window is
   built with the drag-and-drop handler off, and drop events from any label
   but `main` are ignored. Its `Transport` lacks `pickFolder`, `onDrop` and
-  `importDrop`. Its CSP has no `asset:` source.
+  `importDrop`. It cannot navigate away from Ovra's own UI or open
+  windows of its own. The machine's id and name reach it as
+  `window.__OVRA_REMOTE__`, set by the app from the host record.
+  Assumption: Tauri has one CSP for every window, so a remote window
+  keeps the `asset:` source; the asset protocol is not enabled, so it
+  serves nothing.
 - **Storage.** Each remote window gets its own webview data store
   (`data_directory` on Linux and Windows, `data_store_identifier` on
   macOS), so drafts, preferences and the last opened project of a remote

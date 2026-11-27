@@ -1,0 +1,14 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "remote",
+  "description": "A remote machine's window (ADR 0016). Everything it sends is the remote machine's word: no files, folders, drops or notifications of this computer. Keep this list minimal: every entry is reviewed by a human (CODEOWNERS).",
+  "windows": ["ssh-*"],
+  "permissions": [
+    "allow-ovra-call",
+    "allow-ovra-subscribe",
+    "allow-ovra-remote-reconnect",
+    "allow-ovra-remote-disconnect",
+    "allow-ovra-open-url",
+    "core:window:allow-start-dragging"
+  ]
+}

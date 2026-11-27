@@ -40,9 +40,11 @@ ovra-forge.workspace = true
 ovra-resources.workspace = true
 ovra-transport.workspace = true
 serde.workspace = true
+serde_json.workspace = true
 tauri = { version = "2", features = [] }
 tauri-plugin-dialog = "2"
 tauri-plugin-notification = "2"
+tokio = { workspace = true, features = ["sync", "time"] }
 
 [lints]
 workspace = true
