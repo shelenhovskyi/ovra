@@ -154,8 +154,9 @@ How direct mode tells them apart (`crates/core/src/orchestration/direct.rs`):
   the copy is still undone and the item counts as discarded. A direct
   session's files stay as they are: its attribution from before the keep
   comes back and the item is open again, so discard can revert them. Only
-  the project's latest keep can be undone, and only until the agent
-  changes files again.
+  a keep that is the project's latest decision (keep, discard or replace)
+  can be undone, only until the agent changes files again, and not once
+  its changes went out as a pull request.
 - Anything unknown leans towards keeping files: a failed snapshot makes the
   agent's earlier files count as both, a session that ends during a tool
   drops that interval, and ignored files are never in the diff. A person's

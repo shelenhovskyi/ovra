@@ -718,7 +718,8 @@ async fn polling(weak: WeakCore, id: ReviewId, generation: u64, begun: Instant) 
             stop_poll(&core, &id, generation);
             return;
         };
-        let live = matches!(entry.state, ReviewState::Open | ReviewState::Published);
+        let live = matches!(entry.state, ReviewState::Open | ReviewState::Published)
+            || review::published_kept(&entry);
         let Some(pr) = entry.pull_request.clone().filter(|_| live) else {
             stop_poll(&core, &id, generation);
             return;

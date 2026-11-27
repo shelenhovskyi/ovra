@@ -172,7 +172,8 @@ export class FakeReviewCore implements Transport {
         item.can_undo_keep = request.method === "review.approve" && request.params.commit === null;
         item.can_publish_kept = request.method === "review.approve" && item.mode === "isolated";
         // Like the core: a decided item has no fingerprint.
-        if (request.method === "review.approve" && item.state !== "partly_approved") item.fingerprint = null;
+        if (request.method === "review.approve") item.fingerprint = null;
+        if (item.state !== "approved") item.can_publish_kept = false;
         const restored = request.method === "review.approve" ? [] : [...this.restored];
         return { type: "review.done", data: { item: structuredClone(item), conflicts: [...this.conflicts], restored } };
       }
@@ -269,6 +270,7 @@ export class FakeReviewCore implements Transport {
         // A kept item stays kept.
         if (item.state === "open") item.state = "published";
         item.can_publish_kept = false;
+        item.can_undo_keep = false;
         item.pull_request = { number: 7, url, remote, base, branch, pushed: "c1", status: null };
         return { type: "pr.pull_request", data: structuredClone(item.pull_request) };
       }

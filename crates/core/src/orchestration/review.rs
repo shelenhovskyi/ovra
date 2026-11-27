@@ -310,7 +310,7 @@ pub(super) async fn handle(core: &Core, request: ReviewRequest) -> Result<Respon
                 include_protected,
             };
             let (item, conflicts) = approve(core, &id, choice).await?;
-            // One keep at a time can be undone in a project: the latest.
+            // Only the project's latest decision can be a keep to undo.
             end_other_keeps(core, &item).await;
             let action = if item.state == ReviewState::PartlyApproved {
                 ReviewAction::PartlyApproved
@@ -334,6 +334,7 @@ pub(super) async fn handle(core: &Core, request: ReviewRequest) -> Result<Respon
             super::check::forget(core, &find(core, &id)?.session);
             let outcome = reject(core, &id).await?;
             audit(core, &outcome.0, ReviewAction::Rejected);
+            end_other_keeps(core, &outcome.0).await;
             prune(core, &outcome.0.project).await;
             super::tasks::clean_up(core, &outcome.0.project).await;
             super::tasks::tell_coordinator(
@@ -368,6 +369,7 @@ pub(super) async fn handle(core: &Core, request: ReviewRequest) -> Result<Respon
         } => {
             let outcome = take(core, &id, include_protected).await?;
             audit(core, &outcome.0, ReviewAction::Taken);
+            end_other_keeps(core, &outcome.0).await;
             prune(core, &outcome.0.project).await;
             super::tasks::clean_up(core, &outcome.0.project).await;
             Ok(done(outcome))
@@ -545,13 +547,14 @@ async fn current(core: &Core, entry: &Entry) -> Result<(ReviewItem, Option<Strin
         not_copied: entry.not_copied.clone(),
         can_undo_take: entry.taken.is_some(),
         can_undo_discard: entry.discarded.is_some() && live(entry.state),
-        can_undo_keep: entry.kept.is_some() && entry.taken.is_none(),
+        can_undo_keep: entry.kept.is_some()
+            && entry.taken.is_none()
+            && entry.pull_request.is_none()
+            && (entry.mode != SessionMode::Direct
+                || core.sessions().direct.can_undo_keep(&entry.session)),
         can_publish_kept: entry.kept_from.is_some()
             && entry.pull_request.is_none()
-            && matches!(
-                entry.state,
-                ReviewState::Approved | ReviewState::PartlyApproved
-            )
+            && entry.state == ReviewState::Approved
             && !super::tasks::cleaned(core, &entry.session),
         fingerprint,
         git_changes: git.changes,
@@ -977,7 +980,9 @@ async fn approve(
         .cloned()
         .partition(|f| f.blocked || (f.protected && !include_protected));
     // Without a commit the copy can be taken back: the person's versions
-    // from just before it are kept as a snapshot.
+    // from just before it are kept as a snapshot. One the person saves
+    // between the copy and the `after` snapshot below counts as the copy's
+    // and would be put back too: a window of one git call.
     let before = match commit {
         None => worktrees.snapshot(root.clone()).await.ok(),
         Some(_) => None,
@@ -1242,6 +1247,11 @@ async fn undo_keep(core: &Core, id: &ReviewId) -> Result<(ReviewItem, Vec<String
     if entry.taken.is_some() {
         return Err(conflict("undo the replace first"));
     }
+    if entry.pull_request.is_some() {
+        return Err(conflict(
+            "the kept changes went out as a pull request; close it on GitHub instead",
+        ));
+    }
     if busy(core, &entry.session) {
         return Err(conflict(
             "the agent is at work again; undo the keep once it is idle or stopped",
@@ -1311,10 +1321,9 @@ pub(super) async fn kept_view(core: &Core, entry: Entry) -> Result<(Entry, bool)
     if entry.state == ReviewState::Open {
         return Ok((entry, false));
     }
-    let kept = matches!(
-        entry.state,
-        ReviewState::Approved | ReviewState::PartlyApproved
-    );
+    // Only a full keep: a partly kept item's worker holds files the
+    // person did not take.
+    let kept = entry.state == ReviewState::Approved;
     let (true, Some(from)) = (kept, entry.kept_from.clone()) else {
         return Err(conflict(
             "only an open or kept review can become a pull request",
@@ -1345,7 +1354,15 @@ pub(super) async fn kept_view(core: &Core, entry: Entry) -> Result<(Entry, bool)
     Ok((view, true))
 }
 
-/// Ends the undo of every other keep in `kept`'s project.
+/// A kept item that went out as a pull request: its checks are polled.
+pub(super) fn published_kept(entry: &Entry) -> bool {
+    entry.state == ReviewState::Approved
+        && entry.kept_from.is_some()
+        && entry.pull_request.is_some()
+}
+
+/// Ends the undo of every keep in `decided`'s project but its own: a later
+/// decision ends it, so a direct keep's undo does not hold off pruning.
 async fn end_other_keeps(core: &Core, kept: &ReviewItem) {
     let others: Vec<Entry> = {
         let orchestration = core.orchestration_state();
@@ -1638,6 +1655,7 @@ fn open_after(core: &Core, decided: &Entry) -> Entry {
     if let Some(old) = state.reviews.iter_mut().find(|r| r.id == decided.id) {
         ended_undo = old.taken.take().is_some();
         ended_undo |= old.kept.take().is_some();
+        ended_undo |= old.kept_from.take().is_some();
     }
     state.reviews.push(entry.clone());
     orchestration.save(&state);

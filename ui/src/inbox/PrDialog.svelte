@@ -71,7 +71,7 @@ async function load(asked: string | null, fill: boolean): Promise<void> {
     const next = await inbox.preparePr(item.id, asked);
     prepared = next;
     error = null;
-    if (fill && reviewed === null) reviewed = next.fingerprint;
+    if (fill && reviewed === null && item.can_publish_kept) reviewed = next.fingerprint;
     if (fill) {
       ({ base, branch, title, body } = next);
       await tick();

@@ -249,3 +249,18 @@ async fn a_direct_keep_is_not_undone_once_the_agent_changed_files_again() {
     .await;
     assert_eq!(code(undo), ErrorCode::Conflict);
 }
+
+#[tokio::test]
+async fn a_later_discard_in_the_project_ends_the_undo_of_a_keep() {
+    let f = fx(say()).await;
+    start_task(&f.core, 3).await;
+    worker_with(&f, "one", "s2", &[("b.rs", "one\n")]).await;
+    worker_with(&f, "two", "s3", &[("c.rs", "two\n")]).await;
+    ok(&f.core, approval(&f.core, "r1", json!(null)).await).await;
+    ok(
+        &f.core,
+        json!({"method": "review.reject", "params": {"id": "r2"}}),
+    )
+    .await;
+    assert!(!item_of(&reviews(&f.core).await, "r1").can_undo_keep);
+}

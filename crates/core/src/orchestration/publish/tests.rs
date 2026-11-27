@@ -682,7 +682,7 @@ async fn a_failed_checks_log_goes_to_the_worker_as_ci_output() {
     assert_eq!(item(&f.core).await.state, ReviewState::Open);
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn kept_changes_become_a_pull_request_and_the_item_stays_kept() {
     let f = fx().await;
     let shown = item(&f.core).await;
@@ -714,6 +714,19 @@ async fn kept_changes_become_a_pull_request_and_the_item_stays_kept() {
     let now = item(&f.core).await;
     assert_eq!(now.state, ReviewState::Approved);
     assert_eq!(now.pull_request.map(|p| p.number), Some(1));
+    // Its checks show, and the keep can no longer be undone.
+    if let Some(pr) = lock(&f.forge.pulls).get_mut(&1) {
+        pr.checks = vec![check("one", CheckState::Pending, None)];
+    }
+    tick(Duration::from_secs(20)).await;
+    assert_eq!(checks(&f.core).await, ["one"]);
+    assert!(!now.can_undo_keep && !now.can_publish_kept);
+    let undo = call(
+        &f.core,
+        json!({"method": "review.undo_keep", "params": {"id": id}}),
+    )
+    .await;
+    assert_eq!(code(undo), ErrorCode::Conflict);
 }
 
 #[tokio::test]

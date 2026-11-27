@@ -801,6 +801,58 @@ async fn approve_commits_only_the_agents_own_files() {
 }
 
 #[tokio::test]
+async fn an_undone_keep_gives_the_attribution_back_and_a_later_edit_stays_the_persons() {
+    let h = Harness::start(&[("a.rs", "a\n"), ("b.rs", "b\n")]).await;
+    h.agent_writes("t1", "a.rs", "agent\n").await;
+    h.agent_writes("t2", "b.rs", "agent\n").await;
+    h.direct.session_ended(&h.session);
+    let kept = h.direct.approve(&h.session, None, &Guard::default()).await;
+    assert!(kept.is_ok(), "{kept:?}");
+    assert!(h.direct.can_undo_keep(&h.session));
+    // An undo of a reject is not one of a keep.
+    let wrong = h.direct.undo_reject(&h.session).await;
+    assert_eq!(wrong.err().map(|e| e.code), Some(ErrorCode::Conflict));
+    // The person edits b.rs after the keep: a discard must not revert it.
+    h.put("b.rs", "mine\n");
+    let base = h.direct.undo_keep(&h.session).await;
+    assert_eq!(base.ok().as_deref(), Some("c1"), "the old baseline again");
+    assert_eq!(h.by().await, by(&[("a.rs", Agent), ("b.rs", Both)]));
+    assert_eq!(h.reject().await, ["b.rs"]);
+    assert_eq!(h.text("a.rs").as_deref(), Some("a\n"));
+    assert_eq!(h.text("b.rs").as_deref(), Some("mine\n"));
+}
+
+#[tokio::test]
+async fn an_ended_session_kept_with_a_commit_is_released_even_after_a_reject() {
+    let h = Harness::start(&[("a.rs", "a\n")]).await;
+    h.agent_writes("t1", "a.rs", "agent\n").await;
+    assert!(h.reject().await.is_empty());
+    h.agent_writes("t2", "a.rs", "again\n").await;
+    h.direct.session_ended(&h.session);
+    let kept = h
+        .direct
+        .approve(&h.session, Some("Keep it".into()), &Guard::default())
+        .await;
+    assert!(kept.is_ok(), "{kept:?}");
+    assert!(!h.direct.can_undo_keep(&h.session));
+    let gone = h.direct.files(&h.session).await;
+    assert_eq!(gone.err().map(|e| e.code), Some(ErrorCode::Conflict));
+}
+
+#[tokio::test]
+async fn an_ended_keep_undo_forgets_the_ended_session() {
+    let h = Harness::start(&[("a.rs", "a\n")]).await;
+    h.agent_writes("t1", "a.rs", "agent\n").await;
+    h.direct.session_ended(&h.session);
+    let kept = h.direct.approve(&h.session, None, &Guard::default()).await;
+    assert!(kept.is_ok(), "{kept:?}");
+    h.direct.end_keep_undo(&h.session).await;
+    assert!(!h.direct.can_undo_keep(&h.session));
+    let gone = h.direct.files(&h.session).await;
+    assert_eq!(gone.err().map(|e| e.code), Some(ErrorCode::Conflict));
+}
+
+#[tokio::test]
 async fn a_session_without_agent_changes_is_forgotten_after_it_ends() {
     let h = Harness::start(&[]).await;
     h.put("mine.rs", "mine\n");

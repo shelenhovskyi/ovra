@@ -353,7 +353,7 @@ impl Direct {
         if *lock(&writer.active) {
             *tracker = base.clone().map(Tracker::new);
             writer.keep(tracker);
-        } else if lock(&writer.undo).is_some() {
+        } else if lock(&writer.undo).as_ref().is_some_and(|u| u.kept) {
             // A keep that can be undone: the ended session waits, untracked.
             writer.keep(tracker);
         } else {
