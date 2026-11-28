@@ -207,3 +207,36 @@ sleep 5"#,
     assert_eq!(link.hello().os, "linux");
     assert_eq!(link.hello().no_sandbox.as_deref(), Some("no [1mbwrap"));
 }
+
+#[tokio::test]
+async fn hearing_another_client_took_over_ends_the_link_as_replaced() {
+    let dir = ok(tempfile::tempdir());
+    let body = format!(
+        r#"{}
+echo '{{"replaced":{{}}}}'
+sleep 5"#,
+        ours()
+    );
+    let mut link = ok(fake(dir.path(), None, &body).connect(&abc()).await);
+    let ended = link.recv().await.err();
+    assert_eq!(ended.map(|f| f.reason), Some(Reason::Replaced));
+}
+
+#[tokio::test]
+async fn stopping_sends_the_exact_quit_line() {
+    let dir = ok(tempfile::tempdir());
+    let got = dir.path().join("got");
+    let body = format!(
+        "{}\nread -r line; printf '%s' \"$line\" > '{}'\nsleep 5",
+        ours(),
+        got.display()
+    );
+    let link = ok(fake(dir.path(), None, &body).connect(&abc()).await);
+    ok(link.sender().quit().await);
+    let mut waited = 0;
+    while std::fs::read_to_string(&got).unwrap_or_default().is_empty() && waited < 200 {
+        tokio::time::sleep(Duration::from_millis(10)).await;
+        waited += 1;
+    }
+    assert_eq!(ok(std::fs::read_to_string(&got)), r#"{"quit":{}}"#);
+}

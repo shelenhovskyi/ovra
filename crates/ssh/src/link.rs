@@ -6,7 +6,9 @@ use std::process::Stdio;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use ovra_transport::stdio::{BUSY, Hello, HelloLine, LINE_MAX, Line, Lines, PING, PROTOCOL};
+use ovra_transport::stdio::{
+    BUSY, Hello, HelloLine, LINE_MAX, Line, Lines, PING, PROTOCOL, QUIT, REPLACED,
+};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{ChildStdin, ChildStdout};
 use tokio::sync::{mpsc, watch};
@@ -39,6 +41,8 @@ pub enum Reason {
     NoDaemon,
     VersionMismatch,
     Busy,
+    /// Another window or computer attached to the machine's core.
+    Replaced,
     NoSsh,
     UnsafeConfig,
     Exited,
@@ -53,6 +57,7 @@ impl Reason {
             Self::NoDaemon => "no_daemon",
             Self::VersionMismatch => "version_mismatch",
             Self::Busy => "busy",
+            Self::Replaced => "replaced",
             Self::NoSsh => "no_ssh",
             Self::UnsafeConfig => "unsafe_config",
             Self::Exited => "exited",
@@ -152,6 +157,17 @@ impl Sender {
             ));
         }
         match self.to.send(frame.to_owned()).await {
+            Ok(()) => Ok(()),
+            Err(_) => Err(ended(&self.end)),
+        }
+    }
+}
+
+impl Sender {
+    /// Asks the machine's core to quit (Stop Ovra on <name>): its agents
+    /// stop. The exact line, which no window can send as a frame.
+    pub async fn quit(&self) -> Result<(), Failure> {
+        match self.to.send(QUIT.to_owned()).await {
             Ok(()) => Ok(()),
             Err(_) => Err(ended(&self.end)),
         }
@@ -316,6 +332,11 @@ async fn pump(
                         return Failure::new(Reason::Exited, stderr.said().await);
                     }
                 };
+                if text == REPLACED {
+                    // Never a frame: the app says it, with the machine's
+                    // name from the host record.
+                    return Failure::new(Reason::Replaced, "");
+                }
                 match kind(&text) {
                     None => return bad_frame(),
                     Some(Kind::Dropped) => {}

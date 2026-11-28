@@ -2,7 +2,7 @@ use std::path::Path;
 
 use ovra_core::ssh::{DaemonPath, Destination, HostId};
 
-use super::arguments;
+use super::{Remote, arguments, options};
 
 fn destination() -> Destination {
     Destination::parse("dev@build").unwrap_or_else(|e| panic!("{e:?}"))
@@ -20,8 +20,18 @@ fn daemon() -> DaemonPath {
 #[cfg(unix)]
 fn the_command_line_is_fixed() {
     let pins = Path::new("/Users/me/Library/Application Support/ovra/ssh/h1/known_hosts");
-    let args = arguments(pins, &id(), &destination(), &daemon());
-    insta::assert_json_snapshot!(args.unwrap_or_else(|e| panic!("{e:?}")));
+    let args = arguments(pins, &id(), &destination(), Remote::Attach(&daemon()));
+    let args = args.unwrap_or_else(|e| panic!("{e:?}"));
+    insta::assert_json_snapshot!(args);
+    // `ssh -G` sees the same options, up to the destination.
+    assert_eq!(options(&args).last().map(String::as_str), Some("dev@build"));
+    assert_eq!(options(&args).len(), args.len() - 2);
+    let restart = arguments(pins, &id(), &destination(), Remote::Restart(&daemon()));
+    let restart = restart.unwrap_or_else(|e| panic!("{e:?}"));
+    assert_eq!(
+        restart[args.len() - 2..],
+        ["~/bin/ovra-daemon", "--attach", "--restart"]
+    );
 }
 
 #[test]
@@ -31,7 +41,7 @@ fn the_pin_path_cannot_break_out_of_its_option() {
         Path::new("/data/100%/known_hosts"),
         &id(),
         &destination(),
-        &daemon(),
+        Remote::Attach(&daemon()),
     )
     .unwrap_or_else(|e| panic!("{e:?}"));
     assert!(args.contains(&"UserKnownHostsFile=\"/data/100%%/known_hosts\"".to_owned()));
@@ -39,7 +49,7 @@ fn the_pin_path_cannot_break_out_of_its_option() {
         Path::new("/data/a\\b/known_hosts"),
         &id(),
         &destination(),
-        &daemon(),
+        Remote::Attach(&daemon()),
     )
     .unwrap_or_else(|e| panic!("{e:?}"));
     assert!(args.contains(&"UserKnownHostsFile=\"/data/a\\\\b/known_hosts\"".to_owned()));
@@ -50,7 +60,13 @@ fn the_pin_path_cannot_break_out_of_its_option() {
         "relative/known_hosts",
     ] {
         assert!(
-            arguments(Path::new(bad), &id(), &destination(), &daemon()).is_err(),
+            arguments(
+                Path::new(bad),
+                &id(),
+                &destination(),
+                Remote::Attach(&daemon())
+            )
+            .is_err(),
             "{bad:?}"
         );
     }

@@ -69,5 +69,5 @@ expression: "args.unwrap_or_else(|e| panic!(\"{e:?}\"))"
   "--",
   "dev@build",
   "~/bin/ovra-daemon",
-  "--stdio"
+  "--attach"
 ]

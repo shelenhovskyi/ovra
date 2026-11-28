@@ -195,6 +195,16 @@ impl OpenSsh {
     /// Connects to the machine `id` with the hardened command line, after
     /// `ssh -G` showed that it won over the person's config.
     pub async fn connect(&self, id: &HostId) -> Result<Link, Failure> {
+        self.connect_with(id, false).await
+    }
+
+    /// [`OpenSsh::connect`] that first asks a core of another build,
+    /// still running there, to quit (`version_mismatch`). Its agents stop.
+    pub async fn restart(&self, id: &HostId) -> Result<Link, Failure> {
+        self.connect_with(id, true).await
+    }
+
+    async fn connect_with(&self, id: &HostId, restart: bool) -> Result<Link, Failure> {
         let host = self
             .read()
             .map_err(|e| Failure::new(Reason::NoPin, e.message))?
@@ -211,7 +221,12 @@ impl OpenSsh {
         let unsafe_config = |e: ProtocolError| Failure::new(Reason::UnsafeConfig, e.message);
         let destination = Destination::parse(&host.destination).map_err(unsafe_config)?;
         let daemon = DaemonPath::parse(Some(&host.daemon)).map_err(unsafe_config)?;
-        let args = arguments(&pins, id, &destination, &daemon).map_err(unsafe_config)?;
+        let remote = if restart {
+            Remote::Restart(&daemon)
+        } else {
+            Remote::Attach(&daemon)
+        };
+        let args = arguments(&pins, id, &destination, remote).map_err(unsafe_config)?;
         let tools = self
             .tools()
             .await
@@ -222,7 +237,7 @@ impl OpenSsh {
         if let Some(config) = &self.config {
             check.arg("-F").arg(config);
         }
-        check.arg("-G").args(&args[..args.len() - 2]);
+        check.arg("-G").args(options(&args));
         let out = tools.run(check, None).await.map_err(unsafe_config)?;
         if !out.status.success() {
             return Err(Failure::new(
@@ -411,7 +426,7 @@ pub fn arguments(
     pins: &Path,
     id: &HostId,
     destination: &Destination,
-    daemon: &DaemonPath,
+    remote: Remote<'_>,
 ) -> Result<Vec<String>, ProtocolError> {
     let pins = option_path(pins)?;
     let mut args: Vec<String> = ["-T", "-x", "-a"].map(String::from).to_vec();
@@ -455,9 +470,36 @@ pub fn arguments(
     }
     args.push("--".to_owned());
     args.push(destination.as_str().to_owned());
-    args.push(daemon.as_str().to_owned());
-    args.push("--stdio".to_owned());
+    match remote {
+        Remote::Attach(daemon) => args.extend([daemon.as_str().to_owned(), "--attach".to_owned()]),
+        Remote::Restart(daemon) => args.extend([
+            daemon.as_str().to_owned(),
+            "--attach".to_owned(),
+            "--restart".to_owned(),
+        ]),
+    }
     Ok(args)
+}
+
+/// What `ssh` runs on the machine: always one of these fixed commands,
+/// never text from the person or the machine.
+#[derive(Debug, Clone, Copy)]
+pub enum Remote<'a> {
+    /// `<daemon> --attach`: the machine's core, started when none runs.
+    Attach(&'a DaemonPath),
+    /// `<daemon> --attach --restart`: the running core quits first, so the
+    /// installed build starts; its agents stop.
+    Restart(&'a DaemonPath),
+}
+
+/// The options of `args`, up to and with the destination: what `ssh -G`
+/// checks.
+fn options(args: &[String]) -> &[String] {
+    let end = args
+        .iter()
+        .position(|a| a == "--")
+        .map_or(args.len(), |at| (at + 2).min(args.len()));
+    &args[..end]
 }
 
 /// A path as one value of a list option: quoted, because
