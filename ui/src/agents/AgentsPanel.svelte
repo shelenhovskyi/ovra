@@ -49,13 +49,12 @@ import ContextInput from "./ContextInput.svelte";
 import { agentAsks, contextDrafts, type Suggestion } from "./context.svelte";
 import { resultText, undoneTurns } from "./checkpoints";
 import { signedOutError } from "./errors";
+import Attention from "./Attention.svelte";
 import FirstSteps from "./FirstSteps.svelte";
 import { hints } from "./hints.svelte";
 import { agentPrefs } from "./prefs.svelte";
 import Leftovers from "./Leftovers.svelte";
-import SetupLink from "./SetupLink.svelte";
 import SlashMenu from "./SlashMenu.svelte";
-import Starters from "./Starters.svelte";
 import { chatLink } from "./links";
 import { diskLabel, pressureNote, resourcesLine, resourcesTip } from "./resources";
 import { listWarning, sandboxGaps, sandboxLine, sandboxState } from "./sandbox";
@@ -78,7 +77,6 @@ import { secretLooking } from "./worktrees";
 import { REPORT_DIR, reportFile, reportOf, reportPath, taskPrompt } from "./report";
 import { itemPrompt, listItems } from "./items";
 import ItemTasks from "./ItemTasks.svelte";
-import { type Starter, starterMode } from "./starters";
 import { TaskRows } from "./rows";
 import { sessionSummary } from "./summary";
 import TaskSummary from "./TaskSummary.svelte";
@@ -908,24 +906,6 @@ async function start(): Promise<void> {
   }
 }
 
-/**
- * A starter's press: its prompt in the task box, started at once in the
- * starter's mode. When Start could not work now, the box keeps the prompt
- * and says why; the person's own mode comes back after it started.
- */
-async function startStarter(starter: Starter): Promise<void> {
-  const own = mode;
-  mode = starterMode(starter, capacity === undefined || capacity.research_working < capacity.research_limit);
-  prompt = starter.prompt;
-  if (startBlock !== null) {
-    await tick();
-    promptField?.focus();
-    return;
-  }
-  await start();
-  if (!startError) mode = own;
-}
-
 /** Starts the signed-out session's task again with a signed-in account and closes the old one. */
 function retry(old: SessionInfo, use: AccountState): Promise<void> {
   const first = sessions.transcripts.get(old.id)?.find((m) => m.kind === "user_text" && m.from === "person");
@@ -1232,7 +1212,8 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
 <section class="agents" data-testid="agents-panel">
   <header class="head">
     <h2 id="agents-heading">Agents</h2>
-    {#if capacity}
+    <!-- Nothing ran yet: "0 of 3" would only be one more thing to read. -->
+    {#if capacity && (list.length > 0 || capacity.working + capacity.queued + capacity.research_working > 0)}
       <span
         class="capacity"
         data-testid="agents-capacity"
@@ -1259,6 +1240,7 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
       >
     {/if}
     <span class="end">
+      {#if project}<Attention />{/if}
       <KeepAwakeButton />
       {#if project}
         <button
@@ -1650,9 +1632,8 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
   {:else}
     <div class="scroll">
       {#if list.length === 0}
-        <p class="intro" data-testid="agents-empty">No tasks yet.</p>
-        <Starters disabled={busy || blocked} pick={(starter) => void startStarter(starter)} />
-        <SetupLink />
+        <!-- One quiet line in the free room: the task box under it is the way in. -->
+        <p class="empty" data-testid="agents-empty">Tasks you give {names.name(agent)} show up here.</p>
       {:else}
         {#if cutOff.length > 0}
           <div class="cut-off" data-testid="agents-cut-off">
@@ -1762,6 +1743,8 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
       {#if error}
         <p class="error" role="alert">{error}</p>
       {/if}
+      <!-- Its first two steps are the task box and the footer: it shows once a task has started. -->
+      {#if list.length > 0 || hints.has("started")}
       <FirstSteps
         agent={names.name()}
         ready={usable !== undefined}
@@ -1769,10 +1752,11 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
         ask={asking ? () => asking && answer(asking.id) : undefined}
         asks={list.filter((s) => chip(s)?.tone === "warn").length}
         shown={approvals.pending.length > 0}
-        compact={list.length > 1}
+        compact
         review={reviewable ? () => reviewable && reviewOf(reviewable.id) : undefined}
         {ended}
       />
+      {/if}
       <AgentSetup open={setupOpen} />
       <ProjectTrust />
     </div>
@@ -1793,7 +1777,8 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
         if (!(to instanceof Node && event.currentTarget.contains(to))) startFocus = false;
       }}
     >
-      <label for="agent-prompt" class="label" class:visually-hidden={foldStart}>Describe a task</label>
+      <!-- The placeholder says it on screen; the label is for screen readers. -->
+      <label for="agent-prompt" class="visually-hidden">Describe a task</label>
       <textarea
         id="agent-prompt"
         rows={foldStart ? 1 : 2}
@@ -1942,7 +1927,9 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
           disabled={busy || startBlock !== null || !prompt.trim() || drafts.unconfirmed(newBox).length > 0}>Start</button
         >
       </div>
-      <p class="line" id="agent-mode-hint">{modeHint}</p>
+      <!-- Said once a task is being written (and read out with the field); idle, the box stays short.
+           Not on focus: the box would grow under the pointer between press and release. -->
+      <p class="line" class:visually-hidden={!prompt.trim()} id="agent-mode-hint">{modeHint}</p>
       {#if typeFirst}
         <p class="line warn" role="status" data-testid="agent-type-first">Type a task first.</p>
       {/if}
@@ -2063,6 +2050,12 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
   }
   .intro {
     padding: 8px 16px;
+    color: var(--text-2);
+  }
+  .empty {
+    margin: auto 0;
+    padding: var(--sp-6) var(--sp-4);
+    text-align: center;
     color: var(--text-2);
   }
   .line,
@@ -2634,11 +2627,6 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
   }
   .compose.new .add-context {
     width: var(--control-h);
-  }
-  .label {
-    font-size: 13px;
-    font-weight: 500;
-    color: var(--text-2);
   }
   .mode-menu {
     position: relative;

@@ -29,6 +29,7 @@ import {
   warnings,
   weight,
 } from "./texts";
+import { trustWaiting } from "./trust-state.svelte";
 
 let {
   line = false,
@@ -123,7 +124,40 @@ const sandbox = $derived(lsp.status?.sandbox);
 const settled = $derived(project?.trusted === true && review !== null && !changed && !empty && !details);
 /** A decision is pending: the lists lead to a Trust button. */
 const deciding = $derived(changed || project?.trusted !== true);
+/**
+ * A decision waits but nobody asked to see it: no card, only the Agents
+ * header's "things to check" count (trust-state). Its menu and the command
+ * open the card; nothing loads until Trust at the bottom of its lists.
+ */
+const folded = $derived(!line && deciding && !details && review !== null && !empty);
 const warningCount = $derived([risk.broad, risk.code, risk.env, risk.unreadable].filter(Boolean).length);
+
+// The header's menu sees what waits here, and opens the card.
+$effect(() => {
+  if (line) return;
+  trustWaiting.waiting = !!project && review !== null && deciding && !empty;
+  trustWaiting.changed = changed;
+  trustWaiting.warnings = warningCount;
+});
+$effect(() => {
+  if (line) return;
+  trustWaiting.open = () => void reveal(false);
+  return () => {
+    trustWaiting.waiting = false;
+    trustWaiting.open = null;
+  };
+});
+
+/** Opens the card (and its lists, when asked), scrolled into view, focus on its heading. */
+async function reveal(withLists: boolean): Promise<void> {
+  details = true;
+  if (withLists) lists = true;
+  await tick();
+  section?.scrollIntoView?.({ block: "nearest" });
+  // Never a Trust button: the Enter or press that opened it must not trust.
+  section?.querySelector<HTMLElement>("#trust-heading")?.focus();
+  rearm();
+}
 
 // The language servers' footer links here: trusting is what starts them.
 $effect(() => {
@@ -131,15 +165,7 @@ $effect(() => {
   return registerCommand({
     id: "projects.review_trust",
     title: "Review and trust this project",
-    run: async () => {
-      details = true;
-      lists = true;
-      await tick();
-      section?.scrollIntoView({ block: "nearest" });
-      // Never a Trust button: the Enter that ran this command must not trust.
-      section?.querySelector<HTMLElement>("#trust-heading")?.focus();
-      rearm();
-    },
+    run: () => reveal(true),
   });
 });
 
@@ -268,6 +294,15 @@ async function onkeydown(event: KeyboardEvent): Promise<void> {
 }
 </script>
 
+{#snippet warningChip()}
+  {#if warningCount > 0}
+    {@const words = warningCount === 1 ? " warning" : " warnings"}
+    <span class="chip" title={`${warningCount}${words}: see Details`} data-testid="trust-warning-count"
+      ><span aria-hidden="true">⚠</span> {warningCount}<span class="visually-hidden">{words}</span></span
+    >
+  {/if}
+{/snippet}
+
 {#if line}
   <!-- While a task is open the card is in the list: one line says the decision still waits. -->
   {#if project && review && deciding && !empty}
@@ -279,7 +314,7 @@ async function onkeydown(event: KeyboardEvent): Promise<void> {
     </p>
   {/if}
   <!-- No settings of its own: nothing to trust here until someone asks (the command). -->
-{:else if project && (review || error) && !(empty && !details)}
+{:else if project && (review || error) && !(empty && !details) && !folded}
   <!-- Escape from any of its controls folds the details. -->
   <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
   <section
@@ -333,14 +368,21 @@ async function onkeydown(event: KeyboardEvent): Promise<void> {
             aria-controls="trust-body"
             onclick={() => (details = !details)}
           >
-            {#if settled && warningCount > 0}
-              {@const words = warningCount === 1 ? " warning" : " warnings"}
-              <span class="chip" title={`${warningCount}${words}: see Details`} data-testid="trust-warning-count"
-                ><span aria-hidden="true">⚠</span> {warningCount}<span class="visually-hidden">{words}</span></span
-              >
-            {/if}
+            {#if settled}{@render warningChip()}{/if}
             {settled ? "Details" : "Hide"}
           </button>
+        {:else}
+          <!-- Opened from its line: Hide folds it back; the decision still waits there. -->
+          <button
+            type="button"
+            class="link toggle"
+            aria-expanded="true"
+            aria-controls="trust-body"
+            onclick={() => {
+              details = false;
+              lists = false;
+            }}>Hide</button
+          >
         {/if}
       </div>
       {#if !settled}

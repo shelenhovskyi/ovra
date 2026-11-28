@@ -4,7 +4,6 @@ import { settings } from "../settings/panes.svelte";
 import { mainView } from "../shell/main-view.svelte";
 import { Workspace } from "../shell/workspace.svelte";
 import { FakeAgentCore } from "./fake-core";
-import { STARTERS } from "./starters";
 import TestHost from "./TestHost.svelte";
 
 let app: Record<string, unknown> | null = null;
@@ -36,39 +35,7 @@ async function setup(core = new FakeAgentCore()) {
   return core;
 }
 
-const starter = (id: string) => target.querySelector<HTMLButtonElement>(`[data-starter=${id}]`);
-const modeLabel = () => target.querySelector("[data-testid=agent-mode]")?.textContent?.trim();
-const prompt = (id: string) => STARTERS.find((s) => s.id === id)?.prompt;
-
-describe("AgentsPanel starters and summary", () => {
-  it("starts a starter task in one press, in its own mode, and keeps the person's mode", async () => {
-    const core = await setup();
-    expect([...target.querySelectorAll("[data-starter] .label")].map((l) => l.textContent)).toEqual([
-      "Explain this project",
-      "Fix failing tests",
-      "Write a README",
-    ]);
-    starter("explain")?.click();
-    await settle();
-    expect(core.sent("agents.start").map((c) => [c.params.mode, c.params.prompt])).toEqual([
-      ["research", prompt("explain")],
-    ]);
-    // The list is no longer empty, so the starters are gone; the form keeps "One agent, here".
-    [...target.querySelectorAll<HTMLButtonElement>("button")].find((b) => b.textContent?.trim() === "Tasks")?.click();
-    await settle();
-    expect(target.querySelector("[data-testid=agent-starters]")).toBeNull();
-    expect(modeLabel()).toBe("One agent, here");
-  });
-
-  it("explains as one agent here when research is off", async () => {
-    const core = new FakeAgentCore();
-    core.capacity = { working: 0, limit: 3, queued: 0, research_working: 0, research_limit: 0, waiting: [] };
-    await setup(core);
-    starter("explain")?.click();
-    await settle();
-    expect(core.sent("agents.start")[0]?.params.mode).toBe("direct");
-  });
-
+describe("AgentsPanel summary", () => {
   it("shows the agent's three-line summary once its turn is over", async () => {
     const core = new FakeAgentCore();
     core.addSession("p1", "Fix it", { state: "working" });
@@ -91,17 +58,18 @@ describe("AgentsPanel starters and summary", () => {
   });
 });
 
-describe("AgentsPanel setup link", () => {
-  const link = () =>
-    [...target.querySelectorAll<HTMLButtonElement>("button")].find((b) => b.textContent?.trim() === "Check setup");
+describe("AgentsPanel things to check", () => {
+  const badge = () => target.querySelector<HTMLButtonElement>("[data-testid=agents-attention]");
+  const items = () =>
+    [...target.querySelectorAll("[role=menu] [role=menuitem]")].map((i) => i.textContent?.replace(/\s+/g, " ").trim());
 
-  it("is a quiet link while the check finds nothing, or cannot run", async () => {
+  it("shows nothing while the check finds nothing and no decision waits", async () => {
     await setup();
-    expect(link()).toBeDefined();
-    expect(target.querySelector("[data-testid=agents-setup-problems]")).toBeNull();
+    expect(badge()).toBeNull();
+    expect(target.querySelector("[data-testid=agents-empty]")?.textContent).toBe("Tasks you give Claude show up here.");
   });
 
-  it("names how many problems the check found and opens Setup check", async () => {
+  it("counts a setup problem and a waiting trust decision, and leads to each", async () => {
     const core = new FakeAgentCore();
     core.setupReport = {
       agents: [{ id: "claude", name: "Claude", setup: { ...core.setup } }],
@@ -109,12 +77,33 @@ describe("AgentsPanel setup link", () => {
       gh: { state: "skipped" },
       sandbox: { state: "unavailable", reason: "install bubblewrap (bwrap) to sandbox agents" },
     };
+    core.config = {
+      fingerprint: "f1",
+      items: [{ path: ".claude/settings.json", kind: "broad_allow_rules", entries: ["Bash(*)"] }],
+    };
     await setup(core);
     expect(core.sent("setup.check").map((c) => c.params)).toEqual([{ project: "p1" }]);
-    expect(target.querySelector("[data-testid=agents-setup-problems]")?.textContent).toContain(
-      "Setup check found 2 problems on this computer.",
+    // No card in the list: the decision waits behind the count.
+    expect(target.querySelector("[data-testid=project-trust]")).toBeNull();
+    expect(badge()?.getAttribute("aria-label")).toBe("2 things to check");
+    badge()?.click();
+    await settle();
+    expect(items()).toEqual([
+      "Setup check found 2 problems Check setup",
+      "Project settings are off 1 warning · Review and trust…",
+    ]);
+    expect(document.activeElement?.getAttribute("data-testid")).toBe("attention-setup");
+    target.querySelector<HTMLButtonElement>("[data-testid=attention-trust]")?.click();
+    await settle();
+    // The card opens with its warnings; Trust still waits at the bottom of its lists.
+    expect(target.querySelector("[data-testid=project-trust] h3")?.textContent).toBe(
+      "This project has its own Claude settings",
     );
-    link()?.click();
+    expect(target.querySelector("[data-testid=broad-rules]")).not.toBeNull();
+    expect(core.sent("projects.trust")).toEqual([]);
+    badge()?.click();
+    await settle();
+    target.querySelector<HTMLButtonElement>("[data-testid=attention-setup]")?.click();
     flushSync();
     expect(settings.pane).toBe("setup");
     expect(mainView.current).toBe("settings");

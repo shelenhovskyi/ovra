@@ -792,7 +792,7 @@ fn agents(args: &Args) -> Arc<dyn AgentRuntime> {
                  \"files\": [{\"path\": \"NOTES.md\", \"explanation\": \"Adds a line about the agent's work.\"}]}\n```",
             ),
         ),
-        // The agents screen's "Write a README" starter: an answer that ends
+        // A task that writes a README: an answer that ends
         // with the three-line summary (agents/roles/task.md).
         (
             "Write a README.md",

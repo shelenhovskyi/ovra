@@ -336,14 +336,13 @@ test("reply to an agent, allow with the mouse and stop it while it waits", async
   await expect(audit).toBeHidden();
 });
 
-test("a starter task starts in one press and ends with a three-line summary", async ({ page }) => {
-  await openProject(page, "ovra-agents-starter-");
+test("an agent's answer ends with a three-line summary", async ({ page }) => {
+  await openProject(page, "ovra-agents-summary-");
   const agents = page.getByTestId("agents-panel");
-  await agents.getByRole("button", { name: /^Write a README/ }).click();
+  await page.getByRole("textbox", { name: "Describe a task" }).fill("Write a README.md for this project");
+  await page.getByRole("button", { name: "Start", exact: true }).click();
   const summary = agents.getByRole("definition");
   await expect(summary).toHaveText(["wrote README.md", "every command in it ran", "Nothing"]);
-  await agents.getByRole("button", { name: "Tasks" }).click();
-  await expect(agents.getByTestId("agent-starters")).toBeHidden();
 });
 
 test("an answer's numbered items each start their own agent in one press", async ({ page }) => {

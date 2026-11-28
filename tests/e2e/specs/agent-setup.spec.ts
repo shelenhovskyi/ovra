@@ -25,6 +25,13 @@ test("review what a project would load, trust it and stop trusting it", async ({
   await expect(page.getByTestId("agents-footer")).toHaveText("Claude · Ready");
   await expect(page.getByTestId("claude-setup")).toHaveCount(0);
   const trust = page.getByTestId("project-trust");
+  // No card until asked: the Agents header counts it, and its menu opens the card.
+  await expect(trust).toHaveCount(0);
+  await page.getByTestId("agents-attention").click();
+  await expect(page.getByTestId("attention-trust")).toHaveText(
+    /Project settings are off\s*1 warning · Review and trust…/,
+  );
+  await page.getByTestId("attention-trust").click();
   await expect(trust.getByRole("heading")).toHaveText("This project has its own Claude settings");
   await expect(trust.getByTestId("trust-runs-code")).toHaveText(
     "⚠ Once you trust this project, 1 hook will run commands on your computer.",
@@ -64,7 +71,10 @@ test("review what a project would load, trust it and stop trusting it", async ({
   await trust.getByRole("button", { name: "Details" }).click();
 
   await trust.getByRole("button", { name: "Stop trusting" }).click();
-  await expect(trust.getByRole("heading")).toHaveText("This project has its own Claude settings");
+  // Not trusted again: the card goes, and the header counts the decision again.
+  await expect(trust).toHaveCount(0);
+  await page.getByTestId("agents-attention").click();
+  await expect(page.getByTestId("attention-trust")).toContainText("Project settings are off");
 });
 
 test("check setup lists each thing Ovra needs, with what was found", async ({ page }) => {

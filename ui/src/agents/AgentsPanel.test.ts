@@ -108,6 +108,16 @@ describe("AgentsPanel", () => {
     expect(target.querySelector("label[for=agent-prompt]")?.textContent).toBe("Describe a task");
     const hint = () => target.querySelector("#agent-mode-hint")?.textContent;
     expect(hint()).toBe("Works in this folder. Asks before risky steps.");
+    // Read out with the field; on screen only while a task is being written.
+    const hintShown = () => !target.querySelector("#agent-mode-hint")?.classList.contains("visually-hidden");
+    expect(hintShown()).toBe(false);
+    type(target.querySelector("#agent-prompt"), "Fix the typo");
+    flushSync();
+    expect(hintShown()).toBe(true);
+    type(target.querySelector("#agent-prompt"), "");
+    flushSync();
+    // Nothing ran yet: no "0 of 3" in the header.
+    expect(target.querySelector("[data-testid=agents-capacity]")).toBeNull();
     target.querySelector<HTMLButtonElement>("[data-testid=agent-mode]")?.click();
     await settle();
     const options = [...target.querySelectorAll("[role=menuitemradio]")].map((o) => [
@@ -131,7 +141,9 @@ describe("AgentsPanel", () => {
     expect(target.querySelector("[role=menu]")).toBeNull();
     expect(modeLabel()).toBe("Plan and split");
     expect(hint()).toBe("Up to 3 agents on their own copies. You review first.");
-    expect(panel()?.querySelector("[data-testid=agents-empty]")?.textContent?.trim()).toBe("No tasks yet.");
+    expect(panel()?.querySelector("[data-testid=agents-empty]")?.textContent).toBe(
+      "Tasks you give Claude show up here.",
+    );
   });
 
   it("plans and splits a task when asked, from Mod+Enter too, and keeps the choice", async () => {

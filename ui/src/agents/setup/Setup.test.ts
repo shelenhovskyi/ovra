@@ -9,6 +9,7 @@ import { FakeAgentCore } from "../fake-core";
 import TestHost from "../TestHost.svelte";
 import { advice, billingText, paidShort, paidText } from "./claude-texts";
 import { changeSummary, changes, countText, riskyEnv, summary, TRUST_ARM_MS, warnings } from "./texts";
+import { trustWaiting } from "./trust-state.svelte";
 
 let app: Record<string, unknown> | null = null;
 let target: HTMLElement;
@@ -41,6 +42,12 @@ async function show(core: FakeAgentCore) {
   app = mount(TestHost, { target, props: { transport: core, workspace } });
   await settle();
   return workspace;
+}
+
+/** Opens the trust card, as the Agents header's "things to check" menu does. */
+async function review() {
+  trustWaiting.open?.();
+  await settle();
 }
 
 const card = () => target.querySelector<HTMLElement>("[data-testid=claude-setup]");
@@ -381,6 +388,30 @@ describe("ProjectTrust", () => {
   const heading = () => trustCard()?.querySelector("h3")?.textContent;
   const testid = (id: string) => trustCard()?.querySelector(`[data-testid=${id}]`)?.textContent ?? null;
 
+  it("waits out of sight with its warning count until opened, and Hide puts it away again", async () => {
+    const core = new FakeAgentCore();
+    core.config = {
+      fingerprint: "f1",
+      items: [
+        { path: ".claude/settings.json", kind: "hooks", entries: ["PreToolUse (Bash): ./check.sh"] },
+        { path: ".claude/settings.json", kind: "broad_allow_rules", entries: ["Bash(*)"] },
+      ],
+    };
+    await show(core);
+    expect(trustCard()).toBeNull();
+    // The header counts it; the warnings are counted, never dropped.
+    expect(trustWaiting).toMatchObject({ waiting: true, changed: false, warnings: 2 });
+    await review();
+    expect(heading()).toBe("This project has its own Claude settings");
+    expect(testid("broad-rules")).toContain("any shell command");
+    expect(button(trustCard(), "Trust project")).toBeUndefined();
+    button(trustCard(), "Hide")?.click();
+    await settle();
+    expect(trustCard()).toBeNull();
+    expect(trustWaiting.waiting).toBe(true);
+    expect(core.sent("projects.trust")).toEqual([]);
+  });
+
   it("warns about a settings file it could not read, and offers no trust when the settings are unknown", async () => {
     const core = new FakeAgentCore();
     core.config = {
@@ -388,6 +419,7 @@ describe("ProjectTrust", () => {
       items: [{ path: ".claude/settings.json", kind: "unreadable", entries: ["too large"] }],
     };
     await show(core);
+    await review();
     expect(testid("trust-unreadable")).toBe(
       "⚠ Ovra could not read .claude/settings.json (too large); whatever it holds, hooks too, may load once you trust this project.",
     );
@@ -399,6 +431,7 @@ describe("ProjectTrust", () => {
       new CoreError({ code: "internal", message: "could not read .claude" }),
     );
     await show(failing);
+    await review();
     expect(heading()).toBe("Project settings");
     expect(trustCard()?.textContent).toContain("could not read .claude");
     expect(button(trustCard(), "Trust project")).toBeUndefined();
@@ -415,6 +448,7 @@ describe("ProjectTrust", () => {
       ],
     };
     const workspace = await show(core);
+    await review();
     expect(heading()).toBe("This project has its own Claude settings");
     // Plain lines only: no counts of every kind, no raw rules (those are in the lists).
     expect(testid("trust-summary")).toBeNull();
@@ -504,6 +538,7 @@ describe("ProjectTrust", () => {
       ],
     };
     await show(core);
+    await review();
     const toggle = button(trustCard(), "Review and trust…");
     expect(toggle?.getAttribute("aria-expanded")).toBe("false");
     toggle?.click();
@@ -535,6 +570,7 @@ describe("ProjectTrust", () => {
     };
     core.addSession("p1", "Tidy up", { state: "working" });
     await show(core);
+    await review();
     [...target.querySelectorAll<HTMLButtonElement>(".sessions .row-button")]
       .find((b) => b.querySelector(".title")?.textContent === "Tidy up")
       ?.click();
@@ -585,6 +621,7 @@ describe("ProjectTrust", () => {
     workspace.project = { id: "p1", name: "demo", root: "/demo", last_opened_ms: null, trusted: true };
     app = mount(TestHost, { target, props: { transport: core, workspace } });
     await settle();
+    await review();
     expect(heading()).toBe("Project settings changed");
     expect(testid("trust-summary")).toBe("1 added, 1 removed");
     expect(testid("trust-runs-code")).toBe(
@@ -615,6 +652,7 @@ describe("ProjectTrust", () => {
   it("rechecks when a session starts or the settings may have changed", async () => {
     const core = new FakeAgentCore();
     await show(core);
+    await review();
     core.status("s1", { state: "starting" });
     core.emit({ type: "review.changed", data: { project: "p1", id: "r1" } });
     await settle();
@@ -623,6 +661,9 @@ describe("ProjectTrust", () => {
     core.config = { fingerprint: "f1", items: [{ path: ".claude/skills", kind: "skills", entries: ["a"] }] };
     core.emit({ type: "fs.changed", data: { project: "p1", paths: [".claude/skills/a/SKILL.md"] } });
     await settle();
+    // Nobody asked to see it: the header counts it, until opened.
+    expect(trustWaiting.waiting).toBe(true);
+    await review();
     expect(heading()).toBe("This project has its own Claude settings");
   });
 
@@ -630,6 +671,7 @@ describe("ProjectTrust", () => {
     const core = new FakeAgentCore();
     core.trustedConfig.set("p1", core.config);
     const workspace = await show(core);
+    await review();
     workspace.project = { id: "p1", name: "demo", root: "/demo", last_opened_ms: null, trusted: true };
     await settle();
     // Hold the next answer back; it carries the settings as they are now.
@@ -648,7 +690,7 @@ describe("ProjectTrust", () => {
     await settle();
     release();
     await settle();
-    expect(trustCard()?.querySelector("h3")?.textContent).toBe("Project settings changed");
+    expect(trustWaiting).toMatchObject({ waiting: true, changed: true });
   });
 
   it("warns when only file contents changed, since no list names them", async () => {
@@ -660,6 +702,7 @@ describe("ProjectTrust", () => {
     workspace.project = { id: "p1", name: "demo", root: "/demo", last_opened_ms: null, trusted: true };
     app = mount(TestHost, { target, props: { transport: core, workspace } });
     await settle();
+    await review();
     expect(heading()).toBe("Project settings changed");
     const line = trustCard()?.querySelector("[data-testid=trust-summary]");
     expect(line?.classList.contains("warning")).toBe(true);
@@ -670,6 +713,7 @@ describe("ProjectTrust", () => {
     const core = new FakeAgentCore();
     core.trustedConfig.set("p1", core.config);
     const workspace = await show(core);
+    await review();
     workspace.project = { id: "p1", name: "demo", root: "/demo", last_opened_ms: null, trusted: true };
     await settle();
     expect(trustCard()).toBeNull();
@@ -680,6 +724,8 @@ describe("ProjectTrust", () => {
     };
     core.emit({ type: "review.changed", data: { project: "p1", id: "r1" } });
     await settle();
+    expect(trustWaiting).toMatchObject({ waiting: true, changed: true });
+    await review();
     expect(heading()).toBe("Project settings changed");
     // Someone else's project, or files outside .claude/: nothing to re-read.
     const asked = core.sent("agents.project_config").length;
@@ -699,6 +745,7 @@ describe("ProjectTrust", () => {
       items: [{ path: ".claude/settings.json", kind: "broad_allow_rules", entries: ["Bash(*)"] }],
     };
     await show(core);
+    await review();
     await armed();
     // jsdom does not scroll.
     Element.prototype.scrollIntoView = vi.fn();
@@ -745,6 +792,7 @@ describe("ProjectTrust", () => {
           })
         : call(request)) as typeof core.call;
     await show(core);
+    await review();
     await languageServers(core).show("p1");
     await settle();
     expect(testid("trust-risky-env")).toBe(
