@@ -89,6 +89,10 @@ let commit = $state(false);
 let commitMessage = $state("");
 let confirmingReject = $state(false);
 let comment = $state("");
+/** Ask for changes was pressed: the comment box shows. It shows anyway while a draft waits. */
+let asking = $state(false);
+/** The More choices under the decision: commit, pull request, bring in project changes. */
+let moreOpen = $state(false);
 /** Remember this: the sent comment is also added to the project's AGENTS.md as a rule. */
 let remember = $state(false);
 /** Unsent comments of the items not selected now, by item. */
@@ -306,6 +310,8 @@ const includableUnseen = $derived(item ? looks.includableUnseen(item) : []);
 const directWaits = $derived(item ? looks.directWaits(item) : false);
 const takeUnseen = $derived(item ? looks.takeUnseen(item) : []);
 /** What Approve's description points at: why it waits, and the protected paths it would apply. */
+/** The project-moved notice stands above Keep only when it matters: files clash, or an update just ran. */
+const noticeUp = $derived(item !== null && ((item.behind?.clashes.length ?? 0) > 0 || inbox.updated?.id === item.id));
 const approveWhy = $derived(
   [
     commit && !commitMessage.trim() ? "inbox-commit-why" : diffShown ? null : "inbox-diff-why",
@@ -430,6 +436,8 @@ function select(id: ReviewId | null): void {
   commitMessage = next ? defaultCommitMessage(next) : "";
   confirmingReject = false;
   prFor = null;
+  asking = false;
+  moreOpen = false;
   comment = (id !== null && drafts.get(id)) || "";
   lineComments = (id !== null && lineDrafts.get(id)) || [];
 }
@@ -461,6 +469,22 @@ async function showFor(wanted: SessionId[]): Promise<void> {
   const found = wanted.map((s) => inbox.waiting.find((i) => i.session === s)).find((i) => i !== undefined);
   if (found) select(found.id);
   if (!opened) await show(true);
+}
+
+/** Opens the comment box and puts the cursor in it. */
+async function askForChanges(): Promise<void> {
+  asking = true;
+  await tick();
+  const field = document.getElementById("inbox-comment");
+  field?.focus();
+  // The whole box, its Send button too, above the bar that stays in view.
+  field?.closest("form")?.scrollIntoView?.({ block: "nearest" });
+}
+
+/** What Keep does, as its tooltip: the bar stays one row of buttons. */
+function keepTip(review: ReviewItem): string {
+  const detail = approveDetail(review);
+  return detail ? `${approveHint(review)} ${detail}` : approveHint(review);
 }
 
 /** The dialog closed: say what it sent, and give focus back to the item. */
@@ -669,6 +693,7 @@ async function sendComment(review: ReviewItem): Promise<void> {
   if (await inbox.comment(review.id, text, lineComments)) {
     comment = "";
     lineComments = [];
+    asking = false;
     announcement = "Comment sent. The agent continues, and this review updates when its changes do.";
     const project = workspace.project?.id;
     if (remember && text && project) {
@@ -817,10 +842,10 @@ function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
                           data-testid="item-repo"> · {repoTag(review, repoName)}</span
                         >{/if}</span
                     >
+                    <!-- "Waiting for review" is what every new item is, so only other states are named. -->
                     <span class="meta"
-                      ><span class="state {review.state}">{STATE_LABEL[review.state]}</span><span class="count"
-                        > · {itemSummary(review)}</span
-                      ></span
+                      >{#if review.state !== "open"}<span class="state {review.state}">{STATE_LABEL[review.state]}</span
+                        ><span class="count"> · </span>{/if}<span class="count">{itemSummary(review)}</span></span
                     >
                     {#if protectedTag(review)}
                       <span class="marker protected" data-testid="item-protected">{protectedTag(review)}</span>
@@ -840,11 +865,11 @@ function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
               <div class="decide">
               <div class="item-head">
                 <h3 id="inbox-item-title" tabindex="-1">{shortTitle(item, sessions.name(item.session))}</h3>
-                <span class="state {item.state}">{STATE_LABEL[item.state]}</span>
+                {#if item.state !== "open"}<span class="state {item.state}">{STATE_LABEL[item.state]}</span>{/if}
                 {#if brief}
                   <TaskSummary summary={brief} />
                 {:else if item.summary}
-                  <p class="summary">Agent's summary: {item.summary}</p>
+                  <p class="summary" title="The agent's summary">{item.summary}</p>
                 {/if}
                 {#if item.check}
                   <p class="check-line" data-state={item.check.state} data-testid="inbox-check">
@@ -920,138 +945,6 @@ function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
 
               {#if item.pull_request}
                 <PrPanel {inbox} {item} pr={item.pull_request} onsaid={(said) => (announcement = said)} />
-              {/if}
-
-              {#if item.state === "open" || item.state === "published"}
-                <div class="actions" role="group" aria-label="Decide on this review">
-                  <BehindNotice
-                    {inbox}
-                    {item}
-                    onsaid={(said) => (announcement = said)}
-                    onask={(text) => {
-                      comment = text;
-                      void tick().then(() => document.getElementById("inbox-comment")?.focus());
-                    }}
-                  />
-                  <p class="hint">{approveHint(item)}</p>
-                  {#if protectedText}
-                    <p class="protected" id="inbox-protected" data-testid="inbox-protected">{protectedText}</p>
-                  {/if}
-                  {#if approveDetail(item) || sharedText}
-                    <details class="more">
-                      <summary><Icon name="chevron-right" small />Details</summary>
-                      {#if approveDetail(item)}<p class="hint">{approveDetail(item)}</p>{/if}
-                      {#if sharedText}
-                        <p class="hint" id="inbox-shared" data-testid="inbox-shared">{sharedText}</p>
-                      {/if}
-                    </details>
-                  {/if}
-                  {#if directWaits}
-                    <p class="hint" id="inbox-protected-why" data-testid="inbox-protected-why">
-                      Keep changes waits until you have looked at the diff of each of these: {unseen
-                        .map(fileName)
-                        .join(", ")}. Select each one in the list of changed files.
-                    </p>
-                  {/if}
-                  {#if includable.length > 0}
-                    <label class="check">
-                      <input
-                        type="checkbox"
-                        data-testid="inbox-include-protected"
-                        checked={looks.ticked(item)}
-                        onclick={(e) => {
-                          // Stays focusable so its explanation is read out, but cannot be ticked yet.
-                          if (includableUnseen.length > 0) e.preventDefault();
-                        }}
-                        onchange={(e) => looks.tick(item, e.currentTarget.checked)}
-                        aria-disabled={includableUnseen.length > 0}
-                        aria-describedby={includableUnseen.length > 0 ? "inbox-include-why" : undefined}
-                      />
-                      Also apply protected files: {includable.map(fileName).join(", ")}
-                    </label>
-                    {#if includableUnseen.length > 0}
-                      <p class="hint" id="inbox-include-why" data-testid="inbox-include-why">
-                        To include them, look at the diff of each first: {includableUnseen.map(fileName).join(", ")}.
-                      </p>
-                    {/if}
-                  {/if}
-                  <label class="check">
-                    <input type="checkbox" bind:checked={commit} />
-                    Commit the agent's files
-                  </label>
-                  {#if commit}
-                    <label class="field">
-                      Commit message
-                      <input type="text" bind:value={commitMessage} aria-describedby="inbox-commit-why" />
-                    </label>
-                    {#if !commitMessage.trim()}
-                      <p class="hint" id="inbox-commit-why">Write a commit message to keep and commit.</p>
-                    {/if}
-                  {/if}
-                  {#if !diffShown}
-                    <p class="hint" id="inbox-diff-why" data-testid="inbox-diff-why">
-                      {diff?.error
-                        ? "The diff of this file did not load, so Keep changes waits: you keep only what you have seen."
-                        : "Keep changes waits until the diff of this file has loaded."}
-                    </p>
-                  {/if}
-                  <div class="buttons">
-                    <button
-                      type="button"
-                      class="approve"
-                      aria-disabled={busy || (commit && !commitMessage.trim()) || !diffShown || directWaits}
-                      aria-describedby={approveWhy}
-                      onclick={() => {
-                        if (!busy) void approve(item);
-                      }}>{commit ? "Keep and commit" : "Keep changes"}</button
-                    >
-                    {#if !confirmingReject}
-                      <button
-                        type="button"
-                        data-start-reject
-                        aria-disabled={busy}
-                        onclick={async () => {
-                          confirmingReject = true;
-                          await tick();
-                          // Start on the safe choice, so a second Enter does not reject.
-                          dialog?.querySelector<HTMLElement>("[data-cancel-reject]")?.focus();
-                        }}>Discard…</button
-                      >
-                    {/if}
-                  </div>
-                  {#if confirmingReject}
-                    <div class="confirm" role="group" aria-labelledby="inbox-reject-hint">
-                      <p id="inbox-reject-hint">{rejectHint(item)}</p>
-                      <div class="buttons">
-                        <button
-                          type="button"
-                          class="reject"
-                          data-confirm-reject
-                          aria-disabled={busy}
-                          onclick={() => {
-                            if (!busy) void reject(item);
-                          }}>Discard the changes</button
-                        >
-                        <button type="button" data-cancel-reject onclick={cancelReject}>Cancel</button>
-                      </div>
-                    </div>
-                  {/if}
-                  {#if canOpenPr(item) && !confirmingReject}
-                    <!-- Another way to land the work, quieter than Keep and Discard. -->
-                    <button
-                      type="button"
-                      class="quiet"
-                      data-open-pr
-                      aria-disabled={busy}
-                      onclick={() => {
-                        if (!busy) prFor = item.id;
-                      }}>Open pull request…</button
-                    >
-                  {/if}
-                  {#if prFor === item.id}
-                    <PrDialog {inbox} {item} onclose={(said) => void closePr(said)} />
-                  {/if}
-                </div>
               {/if}
 
               {#if item.state === "partly_approved"}
@@ -1140,39 +1033,6 @@ function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
                 </div>
               {/if}
 
-              {#if item.state !== "approved"}
-                <form
-                  class="comment"
-                  onsubmit={(e) => {
-                    e.preventDefault();
-                    void sendComment(item);
-                  }}
-                >
-                  <label for="inbox-comment">Comment to the agent</label>
-                  {#if lineComments.length > 0}
-                    <p class="hint" data-testid="inbox-line-comments">
-                      {lineComments.length === 1 ? "1 comment on a line goes" : `${lineComments.length} comments on lines go`}
-                      with it.
-                      <button type="button" onclick={() => (lineComments = [])}>Remove them</button>
-                    </p>
-                  {/if}
-                  <textarea
-                    id="inbox-comment"
-                    rows="2"
-                    bind:value={comment}
-                    aria-keyshortcuts="Control+Enter Meta+Enter"
-                    onkeydown={(e) => onCommentKeydown(e, item)}
-                  ></textarea>
-                  <label class="remember" title={`Adds the comment to ${RULES_FILE}, which every agent reads first`}>
-                    <input type="checkbox" bind:checked={remember} data-testid="inbox-remember" />
-                    Remember this for later tasks
-                  </label>
-                  <button type="submit" aria-disabled={busy || (!comment.trim() && lineComments.length === 0)}
-                    >Send comment ({modEnter})</button
-                  >
-                </form>
-              {/if}
-
                 <ExplainCard
                   {explainer}
                   {item}
@@ -1217,6 +1077,193 @@ function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
                     </li>
                   {/each}
                 </ul>
+              {#if item.state !== "approved"}
+                {#if asking || comment.trim() || lineComments.length > 0}
+                  <form
+                    class="comment"
+                    onsubmit={(e) => {
+                      e.preventDefault();
+                      void sendComment(item);
+                    }}
+                  >
+                    <label for="inbox-comment">Comment to the agent</label>
+                    {#if lineComments.length > 0}
+                      <p class="hint" data-testid="inbox-line-comments">
+                        {lineComments.length === 1 ? "1 comment on a line goes" : `${lineComments.length} comments on lines go`}
+                        with it.
+                        <button type="button" onclick={() => (lineComments = [])}>Remove them</button>
+                      </p>
+                    {/if}
+                    <textarea
+                      id="inbox-comment"
+                      rows="2"
+                      bind:value={comment}
+                      aria-keyshortcuts="Control+Enter Meta+Enter"
+                      onkeydown={(e) => onCommentKeydown(e, item)}
+                    ></textarea>
+                    <label class="remember" title={`Adds the comment to ${RULES_FILE}, which every agent reads first`}>
+                      <input type="checkbox" bind:checked={remember} data-testid="inbox-remember" />
+                      Remember this for later tasks
+                    </label>
+                    <button type="submit" aria-disabled={busy || (!comment.trim() && lineComments.length === 0)}
+                      >Send comment ({modEnter})</button
+                    >
+                  </form>
+                {:else if item.state !== "open" && item.state !== "published"}
+                  <p class="comment">
+                    <button type="button" class="quiet" onclick={askForChanges}>Ask for changes</button>
+                  </p>
+                {/if}
+              {/if}
+
+              {#if item.state === "open" || item.state === "published"}
+                <!-- One bar: Keep, Discard, Ask for changes; the rest only when needed or under More. -->
+                <div class="actions" role="group" aria-label="Decide on this review">
+                  {#if noticeUp}
+                    <BehindNotice
+                      {inbox}
+                      {item}
+                      onsaid={(said) => (announcement = said)}
+                      onask={(text) => {
+                        comment = text;
+                        void tick().then(() => document.getElementById("inbox-comment")?.focus());
+                      }}
+                    />
+                  {/if}
+                  {#if protectedText}
+                    <p class="protected" id="inbox-protected" data-testid="inbox-protected">{protectedText}</p>
+                  {/if}
+                  {#if sharedText}
+                    <p class="hint" id="inbox-shared" data-testid="inbox-shared">{sharedText}</p>
+                  {/if}
+                  {#if directWaits}
+                    <p class="hint" id="inbox-protected-why" data-testid="inbox-protected-why">
+                      Keep changes waits until you have looked at the diff of each of these: {unseen
+                        .map(fileName)
+                        .join(", ")}. Select each one in the list of changed files.
+                    </p>
+                  {/if}
+                  {#if includable.length > 0}
+                    <label class="check">
+                      <input
+                        type="checkbox"
+                        data-testid="inbox-include-protected"
+                        checked={looks.ticked(item)}
+                        onclick={(e) => {
+                          // Stays focusable so its explanation is read out, but cannot be ticked yet.
+                          if (includableUnseen.length > 0) e.preventDefault();
+                        }}
+                        onchange={(e) => looks.tick(item, e.currentTarget.checked)}
+                        aria-disabled={includableUnseen.length > 0}
+                        aria-describedby={includableUnseen.length > 0 ? "inbox-include-why" : undefined}
+                      />
+                      Also apply protected files: {includable.map(fileName).join(", ")}
+                    </label>
+                    {#if includableUnseen.length > 0}
+                      <p class="hint" id="inbox-include-why" data-testid="inbox-include-why">
+                        To include them, look at the diff of each first: {includableUnseen.map(fileName).join(", ")}.
+                      </p>
+                    {/if}
+                  {/if}
+                  {#if moreOpen}
+                    <div class="more" id="inbox-more" data-testid="inbox-more">
+                      <label class="check">
+                        <input type="checkbox" bind:checked={commit} />
+                        Commit the agent's files
+                      </label>
+                      {#if canOpenPr(item) && !confirmingReject}
+                        <!-- Another way to land the work, quieter than Keep and Discard. -->
+                        <button
+                          type="button"
+                          class="quiet"
+                          data-open-pr
+                          aria-disabled={busy}
+                          onclick={() => {
+                            if (!busy) prFor = item.id;
+                          }}>Open pull request…</button
+                        >
+                      {/if}
+                      {#if item.behind && !noticeUp}
+                        <BehindNotice {inbox} {item} onsaid={(said) => (announcement = said)} onask={() => {}} />
+                      {/if}
+                    </div>
+                  {/if}
+                  {#if commit}
+                    <label class="field">
+                      Commit message
+                      <input type="text" bind:value={commitMessage} aria-describedby="inbox-commit-why" />
+                    </label>
+                    {#if !commitMessage.trim()}
+                      <p class="hint" id="inbox-commit-why">Write a commit message to keep and commit.</p>
+                    {/if}
+                  {/if}
+                  {#if !diffShown}
+                    <p class="hint" id="inbox-diff-why" data-testid="inbox-diff-why">
+                      {diff?.error
+                        ? "The diff of this file did not load, so Keep changes waits: you keep only what you have seen."
+                        : "Keep changes waits until the diff of this file has loaded."}
+                    </p>
+                  {/if}
+                  {#if confirmingReject}
+                    <div class="confirm" role="group" aria-labelledby="inbox-reject-hint">
+                      <p id="inbox-reject-hint">{rejectHint(item)}</p>
+                      <div class="buttons">
+                        <button
+                          type="button"
+                          class="reject"
+                          data-confirm-reject
+                          aria-disabled={busy}
+                          onclick={() => {
+                            if (!busy) void reject(item);
+                          }}>Discard the changes</button
+                        >
+                        <button type="button" data-cancel-reject onclick={cancelReject}>Cancel</button>
+                      </div>
+                    </div>
+                  {:else}
+                    <div class="buttons bar">
+                      <button
+                        type="button"
+                        class="approve"
+                        title={keepTip(item)}
+                        aria-disabled={busy || (commit && !commitMessage.trim()) || !diffShown || directWaits}
+                        aria-describedby={approveWhy}
+                        onclick={() => {
+                          if (!busy) void approve(item);
+                        }}>{commit ? "Keep and commit" : "Keep changes"}</button
+                      >
+                      <button
+                        type="button"
+                        data-start-reject
+                        aria-disabled={busy}
+                        onclick={async () => {
+                          confirmingReject = true;
+                          await tick();
+                          // Start on the safe choice, so a second Enter does not reject.
+                          dialog?.querySelector<HTMLElement>("[data-cancel-reject]")?.focus();
+                        }}>Discard…</button
+                      >
+                      <span class="end">
+                      {#if !asking && !comment.trim() && lineComments.length === 0}
+                        <button type="button" class="quiet" onclick={askForChanges}>Ask for changes</button>
+                      {/if}
+                      <button
+                        type="button"
+                        class="quiet icon"
+                        aria-label="More choices"
+                        title="More choices"
+                        aria-expanded={moreOpen}
+                        aria-controls={moreOpen ? "inbox-more" : undefined}
+                        onclick={() => (moreOpen = !moreOpen)}><Icon name="more" /></button
+                      >
+                      </span>
+                    </div>
+                  {/if}
+                  {#if prFor === item.id}
+                    <PrDialog {inbox} {item} onclose={(said) => void closePr(said)} />
+                  {/if}
+                </div>
+              {/if}
               </div>
                 <div class="diff" data-testid="inbox-diff">
                   {#if fileExplained}
@@ -1410,24 +1457,13 @@ function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
     font-weight: 600;
     color: var(--text-2);
   }
-  .more summary {
+  .more {
     display: flex;
-    align-items: center;
-    gap: 4px;
-    width: fit-content;
-    font-size: 13px;
-    color: var(--text-2);
-    list-style: none;
-    cursor: pointer;
-  }
-  .more summary::-webkit-details-marker {
-    display: none;
-  }
-  .more[open] summary :global(svg) {
-    transform: rotate(90deg);
-  }
-  .more p {
-    margin: 6px 0 0;
+    flex-direction: column;
+    gap: 8px;
+    padding: 10px 12px;
+    background: var(--s3);
+    border-radius: var(--radius);
   }
   .entry.flagged .name::before {
 
@@ -1482,8 +1518,12 @@ function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
     display: flex;
     flex-direction: column;
     min-height: 0;
-    padding-bottom: 12px;
     overflow: auto;
+  }
+  /* What scrolls into view stops above the decision bar. */
+  .decide,
+  .detail {
+    scroll-padding-bottom: 72px;
   }
   .item-head,
   .actions,
@@ -1509,10 +1549,37 @@ function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
   .outcome {
     color: var(--text);
   }
+  /* The decision sits at the bottom of the column and stays in view while the rest scrolls. */
   .actions {
+    position: sticky;
+    bottom: 0;
+    z-index: 1;
     display: flex;
     flex-direction: column;
     gap: 8px;
+    margin-top: auto;
+    padding-bottom: 12px;
+    background: var(--s2);
+  }
+  .bar {
+    align-items: center;
+    gap: 6px;
+  }
+  .bar button {
+    padding-inline: 10px;
+  }
+  /* Ask for changes and More stay together at the end, on a row of their own when narrow. */
+  .bar .end {
+    display: flex;
+    gap: 2px;
+    margin-left: auto;
+  }
+  .bar .quiet {
+    align-self: center;
+    padding-inline: 8px;
+  }
+  .bar .icon {
+    padding-inline: 6px;
   }
   .actions p {
     margin: 0;
@@ -1620,15 +1687,16 @@ function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
       margin-top: 12px;
       border-radius: 10px 10px 0 0;
     }
-    .actions {
+    .files {
       order: 2;
     }
-    .files {
+    .comment {
       order: 3;
     }
-    .comment {
+    .actions {
       order: 4;
-      padding-bottom: 12px;
+      padding-top: 12px;
+      border-top: 1px solid var(--separator);
     }
   }
   /* Narrower still: the items become one compact row above the item, each its name and state. */

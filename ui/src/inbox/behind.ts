@@ -22,7 +22,7 @@ export function named(paths: string[]): string {
 /** The warning above Keep. */
 export function behindText(behind: Behind): string {
   if (behind.clashes.length === 0) {
-    return `Your project changed in ${files(behind.files)} since this agent's copy was made. None of them are files it changed, so Keep copies all of its changes.`;
+    return `Your project changed in ${files(behind.files)} since the agent started, none that it changed.`;
   }
   const them = behind.clashes.length === 1 ? "it" : "them";
   return `Your project changed since this agent's copy was made, also in ${named(behind.clashes)}, which the agent changed too. Keep would leave ${them} out. Bring in your changes first to merge both.`;
