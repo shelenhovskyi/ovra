@@ -113,6 +113,8 @@ describe("Viewer", () => {
       expect(buttons.map((b) => b.querySelector(".label")?.textContent)).toEqual(["New task", "Find a file", "Search"]);
       expect(buttons[1]?.querySelector("kbd")?.textContent).toBe(formatShortcut(liveKeys("Mod+P", true), isApple()));
       expect(buttons[0]?.querySelector("kbd")).toBeNull();
+      // Each step carries an icon, so the rows read as buttons before any hover.
+      expect(buttons.every((b) => b.querySelector("svg.icon"))).toBe(true);
       for (const button of buttons) button.click();
       expect(ran).toEqual(["task", "file", "search"]);
     } finally {

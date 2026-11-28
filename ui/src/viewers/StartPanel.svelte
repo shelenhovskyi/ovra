@@ -8,10 +8,10 @@ import { useOvra } from "../shell/context";
 import EmptyState from "../shell/EmptyState.svelte";
 
 const ACTIONS = [
-  { command: "agents.new_session", label: "New task" },
-  { command: "palette.go_to_file", label: "Find a file" },
-  { command: "search.show", label: "Search" },
-  { command: "terminal.toggle", label: "Terminal" },
+  { command: "agents.new_session", label: "New task", icon: "plus" },
+  { command: "palette.go_to_file", label: "Find a file", icon: "file" },
+  { command: "search.show", label: "Search", icon: "search" },
+  { command: "terminal.toggle", label: "Terminal", icon: "terminal" },
 ] as const;
 
 const { workspace } = useOvra();
@@ -23,11 +23,11 @@ $effect(() => {
 });
 
 const actions = $derived(
-  ACTIONS.flatMap(({ command, label }) => {
+  ACTIONS.flatMap(({ command, label, icon }) => {
     const found = commands.find((c) => c.id === command);
     if (!found) return [];
     const keys = found.keys ? formatShortcut(liveKeys(found.keys, inBrowserTab()), isApple()) : null;
-    return [{ label, keys, run: () => void found.run() }];
+    return [{ label, icon, keys, run: () => void found.run() }];
   }),
 );
 </script>

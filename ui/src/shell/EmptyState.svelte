@@ -1,12 +1,16 @@
 <script lang="ts" module>
-/** A button of an empty state: a verb, the shortcut that does the same, what it runs. */
-export type EmptyAction = { label: string; keys?: string | null; run: () => void };
+import type { IconName } from "./icons";
+
+/** A button of an empty state: a verb, an icon, the shortcut that does the same, what it runs. */
+export type EmptyAction = { label: string; icon?: IconName; keys?: string | null; run: () => void };
 </script>
 
 <script lang="ts">
+import Icon from "./Icon.svelte";
+
 // What a panel shows when it has nothing to show (docs/design/patterns.md,
-// "Empty states"): a headline, one line, and the next step as a quiet
-// button with its key. Centred in the main area, top-left in side panels.
+// "Empty states"): a headline, one line, and the next steps as quiet filled
+// buttons with their keys, so they read as buttons before any hover. Centred in the main area, top-left in side panels.
 let {
   headline,
   line,
@@ -32,6 +36,7 @@ const id = $props.id();
       {#each actions as action (action.label)}
         <li>
           <button type="button" onclick={() => action.run()}>
+            {#if action.icon}<Icon name={action.icon} small />{/if}
             <span class="label">{action.label}</span>
             {#if action.keys}<kbd>{action.keys}</kbd>{/if}
           </button>
@@ -64,38 +69,47 @@ const id = $props.id();
   ul {
     display: flex;
     flex-direction: column;
-    gap: 2px;
+    gap: 6px;
     margin: 12px 0 0;
     padding: 0;
     list-style: none;
   }
-  /* Quiet buttons: the area's one primary is elsewhere. */
+  /* Quiet buttons: a soft fill and hairline at rest, the area's one primary is elsewhere. */
   button {
     display: flex;
     align-items: center;
-    justify-content: space-between;
-    gap: 12px;
+    gap: var(--sp-2);
     width: 100%;
-    height: 28px;
-    padding: 0 8px;
+    height: var(--ctl-lg);
+    padding: 0 10px;
     font: inherit;
     font-size: 13px;
     color: var(--text);
     text-align: left;
-    background: transparent;
-    border: 0;
-    border-radius: var(--radius-sm);
+    background: var(--s3);
+    border: 1px solid var(--separator);
+    border-radius: var(--r-md);
     cursor: pointer;
   }
   button:hover {
-    background: var(--s3);
+    background: var(--s4);
   }
   button:focus-visible {
     outline: 2px solid var(--accent);
     outline-offset: 1px;
   }
+  button :global(.icon) {
+    color: var(--text-2);
+  }
+  .label {
+    flex: 1;
+  }
+  /* Side panels: buttons as wide as their words, under the headline. */
   .empty:not(.centred) ul {
-    margin-inline: -8px;
+    align-items: flex-start;
+  }
+  .empty:not(.centred) button {
+    width: auto;
   }
   kbd {
     font: 12px var(--font);
