@@ -122,6 +122,8 @@ test("start an agent and answer its requests from the keyboard", async ({ page }
   const agents = page.getByTestId("agents");
   await expect(agents.getByRole("button", { name: "Queue" })).toBeInViewport({ ratio: 1 });
   expect((await page.getByTestId("agents-capacity").boundingBox())?.height).toBeLessThan(24);
+  // "1 of 3" shows whole: the bars beside it give way first.
+  expect(await page.getByTestId("agents-capacity").evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
 
   // Y and N would type into the reply box: no key cap says otherwise until the card has focus.
   await expect(run.locator("kbd")).toHaveCount(2);

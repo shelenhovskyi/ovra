@@ -2009,8 +2009,9 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
     font-size: 14px;
     font-weight: 600;
   }
-  /* The words give way before the buttons at the end: those always stay in view. */
+  /* The bars give way first, then the words; the buttons at the end always stay in view. */
   .capacity {
+    flex: 0 1 auto;
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -2020,10 +2021,13 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
   }
   .slots {
     display: inline-flex;
-    flex: none;
+    flex: 0 1000 auto;
+    min-width: 0;
+    overflow: hidden;
     gap: 3px;
   }
   .slots i {
+    flex: none;
     width: 14px;
     height: 4px;
     border-radius: 2px;
