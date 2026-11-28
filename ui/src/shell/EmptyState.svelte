@@ -64,7 +64,7 @@ const id = $props.id();
   }
   p {
     margin: 0;
-    font-size: 13px;
+    font-size: var(--fs-ui);
   }
   ul {
     display: flex;
@@ -83,12 +83,12 @@ const id = $props.id();
     height: var(--ctl-lg);
     padding: 0 10px;
     font: inherit;
-    font-size: 13px;
+    font-size: var(--fs-ui);
     color: var(--text);
     text-align: left;
     background: var(--s3);
     border: 1px solid var(--separator);
-    border-radius: var(--r-md);
+    border-radius: var(--r-control);
     cursor: pointer;
   }
   button:hover {

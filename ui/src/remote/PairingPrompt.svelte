@@ -98,7 +98,7 @@ const connected = $derived(phone.status?.connected ?? 0);
     color: var(--text);
     background: var(--s3);
     border: 0;
-    border-radius: var(--r-md);
+    border-radius: var(--r-control);
     cursor: default;
   }
   .actions .primary {

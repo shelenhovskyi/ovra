@@ -59,7 +59,7 @@ function stop(): void {
     min-width: 0;
     padding: 0 var(--sp-1) 0 var(--sp-2);
     height: var(--ctl-sm);
-    border-radius: var(--r-sm);
+    border-radius: var(--r-control);
     color: var(--accent);
     background: var(--accent-soft);
     font: var(--t-caption);

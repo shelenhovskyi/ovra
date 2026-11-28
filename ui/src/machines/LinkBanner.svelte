@@ -72,7 +72,7 @@ const down = $derived(link.state === "closed" || link.state === "failed" || link
     color: var(--accent-ink);
     background: var(--accent);
     border: 0;
-    border-radius: var(--r-md);
+    border-radius: var(--r-control);
     cursor: default;
   }
 </style>
