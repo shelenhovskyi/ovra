@@ -63,6 +63,11 @@ export class Machines {
     return this.attempt(() => this.transport.call({ method: "ssh.remove", params: { id } }));
   }
 
+  /** Ends Ovra on the machine and starts its installed build; the person confirmed first. */
+  restart(host: RemoteHost): Promise<unknown> {
+    return this.attempt(async () => this.transport.restartRemote?.(host.id));
+  }
+
   /** Opens the machine's window, or focuses it. */
   open(host: RemoteHost): Promise<unknown> {
     return this.attempt(async () => this.transport.openRemote?.({ id: host.id, name: host.name }));
@@ -73,9 +78,12 @@ export class Machines {
 export function linkMessage(name: string, link: RemoteLink): string {
   if (link.state === "connecting") return `Connecting to ${name}…`;
   if (link.state === "open") return `Connected to ${name}.`;
+  if (link.state === "stopped") return `Ovra on ${name} is stopped. Its agents' sessions can be resumed.`;
   switch (link.reason) {
     case null:
-      return `Disconnected from ${name}. Agents on it stop within a minute.`;
+      return `Disconnected from ${name}. Agents there keep working.`;
+    case "replaced":
+      return `Ovra on ${name} was opened from another window or computer. Reconnect to take it back here.`;
     case "host_key_changed":
       return `${name} has a different host key than the one Ovra trusts. Ovra did not connect: someone may be posing as it. If the machine was reinstalled, remove it in Settings and add it again.`;
     case "no_pin":
@@ -85,7 +93,7 @@ export function linkMessage(name: string, link: RemoteLink): string {
     case "no_daemon":
       return `Ovra is not installed on ${name}, or not where Ovra looked. Install it there, or set its path in Settings.`;
     case "version_mismatch":
-      return `${name} runs a different version of Ovra. Install the same version on both computers.`;
+      return `${name} runs a different version of Ovra. Restart it from Settings > Remote machines in Ovra's main window.`;
     case "busy":
       return `Ovra is already open on ${name}, for you or for someone else. Close it there first.`;
     case "no_ssh":
@@ -93,6 +101,6 @@ export function linkMessage(name: string, link: RemoteLink): string {
     case "unsafe_config":
       return `Your SSH settings for ${name} turn on something Ovra keeps off, such as forwarding. See Details.`;
     default:
-      return `Disconnected from ${name}. Agents on it stop within a minute.`;
+      return `Disconnected from ${name}. Agents there keep working.`;
   }
 }

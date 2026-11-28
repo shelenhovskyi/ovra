@@ -4,6 +4,7 @@
 // keys the person's own `known_hosts` has, and trusts exactly those.
 import { untrack } from "svelte";
 import type { PreparedHost, RemoteHost } from "../lib/protocol";
+import type { RemoteLink } from "../lib/transport";
 import { useOvra } from "../shell/context";
 import { Machines } from "./machines.svelte";
 
@@ -20,6 +21,11 @@ let daemon = $state("");
 /** The keys found for the destination, shown before anything is trusted. */
 let prepared = $state<PreparedHost | null>(null);
 let renaming = $state<string | null>(null);
+/** Each machine's link, from the app: only the laptop's own window hears them. */
+const links = $state<Record<string, RemoteLink>>({});
+$effect(() => untrack(() => transport.onRemoteLinks?.((id, link) => (links[id] = link))));
+/** The machine whose restart waits for the person's confirmation. */
+let restarting = $state<string | null>(null);
 let newName = $state("");
 
 function reset(): void {
@@ -39,6 +45,14 @@ async function trust(): Promise<void> {
   const added = await machines.add(name.trim() || destination.trim().slice(0, 40), prepared, daemon.trim());
   if (added) reset();
 }
+
+async function restart(host: RemoteHost): Promise<void> {
+  restarting = null;
+  await machines.restart(host);
+}
+
+/** Whether the machine's Ovra answered as another build, which a restart may fix. */
+const otherVersion = (id: string) => links[id]?.state === "failed" && links[id]?.reason === "version_mismatch";
 
 async function saveName(host: RemoteHost, event: SubmitEvent): Promise<void> {
   event.preventDefault();
@@ -76,6 +90,28 @@ async function saveName(host: RemoteHost, event: SubmitEvent): Promise<void> {
                   <button type="button" class="primary" onclick={() => void machines.open(host)} data-testid="machine-open"
                     >Open</button
                   >
+                {/if}
+              </div>
+            {/if}
+            {#if otherVersion(host.id) && transport.restartRemote}
+              <div class="notice" data-testid="machine-other-version">
+                {#if restarting === host.id}
+                  <p>
+                    Restart Ovra on {host.name}? Agents running there stop. Their sessions can be resumed later.
+                  </p>
+                  <div class="row">
+                    <button type="button" class="danger" onclick={() => void restart(host)} data-testid="machine-restart-confirm"
+                      >Restart</button
+                    >
+                    <button type="button" onclick={() => (restarting = null)}>Cancel</button>
+                  </div>
+                {:else}
+                  <p>Ovra on {host.name} is a different version from this one.</p>
+                  <div class="row">
+                    <button type="button" onclick={() => (restarting = host.id)} data-testid="machine-restart"
+                      >Restart Ovra on {host.name}</button
+                    >
+                  </div>
                 {/if}
               </div>
             {/if}
@@ -237,6 +273,19 @@ async function saveName(host: RemoteHost, event: SubmitEvent): Promise<void> {
   }
   .field input {
     flex: 1;
+  }
+  .notice {
+    display: flex;
+    flex-direction: column;
+    gap: var(--sp-2);
+    margin: var(--sp-1) 0;
+    padding: var(--sp-2) var(--sp-3);
+    background: var(--s2);
+    border-radius: var(--r-md);
+  }
+  button.danger {
+    color: var(--danger);
+    background: var(--danger-soft);
   }
   .kind {
     color: var(--text-2);

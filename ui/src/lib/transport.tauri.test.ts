@@ -111,6 +111,23 @@ describe("the Tauri transport", () => {
     await transport.openRemote?.({ id: "abc", name: "Build" });
     expect(tauri.invoke).toHaveBeenCalledWith("ovra_remote_show", { id: "abc" });
   });
+
+  it("hears every machine's link, including ones sent before it listened, and restarts one", async () => {
+    tauri.state.channel = null;
+    const transport = connectTauri();
+    await vi.waitFor(() => expect(tauri.state.channel).not.toBeNull());
+    const mismatch = { state: "failed", reason: "version_mismatch", details: null };
+    send({ sshStatus: { id: "abc", ...mismatch } });
+    const seen: unknown[] = [];
+    transport.onRemoteLinks?.((id, link) => seen.push([id, link]));
+    send({ sshStatus: { id: "zzz", state: "open", reason: null, details: null } });
+    expect(seen).toEqual([
+      ["abc", mismatch],
+      ["zzz", { state: "open", reason: null, details: null }],
+    ]);
+    await transport.restartRemote?.("abc");
+    expect(tauri.invoke).toHaveBeenCalledWith("ovra_remote_restart", { id: "abc" });
+  });
 });
 
 describe("a remote machine's Tauri window", () => {
@@ -171,12 +188,16 @@ describe("a remote machine's Tauri window", () => {
     );
   });
 
-  it("asks the app to reconnect and disconnect its own link", async () => {
+  it("asks the app to reconnect, disconnect and stop its own machine, and restarts none", async () => {
     const transport = remoteWindow();
     await vi.waitFor(() => expect(tauri.state.channel).not.toBeNull());
     transport.remote?.disconnect();
+    transport.remote?.stop();
     transport.remote?.reconnect();
     await vi.waitFor(() => expect(tauri.invoke).toHaveBeenCalledWith("ovra_remote_reconnect"));
     expect(tauri.invoke).toHaveBeenCalledWith("ovra_remote_disconnect");
+    expect(tauri.invoke).toHaveBeenCalledWith("ovra_remote_stop");
+    expect(transport.restartRemote).toBeUndefined();
+    expect(transport.onRemoteLinks).toBeUndefined();
   });
 });

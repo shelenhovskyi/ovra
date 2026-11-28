@@ -1,7 +1,9 @@
 <script lang="ts">
 // The bar a remote machine's window shows while its link is down: what
 // happened, in words Ovra chose, with what `ssh` said folded under Details
-// as plain text (it is the remote machine's own), and Reconnect.
+// as plain text (it is the remote machine's own), and Reconnect. Nothing
+// reconnects on its own: after `replaced` that would take the machine back
+// from the other window, and that one would take it back again.
 import type { RemoteLink, RemoteWindow } from "../lib/transport";
 import { linkMessage } from "./machines.svelte";
 
@@ -9,7 +11,7 @@ let { remote }: { remote: RemoteWindow } = $props();
 
 let link = $state<RemoteLink>({ state: "connecting", reason: null, details: null });
 $effect(() => remote.onLink((next) => (link = next)));
-const down = $derived(link.state === "closed" || link.state === "failed");
+const down = $derived(link.state === "closed" || link.state === "failed" || link.state === "stopped");
 </script>
 
 {#if down}

@@ -46,6 +46,10 @@ export interface Transport {
   remote?: RemoteWindow;
   /** Opens a remote machine in a window of its own, or focuses it. Absent in a remote window. */
   openRemote?(machine: RemoteMachine): Promise<void>;
+  /** Every machine's link as the app reports it: the current ones at once, then each change. Laptop's app window only. */
+  onRemoteLinks?(listener: (id: string, link: RemoteLink) => void): () => void;
+  /** Ends Ovra on machine `id` and starts its installed build, after the person confirmed. Laptop's app window only. */
+  restartRemote?(id: string): Promise<void>;
 }
 
 /** A remote machine as its window knows it: from the app, never from the machine. */
@@ -53,7 +57,8 @@ type RemoteMachine = { id: string; name: string };
 
 /** The link to a remote machine; `reason` and `details` come with `closed` and `failed`. */
 export type RemoteLink = {
-  state: "connecting" | "open" | "closed" | "failed";
+  /** `stopped`: the person ended Ovra on the machine. */
+  state: "connecting" | "open" | "closed" | "failed" | "stopped";
   reason: string | null;
   /** What `ssh` said: the remote machine's own text, to show as plain text only. */
   details: string | null;
@@ -64,7 +69,10 @@ export interface RemoteWindow {
   /** Reports the link's state at once, then every change. */
   onLink(listener: (link: RemoteLink) => void): () => void;
   reconnect(): void;
+  /** Leaves the machine's Ovra running, with its agents. */
   disconnect(): void;
+  /** Ends Ovra on the machine: its agents stop, their sessions stay resumable. */
+  stop(): void;
 }
 
 /** Keeps the last link state and tells listeners. */
@@ -204,6 +212,8 @@ export function connectTauri(): Transport {
   const menuListeners = new Set<(command: string) => void>();
   const dropListeners = new Set<(drop: WindowDrop) => void>();
   const overListeners = new Set<(at: Point | null) => void>();
+  const links = new Map<string, RemoteLink>();
+  const linkListeners = new Set<(id: string, link: RemoteLink) => void>();
   // Everything the app tells this window comes on the window's own channel:
   // app events would reach every window, a remote machine's too.
   const ready = import("@tauri-apps/api/core").then(async (core) => {
@@ -213,9 +223,14 @@ export function connectTauri(): Transport {
       else if ("drop" in message) for (const listener of dropListeners) listener(message.drop);
       // The app follows the drag too, so its position is in CSS pixels on every platform.
       else if ("dragOver" in message) for (const listener of overListeners) listener(message.dragOver);
-      else if ("sshStatus" in message && machine && message.sshStatus.id === machine.id) {
-        const { state, reason, details } = message.sshStatus;
-        link.set({ state, reason, details });
+      else if ("sshStatus" in message) {
+        const { id, state, reason, details } = message.sshStatus;
+        if (machine) {
+          if (id === machine.id) link.set({ state, reason, details });
+        } else {
+          links.set(id, { state, reason, details });
+          for (const listener of linkListeners) listener(id, { state, reason, details });
+        }
       }
     });
     await core.invoke("ovra_subscribe", { channel });
@@ -253,6 +268,7 @@ export function connectTauri(): Transport {
       onLink: (listener) => link.on(listener),
       reconnect: () => void ready.then((invoke) => invoke("ovra_remote_reconnect")),
       disconnect: () => void ready.then((invoke) => invoke("ovra_remote_disconnect")),
+      stop: () => void ready.then((invoke) => invoke("ovra_remote_stop")),
     };
     return Object.assign(router, menu, { remote });
   }
@@ -273,6 +289,17 @@ export function connectTauri(): Transport {
           throw err instanceof Error ? err : new Error(String(err));
         }),
     openRemote: (remote: RemoteMachine) => ready.then((invoke) => invoke<void>("ovra_remote_show", { id: remote.id })),
+    onRemoteLinks: (listener: (id: string, link: RemoteLink) => void) => {
+      linkListeners.add(listener);
+      for (const [id, known] of links) listener(id, known);
+      return () => linkListeners.delete(listener);
+    },
+    restartRemote: (id: string) =>
+      ready
+        .then((invoke) => invoke<void>("ovra_remote_restart", { id }))
+        .catch((err: unknown) => {
+          throw err instanceof Error ? err : new Error(String(err));
+        }),
   });
 }
 
@@ -380,7 +407,13 @@ function connectWebSocket(): Transport {
       );
       return socket;
     };
-    const remote: RemoteWindow = { machine, onLink: (listener) => link.on(listener), reconnect() {}, disconnect() {} };
+    const remote: RemoteWindow = {
+      machine,
+      onLink: (listener) => link.on(listener),
+      reconnect() {},
+      disconnect() {},
+      stop() {},
+    };
     return Object.assign(connectSocket(openSocket, serverUp), { remote });
   }
   const url = `${scheme}://${location.host}/ws?token=${encodeURIComponent(token)}`;

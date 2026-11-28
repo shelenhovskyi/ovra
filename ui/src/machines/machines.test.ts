@@ -24,11 +24,12 @@ const BUILD: RemoteHost = {
   fingerprints: [FINGERPRINT],
 };
 
-function fake(options: { keys?: boolean; list?: boolean } = {}) {
+function fake(options: { keys?: boolean; list?: boolean; links?: Record<string, RemoteLink> } = {}) {
   let hosts: RemoteHost[] = [];
   const listeners: ((e: CoreEvent) => void)[] = [];
   const sent: Request[] = [];
   const opened: unknown[] = [];
+  const restarted: string[] = [];
   const emit = (e: CoreEvent) => {
     for (const listener of listeners) listener(e);
   };
@@ -64,8 +65,16 @@ function fake(options: { keys?: boolean; list?: boolean } = {}) {
     openRemote: async (machine) => {
       opened.push(machine);
     },
+    onRemoteLinks: (listener) => {
+      for (const [id, link] of Object.entries(options.links ?? {})) listener(id, link);
+      return () => {};
+    },
+    restartRemote: async (id) => {
+      restarted.push(id);
+    },
   };
-  return { transport, sent, opened };
+  if (options.links) hosts = [BUILD];
+  return { transport, sent, opened, restarted };
 }
 
 let cleanup: (() => void)[] = [];
@@ -143,6 +152,28 @@ it("tells the person to connect once in a terminal when no key is known", async 
   expect(button(root, "Trust and add")).toBeUndefined();
 });
 
+it("offers to restart a machine that runs another version, after the person confirms", async () => {
+  const links = { abc: { state: "failed", reason: "version_mismatch", details: null } as RemoteLink };
+  const core = fake({ links });
+  const root = show(TestHost, { transport: core.transport });
+  await settle();
+  expect(root.querySelector("[data-testid=machine-other-version]")?.textContent).toContain("different version");
+  button(root, "Restart Ovra on Build").click();
+  flushSync();
+  expect(root.querySelector("[data-testid=machine-other-version]")?.textContent).toContain("Agents running there stop");
+  expect(core.restarted).toEqual([]);
+  button(root, "Restart").click();
+  await settle();
+  expect(core.restarted).toEqual(["abc"]);
+});
+
+it("offers no restart for a machine whose link is fine", async () => {
+  const core = fake({ links: { abc: { state: "closed", reason: null, details: null } } });
+  const root = show(TestHost, { transport: core.transport });
+  await settle();
+  expect(root.querySelector("[data-testid=machine-other-version]")).toBeNull();
+});
+
 it("says so where there are no remote machines", async () => {
   const root = show(TestHost, { transport: fake({ list: false }).transport });
   await settle();
@@ -163,6 +194,7 @@ function remoteWindow() {
     },
     reconnect: () => asked.push("reconnect"),
     disconnect: () => asked.push("disconnect"),
+    stop: () => asked.push("stop"),
   };
   const set = (next: RemoteLink) => {
     link = next;
@@ -186,6 +218,26 @@ it("names the machine in the title bar and disconnects from it", () => {
   expect(button(root, "Disconnect")).toBeUndefined();
 });
 
+it("stops Ovra on the machine only after the person confirms", () => {
+  const win = remoteWindow();
+  const root = show(RemoteChip, { remote: win.remote });
+  win.set({ state: "open", reason: null, details: null });
+  const stop = root.querySelector<HTMLButtonElement>("[data-testid=remote-stop]");
+  expect(stop?.getAttribute("aria-label")).toBe("Stop Ovra on Build");
+  stop?.click();
+  flushSync();
+  expect(root.querySelector("[role=dialog]")?.textContent).toContain("Agents running there stop");
+  button(root, "Cancel").click();
+  flushSync();
+  expect(win.asked).toEqual([]);
+  stop?.click();
+  flushSync();
+  button(root, "Stop Ovra").click();
+  flushSync();
+  expect(win.asked).toEqual(["stop"]);
+  expect(root.querySelector("[role=dialog]")).toBeNull();
+});
+
 it("shows a dropped link with the machine's own words as plain text, and reconnects", () => {
   const win = remoteWindow();
   const root = show(LinkBanner, { remote: win.remote });
@@ -206,7 +258,9 @@ it("shows a dropped link with the machine's own words as plain text, and reconne
 
 it("words every reason in Ovra's own sentences", () => {
   const down = (reason: string | null) => linkMessage("Build", { state: "closed", reason, details: null });
-  expect(down(null)).toBe("Disconnected from Build. Agents on it stop within a minute.");
+  expect(down(null)).toBe("Disconnected from Build. Agents there keep working.");
+  expect(down("replaced")).toContain("opened from another window or computer");
+  expect(linkMessage("Build", { state: "stopped", reason: null, details: null })).toContain("is stopped");
   expect(down("host_key_changed")).toContain("different host key");
   expect(down("busy")).toContain("already open on Build");
   // A reason Ovra does not know is not shown as given.
