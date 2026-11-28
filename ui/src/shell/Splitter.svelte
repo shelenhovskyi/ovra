@@ -118,7 +118,6 @@ function onkeydown(event: KeyboardEvent): void {
     top: 0;
     bottom: 0;
     width: 1px;
-    background: var(--separator);
   }
   .left::before {
     right: 0;
@@ -141,11 +140,11 @@ function onkeydown(event: KeyboardEvent): void {
   .handle::after {
     content: "";
     position: absolute;
-    top: calc(50% - 14px);
+    top: calc(50% - var(--ctl) / 2);
     left: calc(50% - 2px);
     width: 4px;
-    height: 28px;
-    border-radius: 2px;
+    height: var(--ctl);
+    border-radius: var(--r-control);
     opacity: 0;
     background: var(--accent);
     transition: opacity var(--dur-1) var(--ease-out);

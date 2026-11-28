@@ -95,13 +95,13 @@ function run(id: string): void {
     position: relative;
     display: grid;
     place-items: center;
-    width: 38px;
-    height: 38px;
+    width: var(--ctl-lg);
+    height: var(--ctl-lg);
     padding: 0;
     color: var(--text-3);
     background: none;
     border: 0;
-    border-radius: 9px;
+    border-radius: var(--r-control);
     cursor: pointer;
   }
   .rail :global(.rail-button:hover) {
@@ -120,11 +120,11 @@ function run(id: string): void {
     top: 50%;
     z-index: 50;
     padding: 4px 9px;
-    font-size: 13px;
+    font-size: var(--fs-ui);
     white-space: nowrap;
     color: var(--text);
     background: var(--s4);
-    border-radius: 6px;
+    border-radius: var(--r-control);
     box-shadow: var(--card-shadow);
     transform: translateY(-50%);
     opacity: 0;

@@ -643,6 +643,9 @@ async function showApprovals(): Promise<void> {
     /* Nothing in the frame scrolls, not even through scrollIntoView: only the panels' own lists do. */
     overflow: clip;
     background: var(--s0);
+    /* The panels and the main area are islands on the window's own tone:
+       rounded, 8 px apart, with nothing drawn between them. */
+    padding-inline: 8px;
     grid-template-columns: var(--tracks);
     grid-template-rows: var(--title-h) minmax(0, 1fr) 28px;
     grid-template-areas:
@@ -660,7 +663,6 @@ async function showApprovals(): Promise<void> {
     grid-area: title;
     z-index: 2;
     box-sizing: border-box;
-    border-bottom: 1px solid var(--separator);
     min-width: 0;
     /* Sideways only: the title bar's tooltips hang below it. */
     overflow-x: clip;
@@ -680,6 +682,12 @@ async function showApprovals(): Promise<void> {
     min-height: 0;
     overflow: clip;
     background: var(--s1);
+  }
+  .panel,
+  main {
+    margin-bottom: 8px;
+    border-radius: var(--r-lg);
+    box-shadow: 0 0 0 1px var(--separator);
   }
   .side {
     grid-area: side;
@@ -703,7 +711,7 @@ async function showApprovals(): Promise<void> {
   }
   .claude-column h2 {
     margin: 0 0 12px;
-    font-size: 13px;
+    font-size: var(--fs-ui);
     font-weight: 500;
     color: var(--text-2);
   }
@@ -831,7 +839,7 @@ async function showApprovals(): Promise<void> {
     padding: 0;
     background: none;
     border: 0;
-    border-radius: 7px;
+    border-radius: var(--r-control);
     cursor: pointer;
   }
   .strip button:hover {
@@ -871,7 +879,6 @@ async function showApprovals(): Promise<void> {
   }
   .handle {
     min-width: 0;
-    background: var(--s1);
   }
   .side-handle {
     grid-area: side-handle;
@@ -909,7 +916,7 @@ async function showApprovals(): Promise<void> {
     flex: none;
     align-items: center;
     gap: 2px;
-    height: 32px;
+    height: var(--ctl-lg);
     margin: 4px 8px 0;
     padding: 0 2px 0 12px;
     font-weight: 500;
@@ -924,13 +931,13 @@ async function showApprovals(): Promise<void> {
   .view-close {
     display: grid;
     place-items: center;
-    width: 24px;
-    height: 24px;
+    width: var(--ctl-sm);
+    height: var(--ctl-sm);
     padding: 0;
     color: var(--text-2);
     background: none;
     border: 0;
-    border-radius: var(--r-sm);
+    border-radius: var(--r-control);
     cursor: default;
   }
   .view-close:hover {
@@ -969,14 +976,13 @@ async function showApprovals(): Promise<void> {
   }
   footer {
     grid-area: footer;
-    border-top: 1px solid var(--separator);
     display: flex;
     align-items: center;
     gap: 18px;
     min-width: 0;
     padding: 0 16px;
     /* No clip: the language server list opens upwards from here. */
-    font-size: 13px;
+    font-size: var(--fs-ui);
     color: var(--text-2);
   }
   /* Terminals and servers share the dock side by side; it takes no room while both are hidden.

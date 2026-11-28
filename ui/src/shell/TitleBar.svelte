@@ -238,13 +238,13 @@ function tip(panel: Panel): string {
     display: grid;
     flex: none;
     place-items: center;
-    width: 28px;
-    height: 28px;
+    width: var(--ctl);
+    height: var(--ctl);
     padding: 0;
     color: var(--text-2);
     background: none;
     border: 0;
-    border-radius: 7px;
+    border-radius: var(--r-control);
     cursor: pointer;
   }
   .tool:hover,
@@ -271,14 +271,14 @@ function tip(panel: Panel): string {
   }
   .focus-switch {
     position: relative;
-    height: 24px;
+    height: var(--ctl-sm);
     margin-right: 4px;
     padding: 0 10px;
     font: 500 12px var(--font);
     color: var(--text-2);
     background: none;
     border: 1px solid var(--separator);
-    border-radius: 12px;
+    border-radius: var(--r-control);
     cursor: pointer;
   }
   .focus-switch:hover {
@@ -286,13 +286,13 @@ function tip(panel: Panel): string {
     background: var(--s3);
   }
   .waiting {
-    height: 24px;
+    height: var(--ctl-sm);
     padding: 0 10px;
-    font: 500 13px var(--font);
+    font: 500 var(--fs-ui) var(--font);
     color: var(--warn);
     background: var(--warn-soft);
     border: 0;
-    border-radius: 12px;
+    border-radius: var(--r-control);
     cursor: pointer;
   }
   .waiting:hover {
@@ -305,11 +305,11 @@ function tip(panel: Panel): string {
     top: calc(100% + 6px);
     z-index: 50;
     padding: 4px 9px;
-    font: 400 13px var(--font);
+    font: 400 var(--fs-ui) var(--font);
     white-space: nowrap;
     color: var(--text);
     background: var(--s4);
-    border-radius: 6px;
+    border-radius: var(--r-control);
     box-shadow: var(--card-shadow);
     opacity: 0;
     pointer-events: none;
@@ -341,12 +341,12 @@ function tip(panel: Panel): string {
     align-items: center;
     gap: 6px;
     min-width: 0;
-    height: 28px;
+    height: var(--ctl);
     padding: 0 8px;
     color: var(--text-2);
     background: none;
     border: 0;
-    border-radius: 7px;
+    border-radius: var(--r-control);
     cursor: pointer;
   }
   .branch:hover {
@@ -363,13 +363,13 @@ function tip(panel: Panel): string {
     align-items: center;
     gap: 10px;
     min-width: 0;
-    height: 30px;
+    height: var(--ctl);
     padding: 0 6px 0 11px;
     font: inherit;
     color: var(--text-2);
     background: var(--s1);
     border: 0;
-    border-radius: 8px;
+    border-radius: var(--r-control);
     cursor: pointer;
   }
   .search:hover {

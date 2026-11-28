@@ -243,12 +243,12 @@ $effect(() => {
     align-items: center;
     gap: 6px;
     max-width: 100%;
-    height: 30px;
+    height: var(--ctl);
     padding: 0 8px;
     font-weight: 600;
     background: transparent;
     border: 0;
-    border-radius: 7px;
+    border-radius: var(--r-control);
   }
   .project .label {
     overflow: hidden;
@@ -303,7 +303,7 @@ $effect(() => {
   }
   .heading {
     margin: 6px 10px 4px;
-    font-size: 13px;
+    font-size: var(--fs-ui);
     color: var(--text-2);
   }
   .path {
@@ -329,7 +329,7 @@ $effect(() => {
   }
   .folder label,
   .hint {
-    font-size: 13px;
+    font-size: var(--fs-ui);
     color: var(--text-2);
   }
   .folder .error,
@@ -338,13 +338,13 @@ $effect(() => {
     overflow-wrap: anywhere;
   }
   .folder input {
-    height: 32px;
+    height: var(--ctl-lg);
     padding: 0 10px;
     font: 13px var(--mono);
     color: inherit;
     background: var(--s3);
     border: 1px solid transparent;
-    border-radius: var(--radius-sm);
+    border-radius: var(--r-control);
   }
   .folder input[aria-invalid="true"] {
     border-color: var(--danger);
@@ -355,13 +355,13 @@ $effect(() => {
     gap: 6px;
   }
   .actions button {
-    height: 30px;
+    height: var(--ctl);
     padding: 0 12px;
     font-weight: 500;
     color: var(--text-2);
     background: transparent;
     border: 0;
-    border-radius: var(--radius-sm);
+    border-radius: var(--r-control);
   }
   .actions button:hover {
     color: var(--text);
