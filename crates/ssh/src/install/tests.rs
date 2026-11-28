@@ -181,3 +181,24 @@ async fn another_system_or_a_missing_build_uploads_nothing() {
     assert!(!dir.path().join("got").exists());
     assert_eq!(ok(ssh.list())[0].daemon, "ovra-daemon");
 }
+
+#[tokio::test]
+async fn the_command_refuses_a_linked_data_folder_or_a_folder_in_the_binarys_place() {
+    let home = ok(tempfile::tempdir());
+    let home = home.path();
+    let elsewhere = home.join("elsewhere");
+    ok(std::fs::create_dir_all(&elsewhere));
+    ok(std::fs::create_dir_all(home.join(".local/share")));
+    ok(std::os::unix::fs::symlink(
+        &elsewhere,
+        home.join(".local/share/ovra"),
+    ));
+    assert!(!upload(home, &sha(BUILD), BUILD).await);
+    assert!(!elsewhere.join("bin/ovra-daemon").exists());
+
+    let other = ok(tempfile::tempdir());
+    let other = other.path();
+    ok(std::fs::create_dir_all(bin(other).join("ovra-daemon")));
+    assert!(!upload(other, &sha(BUILD), BUILD).await);
+    assert!(!bin(other).join("ovra-daemon.new").exists());
+}

@@ -29,10 +29,14 @@ fn main() {
 fn remote_builds() {
     use sha2::Digest as _;
     println!("cargo:rerun-if-env-changed=OVRA_REMOTE_DAEMON_DIR");
+    // Absolute: the app reads it from wherever it runs.
+    let manifest =
+        std::path::PathBuf::from(std::env::var_os("CARGO_MANIFEST_DIR").unwrap_or_default());
     let dir = std::env::var_os("OVRA_REMOTE_DAEMON_DIR").map_or_else(
-        || std::path::Path::new("remote").to_path_buf(),
+        || std::path::PathBuf::from("remote"),
         std::path::PathBuf::from,
     );
+    let dir = manifest.join(dir);
     // A path that does not exist would run this script on every build.
     if dir.exists() {
         println!("cargo:rerun-if-changed={}", dir.display());

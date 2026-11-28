@@ -539,7 +539,15 @@ end); a machine the person trusted at first use is trusted; revocations
 added to the person's `known_hosts` later are not seen until re-pinning;
 whoever controls the remote account controls the agents there, like any SSH
 login; with several machines the person can run one agent limit's worth on
-each.
+each; with `XDG_DATA_HOME` set elsewhere, the installed binary in
+`~/.local/share/ovra/bin` is outside the protected data folder, so an agent
+whose project includes `$HOME` or `~/.local` could replace it, as it could
+`~/.bashrc` or a daemon the person installed there; a network drop right
+after Stop's quit line is read as stopped.
+
+Later steps: the laptop does not read the hello's `started_ms` yet (to say
+that the core restarted while sessions ran, section 6); Stop could wait for
+an acknowledgement line from the core, a protocol change.
 
 ## Tests
 
