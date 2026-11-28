@@ -46,6 +46,17 @@
   --com: #87909c;
   --fn: #cfd8f0;
   --attr: #d59ad0;
+  /* Tiles behind Settings' pane icons, drawn in --tint-ink (decorative: 3:1). */
+  --tint-ink: #ffffff;
+  --tint-blue: #3f72c9;
+  --tint-purple: #7559c4;
+  --tint-teal: #23809a;
+  --tint-amber: #a4741a;
+  --tint-slate: #56697a;
+  --tint-grey: #646c78;
+  --tint-orange: #c1603f;
+  --tint-green: #2f8556;
+  --tint-red: #c2484a;
 }
 
 @media (prefers-color-scheme: light) {
@@ -83,6 +94,15 @@
     --com: #626b77;
     --fn: #1f2633;
     --attr: #9a3a95;
+    --tint-blue: #3b78e0;
+    --tint-purple: #8160d6;
+    --tint-teal: #1f8aa6;
+    --tint-amber: #b07a16;
+    --tint-slate: #5f7a8e;
+    --tint-grey: #7a828d;
+    --tint-orange: #d9653c;
+    --tint-green: #2e9a5f;
+    --tint-red: #d9484a;
   }
 }
 
