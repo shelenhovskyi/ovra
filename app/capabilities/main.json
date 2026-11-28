@@ -9,6 +9,7 @@
     "allow-ovra-pick-folder",
     "allow-ovra-import-drop",
     "allow-ovra-remote-show",
+    "allow-ovra-remote-restart",
     "core:window:allow-start-dragging",
     "notification:allow-is-permission-granted",
     "notification:allow-request-permission",

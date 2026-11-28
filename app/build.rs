@@ -9,6 +9,8 @@ fn main() {
         "ovra_remote_show",
         "ovra_remote_reconnect",
         "ovra_remote_disconnect",
+        "ovra_remote_stop",
+        "ovra_remote_restart",
         "ovra_open_url",
     ]);
     if let Err(err) = tauri_build::try_build(tauri_build::Attributes::new().app_manifest(manifest))

@@ -112,6 +112,30 @@ fn ovra_remote_disconnect(
     Ok(())
 }
 
+/// Ends the core on the calling remote window's machine; the window stays.
+#[tauri::command]
+async fn ovra_remote_stop(
+    window: tauri::WebviewWindow,
+    remotes: tauri::State<'_, remote::Remotes>,
+) -> Result<(), String> {
+    let id = ovra_ssh::window::machine(window.label()).ok_or("not a remote window")?;
+    remotes.stop(window.app_handle(), &id).await
+}
+
+/// Restarts Ovra on machine `id` with the installed build and opens its
+/// window. For the main window only: the person confirmed it there.
+#[tauri::command]
+fn ovra_remote_restart(
+    window: tauri::WebviewWindow,
+    app: tauri::AppHandle,
+    remotes: tauri::State<'_, remote::Remotes>,
+    id: String,
+) -> Result<(), String> {
+    main_only(&window)?;
+    let id = ovra_core::ssh::HostId::parse(&id).map_err(|e| e.message)?;
+    remotes.restart(&app, &id)
+}
+
 /// Opens a web link from a remote window in the laptop's browser, unless
 /// it points at this computer or its network.
 #[tauri::command]
@@ -439,6 +463,8 @@ fn main() {
             ovra_remote_show,
             ovra_remote_reconnect,
             ovra_remote_disconnect,
+            ovra_remote_stop,
+            ovra_remote_restart,
             ovra_open_url
         ])
         .build(tauri::generate_context!());

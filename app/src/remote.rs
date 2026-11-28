@@ -99,6 +99,38 @@ impl Remotes {
 
     /// Starts a link for `id` unless one is open or opening.
     pub(crate) fn connect(&self, app: &AppHandle, id: &HostId) {
+        self.start(app, id, false);
+    }
+
+    /// Ends the core on `id` and starts the installed build there
+    /// (`--attach --restart`), opening its window. For the main window,
+    /// after the person confirmed that the agents there stop.
+    pub(crate) fn restart(&self, app: &AppHandle, id: &HostId) -> Result<(), String> {
+        let host = self
+            .host(id)
+            .ok_or_else(|| "Ovra knows no such remote machine.".to_owned())?;
+        self.close(app, id);
+        if app.get_webview_window(&window::label(id)).is_none() {
+            build(app, id, &host)?;
+        }
+        self.start(app, id, true);
+        Ok(())
+    }
+
+    /// Ends the core on `id` (its agents stop, sessions stay resumable)
+    /// and closes the link. Only the app sends the quit line.
+    pub(crate) async fn stop(&self, app: &AppHandle, id: &HostId) -> Result<(), String> {
+        let open = lock(&self.open).get(id.as_str()).cloned();
+        let sender = open.and_then(|o| o.sender.borrow().clone());
+        let Some(sender) = sender else {
+            return Err("Ovra is not connected to this machine.".to_owned());
+        };
+        sender.quit().await.map_err(|f| f.details)?;
+        self.end(app, id, "stopped");
+        Ok(())
+    }
+
+    fn start(&self, app: &AppHandle, id: &HostId, restart: bool) {
         let mut open = lock(&self.open);
         if open
             .get(id.as_str())
@@ -115,6 +147,7 @@ impl Remotes {
             self.statuses.clone(),
             sender_tx,
             waiting.clone(),
+            restart,
         ));
         open.insert(
             id.as_str().to_owned(),
@@ -129,6 +162,10 @@ impl Remotes {
     /// Ends the link of `id`, if there is one, even while a call still
     /// holds on to it.
     pub(crate) fn close(&self, app: &AppHandle, id: &HostId) {
+        self.end(app, id, "closed");
+    }
+
+    fn end(&self, app: &AppHandle, id: &HostId, state: &'static str) {
         // Held until `closed` is told, so a `connect` in between cannot
         // have its `connecting` overwritten by this older `closed`.
         let mut open = lock(&self.open);
@@ -136,7 +173,7 @@ impl Remotes {
             && !link.task.inner().is_finished()
         {
             link.task.abort();
-            tell(app, &self.statuses, id, "closed", None);
+            tell(app, &self.statuses, id, state, None);
         }
     }
 
@@ -265,11 +302,17 @@ async fn run(
     statuses: Statuses,
     sender: watch::Sender<Option<ovra_ssh::Sender>>,
     waiting: Arc<Mutex<HashMap<u64, oneshot::Sender<String>>>>,
+    restart: bool,
 ) {
     let label = window::label(&id);
     let status = |state, failure: Option<&Failure>| tell(&app, &statuses, &id, state, failure);
     status("connecting", None);
-    let mut link = match ssh.connect(&id).await {
+    let connected = if restart {
+        ssh.restart(&id).await
+    } else {
+        ssh.connect(&id).await
+    };
+    let mut link = match connected {
         Ok(link) => link,
         Err(failure) => return status("failed", Some(&failure)),
     };

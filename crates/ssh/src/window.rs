@@ -213,6 +213,7 @@ mod tests {
                 "allow-ovra-subscribe",
                 "allow-ovra-remote-reconnect",
                 "allow-ovra-remote-disconnect",
+                "allow-ovra-remote-stop",
                 "allow-ovra-open-url",
                 "core:window:allow-start-dragging"
             ])
