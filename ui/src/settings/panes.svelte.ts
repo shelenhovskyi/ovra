@@ -2,7 +2,7 @@ import type { IconName } from "../shell/icons";
 
 // The panes of the Settings window (docs/design/components.md, "Settings"):
 // the open project's first, then Ovra's own. Settings reopens on the pane it
-// showed last.
+// showed last; at first Agents, the one people need most (not the project's long Trust pane).
 
 export type PaneId =
   | "trust"
@@ -179,7 +179,7 @@ export const PANES: Pane[] = [
 ];
 
 /** The pane Settings shows, and whether Agents' extra features are unfolded; kept while the window is closed. */
-export const settings = $state<{ pane: PaneId; extra: boolean }>({ pane: "trust", extra: false });
+export const settings = $state<{ pane: PaneId; extra: boolean }>({ pane: "claude", extra: false });
 
 /** The panes there are: the project's only with a project open, Schedules only while they are on. */
 export function panesFor(project: boolean, schedules = false): Pane[] {

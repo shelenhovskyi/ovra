@@ -1,5 +1,5 @@
 import { flushSync, mount, unmount } from "svelte";
-import { afterEach, expect, it } from "vitest";
+import { afterEach, expect, it, vi } from "vitest";
 import { editorPrefs } from "../editor/prefs.svelte";
 import { registerCommand } from "../keys/commands";
 import type { AgentSetup, Request } from "../lib/protocol";
@@ -25,6 +25,12 @@ afterEach(() => {
   settingsWindow.close(false);
   for (const off of cleanup) off();
   cleanup = [];
+});
+
+it("first opens on Agents, not on the project's long Trust pane", async () => {
+  vi.resetModules();
+  const { settings, PANES: fresh } = await import("./panes.svelte");
+  expect(fresh.find((pane) => pane.id === settings.pane)?.title).toBe("Agents");
 });
 
 async function show(pane: PaneId, answers: Partial<Record<Request["method"], unknown>>, trusted = false) {
