@@ -270,7 +270,7 @@ const LABEL = { context: "unchanged", added: "added", removed: "removed" } as co
     margin: 0;
     padding: 6px 12px;
     color: var(--text-2);
-    font-size: 13px;
+    font-size: var(--fs-ui);
   }
   .hunks > .note {
     padding: 0;
@@ -290,7 +290,7 @@ const LABEL = { context: "unchanged", added: "added", removed: "removed" } as co
     gap: 6px 8px;
     padding: 4px 8px;
     background: var(--s2);
-    font-size: 13px;
+    font-size: var(--fs-ui);
   }
   .place {
     font-weight: 600;
@@ -300,7 +300,7 @@ const LABEL = { context: "unchanged", added: "added", removed: "removed" } as co
     padding: 2px 8px 4px;
     overflow: hidden;
     color: var(--text-2);
-    font-size: 12px;
+    font-size: var(--fs-ui-sm);
     white-space: nowrap;
     text-overflow: ellipsis;
     background: var(--s2);
@@ -328,7 +328,7 @@ const LABEL = { context: "unchanged", added: "added", removed: "removed" } as co
     color: var(--text);
     background: var(--s3);
     border: 0;
-    border-radius: var(--radius-sm);
+    border-radius: var(--r-control);
     cursor: pointer;
   }
   header button:hover,
@@ -345,7 +345,7 @@ const LABEL = { context: "unchanged", added: "added", removed: "removed" } as co
   }
   .lines {
     font-family: var(--mono);
-    font-size: 12px;
+    font-size: var(--fs-ui-sm);
   }
   .row {
     display: flex;
@@ -406,7 +406,7 @@ const LABEL = { context: "unchanged", added: "added", removed: "removed" } as co
     background: var(--accent-soft);
     border-radius: var(--radius-sm);
     font-family: var(--font);
-    font-size: 13px;
+    font-size: var(--fs-ui);
     white-space: normal;
   }
   .said span {
@@ -425,7 +425,7 @@ const LABEL = { context: "unchanged", added: "added", removed: "removed" } as co
     background: var(--s3);
     color: var(--text);
     border: 0;
-    border-radius: var(--radius-sm);
+    border-radius: var(--r-control);
     padding: 2px 6px;
   }
   .write textarea {

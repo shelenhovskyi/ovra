@@ -122,7 +122,7 @@ async function sendLog(run: number, name: string): Promise<void> {
   }
   .hint {
     color: var(--text-2);
-    font-size: 13px;
+    font-size: var(--fs-ui);
   }
   .mono {
     font-family: var(--mono);
@@ -131,18 +131,18 @@ async function sendLog(run: number, name: string): Promise<void> {
     display: flex;
     align-items: center;
     gap: 8px;
-    font-size: 13px;
+    font-size: var(--fs-ui);
   }
   input[type="checkbox"] {
     accent-color: var(--accent);
   }
   .chip {
     padding: 2px 10px;
-    font-size: 13px;
+    font-size: var(--fs-ui);
     font-weight: 500;
     color: var(--text);
     background: var(--s3);
-    border-radius: var(--radius-xs);
+    border-radius: var(--r-control);
     text-decoration: none;
   }
   a.chip:hover {
@@ -163,14 +163,14 @@ async function sendLog(run: number, name: string): Promise<void> {
     margin: 0;
     padding: 0;
     list-style: none;
-    font-size: 13px;
+    font-size: var(--fs-ui);
   }
   .checks li {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
     gap: 8px;
-    min-height: 24px;
+    min-height: var(--row);
   }
   .state {
     min-width: 56px;
@@ -200,7 +200,7 @@ async function sendLog(run: number, name: string): Promise<void> {
     color: var(--text);
     background: var(--s3);
     border: 0;
-    border-radius: var(--radius);
+    border-radius: var(--r-control);
     cursor: pointer;
   }
   button:hover {

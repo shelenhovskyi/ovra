@@ -75,7 +75,7 @@ async function update(conflicts: boolean): Promise<void> {
   }
   p {
     margin: 0;
-    font-size: 13px;
+    font-size: var(--fs-ui);
   }
   .hint {
     color: var(--text-2);
@@ -99,7 +99,7 @@ async function update(conflicts: boolean): Promise<void> {
     color: var(--text);
     background: var(--s3);
     border: 0;
-    border-radius: var(--radius);
+    border-radius: var(--r-control);
     cursor: pointer;
   }
   button:hover {

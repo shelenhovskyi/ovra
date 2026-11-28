@@ -83,7 +83,7 @@ const explained = $derived(
     flex-wrap: wrap;
     align-items: center;
     gap: 4px 8px;
-    font-size: 13px;
+    font-size: var(--fs-ui);
     color: var(--text-2);
   }
   .line p {
@@ -106,12 +106,12 @@ const explained = $derived(
     padding: 8px;
     background: var(--s2);
     border-radius: var(--r-lg, var(--radius));
-    font-size: 13px;
+    font-size: var(--fs-ui);
     user-select: text;
   }
   h4 {
     margin: 0;
-    font-size: 13px;
+    font-size: var(--fs-ui);
     font-weight: 600;
   }
   p {
@@ -140,7 +140,7 @@ const explained = $derived(
     gap: 6px;
     font: inherit;
     border: 0;
-    border-radius: var(--radius-sm);
+    border-radius: var(--r-control);
     cursor: default;
   }
   button[aria-disabled="true"] {

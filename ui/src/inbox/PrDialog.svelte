@@ -271,7 +271,7 @@ function onkeydown(event: KeyboardEvent): void {
   .hint,
   .where {
     color: var(--text-2);
-    font-size: 13px;
+    font-size: var(--fs-ui);
   }
   .mono {
     font-family: var(--mono);
@@ -299,7 +299,7 @@ function onkeydown(event: KeyboardEvent): void {
     flex-direction: column;
     gap: 6px;
     color: var(--text-2);
-    font-size: 13px;
+    font-size: var(--fs-ui);
   }
   input[type="text"],
   textarea {
@@ -326,7 +326,7 @@ function onkeydown(event: KeyboardEvent): void {
     margin: 12px 0 0;
     padding: 0;
     list-style: none;
-    font-size: 13px;
+    font-size: var(--fs-ui);
   }
   .files li {
     padding: 2px 0;
@@ -334,7 +334,7 @@ function onkeydown(event: KeyboardEvent): void {
   }
   .tag {
     padding: 0 6px;
-    font-size: 12px;
+    font-size: var(--fs-ui-sm);
     color: var(--text);
     background: var(--warn-soft);
     border-radius: var(--radius-sm);
@@ -360,7 +360,7 @@ function onkeydown(event: KeyboardEvent): void {
     color: var(--text-2);
     background: transparent;
     border: 0;
-    border-radius: var(--radius-sm);
+    border-radius: var(--r-control);
     cursor: pointer;
   }
   button:hover {
