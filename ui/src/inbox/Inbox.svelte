@@ -1332,7 +1332,7 @@ function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
     color: var(--text);
     background: var(--s3);
     border: 0;
-    border-radius: var(--radius);
+    border-radius: var(--r-control);
     cursor: pointer;
   }
   button:hover {
@@ -1365,7 +1365,7 @@ function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
   .check-line,
   .field {
     color: var(--text-2);
-    font-size: 13px;
+    font-size: var(--fs-ui);
   }
   .empty {
     padding: 12px 20px;
@@ -1403,7 +1403,7 @@ function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
     gap: 8px;
     margin: 4px 20px;
     color: var(--text-2);
-    font-size: 13px;
+    font-size: var(--fs-ui);
   }
   .body {
     flex: 1;
@@ -1453,7 +1453,7 @@ function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
   }
   .group {
     padding: 10px 10px 2px;
-    font-size: 13px;
+    font-size: var(--fs-ui);
     font-weight: 600;
     color: var(--text-2);
   }
@@ -1477,7 +1477,7 @@ function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
     vertical-align: middle;
   }
   .state {
-    font-size: 13px;
+    font-size: var(--fs-ui);
     font-weight: 500;
   }
   .state.open,
@@ -1502,7 +1502,7 @@ function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
   .marker {
     align-self: flex-start;
     padding: 1px 7px;
-    font-size: 12px;
+    font-size: var(--fs-ui-sm);
     font-weight: 500;
     color: var(--warn);
     background: var(--warn-soft);
@@ -1528,7 +1528,7 @@ function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
   .item-head,
   .actions,
   .comment {
-    padding: 12px 20px 0;
+    padding: 12px 16px 0;
   }
   .item-head {
     display: flex;
@@ -1561,9 +1561,10 @@ function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
     padding-bottom: 12px;
     background: var(--s2);
   }
+  /* Capsules are wider than the old buttons: tight gaps keep the bar on one row in a narrow panel. */
   .bar {
     align-items: center;
-    gap: 6px;
+    gap: 4px;
   }
   .bar button {
     padding-inline: 10px;
@@ -1571,7 +1572,7 @@ function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
   /* Ask for changes and More stay together at the end, on a row of their own when narrow. */
   .bar .end {
     display: flex;
-    gap: 2px;
+    gap: 0;
     margin-left: auto;
   }
   .bar .quiet {
@@ -1616,7 +1617,7 @@ function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
   }
   .comment label {
     color: var(--text-2);
-    font-size: 13px;
+    font-size: var(--fs-ui);
   }
   .comment button {
     align-self: flex-start;
@@ -1651,7 +1652,7 @@ function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
     align-items: baseline;
     margin: 0;
     padding: 8px 12px;
-    font-size: 13px;
+    font-size: var(--fs-ui);
     color: var(--text-2);
     border-bottom: 1px solid var(--separator, transparent);
     user-select: text;
@@ -1739,7 +1740,7 @@ function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
   }
   p.protected {
     margin: 0;
-    font-size: 13px;
+    font-size: var(--fs-ui);
   }
   /* Git hooks and config: nothing else on the item shows them. */
   #inbox-git {

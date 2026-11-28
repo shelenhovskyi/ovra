@@ -57,12 +57,12 @@ const rows = $derived(closerRows(warnings));
 <style>
   .closer {
     margin: 8px 0 0;
-    font-size: 13px;
+    font-size: var(--fs-ui);
     color: var(--text-2);
   }
   h4 {
     margin: 0;
-    font-size: 13px;
+    font-size: var(--fs-ui);
     font-weight: 600;
     color: var(--text);
   }
@@ -87,7 +87,7 @@ const rows = $derived(closerRows(warnings));
     padding: 0 4px;
     margin-inline-start: -4px;
     border: 0;
-    border-radius: var(--radius-sm);
+    border-radius: var(--r-control);
     color: var(--text-2);
     background: transparent;
     text-align: start;
@@ -105,7 +105,7 @@ const rows = $derived(closerRows(warnings));
     display: block;
     margin: 0 0 2px 12px;
     font-family: var(--mono);
-    font-size: 12px;
+    font-size: var(--fs-ui-sm);
     white-space: pre-wrap;
     overflow-wrap: anywhere;
     color: var(--text-2);

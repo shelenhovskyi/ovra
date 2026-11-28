@@ -103,11 +103,11 @@ async function writeTests(): Promise<void> {
   }
   .hint {
     color: var(--text-2);
-    font-size: 13px;
+    font-size: var(--fs-ui);
   }
   .error {
     color: var(--danger);
-    font-size: 13px;
+    font-size: var(--fs-ui);
   }
   .buttons {
     display: flex;
@@ -125,7 +125,7 @@ async function writeTests(): Promise<void> {
     color: var(--text);
     background: var(--s3);
     border: 1px solid transparent;
-    border-radius: var(--radius);
+    border-radius: var(--r-control);
   }
   button:not([aria-disabled="true"]):hover {
     background: var(--s4);
