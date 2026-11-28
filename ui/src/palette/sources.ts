@@ -4,6 +4,7 @@ import { modeOf, tabs } from "../editor/open-files.svelte";
 import { type Command, listCommands } from "../keys/commands";
 import type { Project } from "../lib/protocol";
 import type { Transport } from "../lib/transport";
+import { settingsWindow } from "../settings/window.svelte";
 import { focusOpenFile, mainView } from "../shell/main-view.svelte";
 import { folderDialogCommand, openAnotherFolder } from "../shell/open-folder";
 import type { TextSpot, Workspace } from "../shell/workspace.svelte";
@@ -100,9 +101,10 @@ function commands(keep: (command: Command) => boolean = () => true, group?: stri
 
 async function files(transport: Transport, workspace: Target, project: Project, group?: string): Promise<Entry[]> {
   const open = (path: string, at?: TextSpot) => {
-    // A view covering the files makes way, also for the file already open, and the file gets the focus the view had.
-    const covered = mainView.current !== null;
+    // A view covering the files, or Settings over them, makes way, also for the file already open, and the file gets the focus the view had.
+    const covered = mainView.current !== null || settingsWindow.open;
     mainView.close(false);
+    settingsWindow.close(false);
     // Picking the file already shown keeps its preview tab, as Enter in the tree does.
     if (workspace.openPath === path) tabs.current?.makePermanent(path);
     // An open file comes back in the mode its tab had; a new one keeps

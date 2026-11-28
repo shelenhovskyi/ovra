@@ -24,7 +24,9 @@ Answer in order and stop at the first yes.
 
 Always: every command is in the palette with its shortcut; two levels at
 most; one route per secondary thing; modals only for short decisions
-(discard?, close with open reviews?, trust a project with hooks?).
+(discard?, close with open reviews?, trust a project with hooks?) and for
+Settings, a window over the app like macOS System Settings (owner,
+2026-11-28).
 
 ### Current features, placed
 

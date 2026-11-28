@@ -2,11 +2,11 @@ import { flushSync, mount, unmount } from "svelte";
 import { afterEach, expect, it } from "vitest";
 import type { Request, SetupReport } from "../lib/protocol";
 import type { Transport } from "../lib/transport";
-import { mainView } from "../shell/main-view.svelte";
 import { Workspace } from "../shell/workspace.svelte";
 import { openSettings } from "./commands";
 import { settings } from "./panes.svelte";
 import TestHost from "./TestHost.svelte";
+import { settingsWindow } from "./window.svelte";
 
 const report: SetupReport = {
   agents: [
@@ -31,7 +31,7 @@ const report: SetupReport = {
 let cleanup: (() => void)[] = [];
 
 afterEach(() => {
-  mainView.close(false);
+  settingsWindow.close(false);
   for (const off of cleanup) off();
   cleanup = [];
 });

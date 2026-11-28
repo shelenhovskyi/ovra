@@ -57,7 +57,7 @@ test("phone access is turned on in Settings, shows a pairing code and says so in
   await fakePhoneAccess(page);
   await page.goto(url);
   await page.keyboard.press("ControlOrMeta+Comma");
-  const settings = page.getByRole("region", { name: "Settings" });
+  const settings = page.getByRole("dialog", { name: "Settings" });
   await settings.getByRole("navigation", { name: "Settings panes" }).getByRole("button", { name: "Phone" }).click();
   const pane = settings.getByTestId("phone-pane");
   const enabled = pane.getByTestId("phone-enabled");

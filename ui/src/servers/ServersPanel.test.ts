@@ -2,6 +2,7 @@ import { flushSync, mount, unmount } from "svelte";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { installKeybindings } from "../keys/keybindings";
 import type { DevServerInfo as ServerInfo } from "../lib/protocol";
+import { settingsWindow } from "../settings/window.svelte";
 import { mainView } from "../shell/main-view.svelte";
 import { Workspace } from "../shell/workspace.svelte";
 import { serversDock } from "./dock.svelte";
@@ -21,6 +22,7 @@ afterEach(() => {
   serversDock.everywhere = true;
   serversDock.workDir = null;
   mainView.close(false);
+  settingsWindow.close(false);
   if (app) unmount(app);
   app = null;
   target.remove();
@@ -346,7 +348,7 @@ describe("Servers pane and dock tab", () => {
     await open();
     expect(dock()?.textContent).toContain("No servers running");
     button("Server settings")?.click();
-    expect(mainView.current).toBe("settings");
+    expect(settingsWindow.open).toBe(true);
   });
 
   it("keeps focus on the server's buttons as Stop and Restart disable them, and hides on Escape", async () => {

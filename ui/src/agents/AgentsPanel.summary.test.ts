@@ -1,7 +1,7 @@
 import { flushSync, mount, unmount } from "svelte";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { settings } from "../settings/panes.svelte";
-import { mainView } from "../shell/main-view.svelte";
+import { settingsWindow } from "../settings/window.svelte";
 import { Workspace } from "../shell/workspace.svelte";
 import { FakeAgentCore } from "./fake-core";
 import TestHost from "./TestHost.svelte";
@@ -106,7 +106,7 @@ describe("AgentsPanel things to check", () => {
     target.querySelector<HTMLButtonElement>("[data-testid=attention-setup]")?.click();
     flushSync();
     expect(settings.pane).toBe("setup");
-    expect(mainView.current).toBe("settings");
-    mainView.close(false);
+    expect(settingsWindow.open).toBe(true);
+    settingsWindow.close(false);
   });
 });

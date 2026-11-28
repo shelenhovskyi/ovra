@@ -124,7 +124,7 @@ describe("navigation", () => {
     const workspace = setup();
     open(workspace, "a.ts");
     open(workspace, "b.ts");
-    mainView.toggle("settings");
+    mainView.toggle("audit");
     void run("editor.go_back");
     expect([mainView.current, workspace.openPath]).toEqual([null, "a.ts"]);
   });

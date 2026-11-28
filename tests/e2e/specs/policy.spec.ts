@@ -13,8 +13,8 @@ test("a project's rules are added in Settings, refused inline and kept", async (
 
   await page.getByTestId("more").click();
   await page.getByRole("menuitem", { name: "Settings…" }).click();
-  const settings = page.getByRole("region", { name: "Settings" });
-  await expect(settings.getByRole("heading", { name: "Settings" })).toBeFocused();
+  const settings = page.getByRole("dialog", { name: "Settings" });
+  await expect(settings.getByRole("searchbox", { name: "Search settings" })).toBeFocused();
   await settings.getByRole("navigation", { name: "Settings panes" }).getByRole("button", { name: "Rules" }).click();
   const dialog = settings.getByRole("region", { name: "Rules" });
   await expect(dialog.getByTestId("policy-empty")).toHaveText(/No rules yet/);
@@ -34,8 +34,8 @@ test("a project's rules are added in Settings, refused inline and kept", async (
   await dialog.getByRole("button", { name: "Add rule" }).click();
   await expect(dialog.getByTestId("policy-rule")).toHaveText(/Bash\(git push\)\s*Deny.*Advisory/);
 
-  // Opening a file closes Settings.
-  await page.getByRole("treeitem", { name: /README\.md/ }).click();
+  // A click outside the window closes it.
+  await page.mouse.click(4, 400);
   await expect(settings).toBeHidden();
   // A new page reads the rules from the core again; the project opens by
   // itself after a reload, and Mod+K finds the pane by another name.

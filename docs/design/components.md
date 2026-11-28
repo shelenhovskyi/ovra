@@ -231,11 +231,18 @@ Works in this folder, without a sandbox. Asks before risky steps.
 
 ## Settings
 
-- One main-area view, Mod+, or the rail gear; reopens on the last pane.
-- Left list in two groups. **This project**: Trust, Rules, Network (hosts,
-  then secrets), Servers (definitions). **Ovra**: Editor (text size, tabs,
-  word wrap, auto save), Claude (path, version, accounts, billing),
-  Notifications, Keyboard, Accessibility, About.
+- A window over the app, laid out like macOS System Settings (owner,
+  2026-11-28): Mod+, or the rail gear; reopens on the last pane. 880 x 640
+  at most, `--r-lg`, `--shadow`, over `--scrim`. Escape or a click outside
+  closes it and focus goes back; Tab stays inside. Opening a file closes it.
+- Left column on `--s1`: close button, a search field (focused on open;
+  matches titles, lines and keywords; Return opens the first match), then the
+  list in two groups. **This project**: Trust, Rules, Network, Keys,
+  Servers, Schedules. **Ovra**: Editor, Agents, Setup check, Notifications,
+  Phone, Remote machines, Keyboard, Accessibility, About. Each row has its
+  icon on a 20 px tile of a `--tint-*` token; the chosen row is `--accent`.
+- Fields that belong together sit on one inset card (`--s1`, `--r-md`)
+  under a small heading. Opt-in power features fold under "Extra features".
 - Pane: title (`--t-title2`, a noun), one line on what it does, one column
   of fields at most 480 px, one primary. Explanations behind one disclosure
   per section. Security warnings at the top of their pane, never folded.

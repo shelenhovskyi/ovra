@@ -4,7 +4,7 @@ import type { CoreEvent, Request, Schedule, ScheduleDraft } from "../lib/protoco
 import type { Transport } from "../lib/transport";
 import { settings } from "../settings/panes.svelte";
 import TestHost from "../settings/TestHost.svelte";
-import { mainView } from "../shell/main-view.svelte";
+import { settingsWindow } from "../settings/window.svelte";
 import { Workspace } from "../shell/workspace.svelte";
 import { lastText, momentText, whenText } from "./words";
 
@@ -79,7 +79,7 @@ function fakeCore() {
 let cleanup: (() => void)[] = [];
 
 afterEach(() => {
-  mainView.close(false);
+  settingsWindow.close(false);
   for (const off of cleanup) off();
   cleanup = [];
 });
@@ -104,7 +104,7 @@ it("shows the Schedules pane once switched on, and adds a schedule in this compu
     target.remove();
   });
   settings.pane = "claude";
-  mainView.show("settings");
+  settingsWindow.show();
   await settle();
   const paneNames = () => [...target.querySelectorAll("nav button")].map((b) => b.textContent);
   expect(paneNames()).not.toContain("Schedules");

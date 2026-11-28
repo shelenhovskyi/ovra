@@ -2,7 +2,7 @@ import { flushSync, mount, unmount } from "svelte";
 import { afterEach, beforeEach, expect, it } from "vitest";
 import type { Worker } from "../lib/protocol";
 import { settings } from "../settings/panes.svelte";
-import { mainView } from "../shell/main-view.svelte";
+import { settingsWindow } from "../settings/window.svelte";
 import { Workspace } from "../shell/workspace.svelte";
 import { FakeAgentCore } from "./fake-core";
 import { agentPrefs } from "./prefs.svelte";
@@ -134,8 +134,8 @@ it("points out copied files that look like secrets and where tokens go instead",
     "Copied into this worker's folder, where its agent can read them: .env, dev.pem. For tokens, use project secrets instead.",
   ]);
   button("project secrets")?.click();
-  expect([mainView.current, settings.pane]).toEqual(["settings", "network"]);
-  mainView.close();
+  expect([settingsWindow.open, settings.pane]).toEqual([true, "network"]);
+  settingsWindow.close();
 });
 
 it("shows each worktree's disk use, the project's total, and why a worker waits", async () => {

@@ -7,6 +7,7 @@
 // to the right edge when the panel goes there, and hides it on the start
 // screen. Reviews and More are in the title bar.
 import { listCommands } from "../keys/commands";
+import { settingsWindow } from "../settings/window.svelte";
 import { useOvra } from "./context";
 import Icon from "./Icon.svelte";
 import type { IconName } from "./icons";
@@ -73,8 +74,8 @@ function run(id: string): void {
       class="rail-button tip"
       data-tip="Settings"
       aria-label="Settings"
-      aria-pressed={mainView.current === "settings"}
-      onclick={() => mainView.toggle("settings")}><Icon name="settings" /></button
+      aria-pressed={settingsWindow.open}
+      onclick={() => settingsWindow.toggle()}><Icon name="settings" /></button
     >
   {/if}
 </nav>

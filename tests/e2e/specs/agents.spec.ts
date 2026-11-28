@@ -645,9 +645,11 @@ test("a research agent changes nothing, its report is saved as a doc, and a sche
 
   // A schedule, once switched on in Settings, runs the same kind of agent.
   await page.keyboard.press("ControlOrMeta+Comma");
-  const settings = page.getByRole("region", { name: "Settings" });
+  const settings = page.getByRole("dialog", { name: "Settings" });
   const panes = settings.getByRole("navigation", { name: "Settings panes" });
   await panes.getByRole("button", { name: "Agents" }).click();
+  // Schedules are an extra feature, folded away until asked for.
+  await settings.getByText("Extra features", { exact: true }).click();
   // Off by default, and no Schedules pane until it is on.
   const toggle = settings.getByTestId("schedules-switch");
   await expect(toggle).not.toBeChecked();

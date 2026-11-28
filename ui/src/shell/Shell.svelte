@@ -44,6 +44,7 @@ import ServersDock from "../servers/ServersDock.svelte";
 import AgentsPane from "../settings/AgentsPane.svelte";
 import { registerSettingsCommands } from "../settings/commands";
 import Settings from "../settings/Settings.svelte";
+import { settingsWindow } from "../settings/window.svelte";
 import Terminals from "../terminal/Terminals.svelte";
 import Tree from "../tree/Tree.svelte";
 import { provideOvra } from "./context";
@@ -88,10 +89,13 @@ const gitDiff = $derived(workspace.gitDiff?.project === workspace.project?.id ? 
 
 $effect(() => persistOpenFiles(transport, workspace));
 
-// Opening a file or a diff shows it: a view in the main area makes way.
+// Opening a file or a diff shows it: a view in the main area, or Settings, makes way.
 $effect(() => {
   void [workspace.openPath, workspace.gitDiff];
-  untrack(() => mainView.close(false));
+  untrack(() => {
+    mainView.close(false);
+    settingsWindow.close(false);
+  });
 });
 
 // The window opens the project it had before a reload; until that is decided, nothing is forgotten.
@@ -526,7 +530,7 @@ async function showApprovals(): Promise<void> {
       </div>
     </div>
     </div>
-    {#if mainView.current === "settings"}<Settings />{:else if mainView.current === "audit"}<AuditLog
+    {#if mainView.current === "audit"}<AuditLog
       />{:else if mainView.current === "catalog"}<Catalog />{:else if mainView.current === "history"}<History
         onopen={openFromHistory}
       />{/if}
@@ -608,6 +612,8 @@ async function showApprovals(): Promise<void> {
       <PairingPrompt />
     </span>
   </footer>
+  <!-- Settings: a window over the app; the palette and menus still open over it. -->
+  {#if settingsWindow.open}<Settings />{/if}
   <Notifications />
   <ContextMenu />
   {#if connection === "refused"}

@@ -5,10 +5,10 @@ import { listCommands, registerCommand } from "../keys/commands";
 import { registerContextKeys } from "../keys/context-keys";
 import type { ConfigItem, CoreEvent, ProjectConfigReview, Request, Response } from "../lib/protocol";
 import { CoreError, type Transport } from "../lib/transport";
-import { mainView } from "../shell/main-view.svelte";
 import { Workspace } from "../shell/workspace.svelte";
 import { registerSettingsCommands } from "./commands";
 import TestHost from "./TestHost.svelte";
+import { settingsWindow } from "./window.svelte";
 
 const transport: Transport = {
   call: ((request: Request) =>
@@ -21,7 +21,7 @@ const transport: Transport = {
 let cleanup: (() => void)[] = [];
 
 afterEach(() => {
-  mainView.close(false);
+  settingsWindow.close(false);
   for (const off of cleanup) off();
   cleanup = [];
 });
@@ -53,13 +53,13 @@ it("opens on a pane from its command, moves with the arrow keys and reopens on t
   await run("settings.keyboard");
   await settle();
   const pane = () => target.querySelector("[data-testid=settings] section.pane");
-  expect(pane()?.querySelector("h3")?.textContent).toBe("Keyboard");
+  expect(pane()?.querySelector("h2")?.textContent).toBe("Keyboard");
   expect([...(pane()?.querySelectorAll("tr") ?? [])].map((row) => row.textContent)).toEqual([
     "Open settingsCtrl+,",
     "SaveCtrl+S",
   ]);
-  // The frame's title takes focus; the list is one tab stop, and arrows move in it.
-  expect(document.activeElement?.textContent).toBe("Settings");
+  // The search field takes focus; the list is one tab stop, and arrows move in it.
+  expect(document.activeElement?.getAttribute("aria-label")).toBe("Search settings");
   const current = () => target.querySelector<HTMLElement>("nav [aria-current=page]");
   current()?.dispatchEvent(new KeyboardEvent("keydown", { code: "ArrowDown", bubbles: true }));
   flushSync();
@@ -69,7 +69,7 @@ it("opens on a pane from its command, moves with the arrow keys and reopens on t
   await settle();
   expect(pane()?.textContent).toContain("ovra 1.2.3");
 
-  mainView.close(false);
+  settingsWindow.close(false);
   await run("settings.open");
   flushSync();
   expect(current()?.textContent).toBe("About");
@@ -122,7 +122,7 @@ it("lists every key by where it works, keys of one place too, and filters them",
   filter.dispatchEvent(new KeyboardEvent("keydown", { code: "Escape", bubbles: true, cancelable: true }));
   flushSync();
   expect(filter.value).toBe("");
-  expect(mainView.current).toBe("settings");
+  expect(settingsWindow.open).toBe(true);
   expect(groups()).toHaveLength(4);
 });
 
@@ -325,4 +325,49 @@ it("sets how many research agents work at once, apart from the other agents", as
   await settle();
   expect(sent).toEqual([0]);
   expect(field()?.value).toBe("0");
+});
+
+it("opens as a window that finds panes by their words, closes on Escape and gives focus back", async () => {
+  const target = document.body.appendChild(document.createElement("div"));
+  const before = document.body.appendChild(document.createElement("button"));
+  const app = mount(TestHost, { target, props: { transport, workspace: new Workspace() } });
+  cleanup.push(registerSettingsCommands(), () => {
+    unmount(app);
+    target.remove();
+    before.remove();
+  });
+  before.focus();
+  await listCommands()
+    .find((c) => c.id === "settings.open")
+    ?.run();
+  await settle();
+  const window = target.querySelector<HTMLElement>("[role=dialog][aria-modal=true]");
+  expect(window?.getAttribute("aria-label")).toBe("Settings");
+  const search = target.querySelector<HTMLInputElement>("[data-testid=settings-search]");
+  if (!search) throw new Error("no search");
+  expect(document.activeElement).toBe(search);
+  const listed = () => [...target.querySelectorAll("nav button")].map((b) => b.textContent);
+  const press = (code: string) =>
+    search.dispatchEvent(new KeyboardEvent("keydown", { code, bubbles: true, cancelable: true }));
+
+  search.value = "hotkeys";
+  search.dispatchEvent(new Event("input", { bubbles: true }));
+  flushSync();
+  expect(listed()).toEqual(["Keyboard"]);
+  press("Enter");
+  flushSync();
+  expect(target.querySelector("section.pane h2")?.textContent).toBe("Keyboard");
+
+  search.value = "zzz";
+  search.dispatchEvent(new Event("input", { bubbles: true }));
+  flushSync();
+  expect(target.querySelector("nav [role=status]")?.textContent).toBe("No settings match “zzz”.");
+  // The first Escape empties the search, the next one closes the window.
+  press("Escape");
+  flushSync();
+  expect([search.value, listed().length > 5]).toEqual(["", true]);
+  press("Escape");
+  flushSync();
+  expect(target.querySelector("[role=dialog]")).toBeNull();
+  expect(document.activeElement).toBe(before);
 });

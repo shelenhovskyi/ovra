@@ -262,7 +262,7 @@ describe("Palette", async () => {
       heading.remove();
     });
     heading.focus();
-    mainView.show("settings");
+    mainView.show("audit");
     const project = { id: "files-view", name: "demo", root: "/demo", last_opened_ms: null, trusted: false };
     const { workspace, input } = await open("files", core, project);
     workspace.openPath = "README.md";

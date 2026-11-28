@@ -119,7 +119,7 @@ test("the project name switches projects, opens another folder and survives a re
   await expect(name).toBeHidden();
 });
 
-test("a view keeps the open tabs in sight, and the open file's tab, Ctrl+, or the palette go back", async ({
+test("Settings opens over the open file, a view keeps the open tabs in sight, and the file's tab or the palette go back", async ({
   page,
 }) => {
   const dir = mkdtempSync(join(tmpdir(), "ovra-view-"));
@@ -132,23 +132,26 @@ test("a view keeps the open tabs in sight, and the open file's tab, Ctrl+, or th
   await page.getByRole("treeitem", { name: /a\.txt/ }).dblclick();
 
   const tabs = page.getByRole("tablist", { name: "Open files" });
-  const settings = page.getByRole("region", { name: "Settings" });
+  const settings = page.getByRole("dialog", { name: "Settings" });
+  // Settings is a window over the app: the file and its tab stay; the key that opened it closes it.
   await page.keyboard.press("ControlOrMeta+Comma");
   await expect(settings).toBeVisible();
+  await expect(page.getByTestId("view-tab")).toHaveCount(0);
+  await expect(page.locator("#ovra-tabpanel")).toBeVisible();
+  await page.keyboard.press("ControlOrMeta+Comma");
+  await expect(settings).toBeHidden();
+
+  // A view (the Audit log) shows as one more tab; the tab of the file already open brings it back.
+  const audit = page.getByRole("region", { name: "Audit log" });
+  await page.keyboard.press("Alt+ControlOrMeta+KeyL");
+  await expect(page.getByTestId("view-tab")).toHaveText("Audit log");
   await expect(tabs.getByRole("tab", { name: "a.txt" })).toBeVisible();
-  await expect(page.getByTestId("view-tab")).toHaveText("Settings");
-  // The tab of the file already open brings it back.
   await tabs.getByRole("tab", { name: "a.txt" }).click();
-  await expect(settings).toBeHidden();
+  await expect(audit).toBeHidden();
 
-  // The key that opened Settings closes it.
+  // A file picked in the palette while Settings is open gets the focus.
   await page.keyboard.press("ControlOrMeta+Comma");
   await expect(settings).toBeVisible();
-  await page.keyboard.press("ControlOrMeta+Comma");
-  await expect(settings).toBeHidden();
-
-  // A file picked in the palette while a view is open gets the focus.
-  await page.keyboard.press("ControlOrMeta+Comma");
   await page.keyboard.press("Alt+P");
   await page.getByRole("combobox").fill("b.txt");
   await page.keyboard.press("Enter");

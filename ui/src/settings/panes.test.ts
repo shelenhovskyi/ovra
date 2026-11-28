@@ -4,11 +4,11 @@ import { editorPrefs } from "../editor/prefs.svelte";
 import { registerCommand } from "../keys/commands";
 import type { AgentSetup, Request } from "../lib/protocol";
 import type { Transport } from "../lib/transport";
-import { mainView } from "../shell/main-view.svelte";
 import { Workspace } from "../shell/workspace.svelte";
 import { openSettings } from "./commands";
-import type { PaneId } from "./panes.svelte";
+import { findPanes, PANES, type PaneId } from "./panes.svelte";
 import TestHost from "./TestHost.svelte";
+import { settingsWindow } from "./window.svelte";
 
 const READY: AgentSetup = {
   path: null,
@@ -22,7 +22,7 @@ const READY: AgentSetup = {
 let cleanup: (() => void)[] = [];
 
 afterEach(() => {
-  mainView.close(false);
+  settingsWindow.close(false);
   for (const off of cleanup) off();
   cleanup = [];
 });
@@ -115,4 +115,12 @@ it("edits the editor preferences, keeping numbers within their limits", async ()
   const prefs = [editorPrefs.tabSize, editorPrefs.autoSave, editorPrefs.wordWrap, editorPrefs.insertSpaces];
   expect([tab.value, ...prefs]).toEqual(["16", 16, "after_delay", true, false]);
   Object.assign(editorPrefs, { tabSize: 4, autoSave: "off", wordWrap: false, insertSpaces: true });
+});
+
+it("finds panes by every word of a search, titles that start with it first", () => {
+  const ids = (query: string) => findPanes(PANES, query).map((pane) => pane.id);
+  expect(ids("")).toHaveLength(PANES.length);
+  expect(ids("key")).toEqual(["keys", "keyboard", "machines"]);
+  expect(ids("api key")).toEqual(["keys"]);
+  expect(ids("nothing like this")).toEqual([]);
 });

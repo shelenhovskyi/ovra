@@ -191,28 +191,42 @@ describe("Shell", () => {
       ]
     `);
 
+    // Settings opens as a window over the app: the files and their tabs stay as they were.
     rail("Settings")?.click();
     flushSync();
-    expect(viewTab()?.textContent?.trim()).toBe("Settings");
-    expect(target.querySelector(".tab-row")?.closest("[hidden]")).toBeNull();
-    // One chosen icon at a time: the gear, not Files.
-    expect(rail("Files")?.getAttribute("aria-pressed")).toBe("false");
+    expect(target.querySelector("[role=dialog][aria-label=Settings]")).not.toBeNull();
+    expect(viewTab()).toBeNull();
+    expect(target.querySelector("[data-testid=main] .files")?.hasAttribute("hidden")).toBe(false);
     expect(rail("Settings")?.getAttribute("aria-pressed")).toBe("true");
+    target.querySelector<HTMLButtonElement>("button[aria-label='Close settings']")?.click();
+    flushSync();
+    expect(target.querySelector("[data-testid=settings]")).toBeNull();
+    expect(rail("Settings")?.getAttribute("aria-pressed")).toBe("false");
+
+    // A view (here the Audit log) shows as one more tab; one chosen icon at a time.
+    const audit = () =>
+      void listCommands()
+        .find((c) => c.id === "audit.toggle")
+        ?.run();
+    audit();
+    flushSync();
+    expect(viewTab()?.textContent?.trim()).toBe("Audit log");
+    expect(target.querySelector(".tab-row")?.closest("[hidden]")).toBeNull();
+    expect(rail("Files")?.getAttribute("aria-pressed")).toBe("false");
 
     // Files brings the files back with the tree beside them, without folding it.
     rail("Files")?.click();
     flushSync();
-    expect(target.querySelector("[data-testid=settings]")).toBeNull();
     expect(viewTab()).toBeNull();
     expect(rail("Files")?.getAttribute("aria-pressed")).toBe("true");
     expect(target.querySelector("[data-testid=sidebar] > .body")?.hasAttribute("hidden")).toBe(false);
 
     // The view's tab closes it too.
-    rail("Settings")?.click();
+    audit();
     flushSync();
-    viewTab()?.querySelector<HTMLButtonElement>("button[aria-label='Close Settings']")?.click();
+    viewTab()?.querySelector<HTMLButtonElement>("button[aria-label='Close Audit log']")?.click();
     flushSync();
-    expect(target.querySelector("[data-testid=settings]")).toBeNull();
+    expect(viewTab()).toBeNull();
     unmount(app);
     target.remove();
     localStorage.clear();
@@ -433,7 +447,7 @@ describe("Shell", () => {
       flushSync();
       items()[0]?.click();
       flushSync();
-      const view = target.querySelector("main [data-testid=settings]");
+      const view = target.querySelector("[role=dialog][data-testid=settings]");
       const panes = [...(view?.querySelectorAll("nav button") ?? [])].map((b) => b.textContent);
       expect(panes).toEqual([
         "Editor",

@@ -13,8 +13,8 @@ test("a project's allowed hosts are added in Settings and kept, and keys sit nex
 
   // Mod+, opens Settings; the pane list moves with the arrow keys.
   await page.keyboard.press("ControlOrMeta+Comma");
-  const settings = page.getByRole("region", { name: "Settings" });
-  await expect(settings.getByRole("heading", { name: "Settings" })).toBeFocused();
+  const settings = page.getByRole("dialog", { name: "Settings" });
+  await expect(settings.getByRole("searchbox", { name: "Search settings" })).toBeFocused();
   await settings.getByRole("navigation", { name: "Settings panes" }).getByRole("button", { name: "Rules" }).click();
   await page.keyboard.press("ArrowDown");
   const dialog = settings.getByRole("region", { name: "Network" });

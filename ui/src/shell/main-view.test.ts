@@ -7,7 +7,7 @@ it("shows one view at a time and gives focus back to where it was when it closes
   const inside = document.createElement("button");
   document.body.append(before, inside);
   before.focus();
-  view.show("settings");
+  view.show("history");
   inside.focus();
   // Another view replaces it; focus still goes back to where it was before the first one.
   view.toggle("audit");

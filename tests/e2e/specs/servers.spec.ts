@@ -32,8 +32,11 @@ test("the servers tab opens with its shortcut; a defined server starts, gets rea
   await page.keyboard.press("ControlOrMeta+K");
   await page.keyboard.type(">dev servers");
   await page.getByRole("option", { name: /Settings\s*Servers/ }).click();
-  const settings = page.getByRole("region", { name: "Settings" });
+  const settings = page.getByRole("dialog", { name: "Settings" });
   await settings.getByRole("button", { name: "Start web", exact: true }).click();
+  // The server runs in the dock under the Settings window.
+  await page.keyboard.press("Escape");
+  await expect(settings).toBeHidden();
   const dialog = page.getByTestId("servers");
   const server = dialog.getByTestId("server");
   await expect(server.getByTestId("server-status")).toHaveText("ready");
@@ -44,5 +47,6 @@ test("the servers tab opens with its shortcut; a defined server starts, gets rea
 
   await dialog.getByRole("button", { name: "Stop web" }).click();
   await expect(server.getByTestId("server-status")).toHaveText("stopped");
+  await page.keyboard.press("ControlOrMeta+Comma");
   await expect(settings.getByRole("button", { name: "Start web", exact: true })).toBeVisible();
 });

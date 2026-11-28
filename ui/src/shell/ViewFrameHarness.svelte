@@ -4,8 +4,8 @@ import { mainView } from "./main-view.svelte";
 import ViewFrame from "./ViewFrame.svelte";
 </script>
 
-{#if mainView.current === "settings"}
-  <ViewFrame name="settings" testid="frame">
+{#if mainView.current === "audit"}
+  <ViewFrame name="audit" testid="frame">
     <input aria-label="Match" />
     <input type="checkbox" aria-label="Tick" />
   </ViewFrame>
