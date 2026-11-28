@@ -9,6 +9,7 @@ use ovra_core::protocol::ssh::RemoteHost;
 use ovra_core::services::{Opener, RemoteHosts};
 use ovra_core::ssh::HostId;
 use ovra_opener::SystemOpener;
+use ovra_ssh::install::{Arch, Build, Sha256, UPLOAD_MAX};
 use ovra_ssh::window::{self, Route};
 use ovra_ssh::{Failure, OpenSsh};
 use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder};
@@ -117,6 +118,37 @@ impl Remotes {
         Ok(())
     }
 
+    /// Installs this laptop's build of Ovra on `id`, telling the main
+    /// window how far the upload is; an open window of the machine then
+    /// connects again. For the main window only, after the person's click.
+    pub(crate) async fn install(&self, app: &AppHandle, id: &HostId) -> Result<(), String> {
+        let mailboxes = app.state::<crate::mailbox::Mailboxes>();
+        let progress = |sent: u64, total: u64| {
+            let message = serde_json::json!({
+                "sshInstall": { "id": id.as_str(), "sent": sent, "total": total }
+            });
+            mailboxes.send("main", message);
+        };
+        self.ssh
+            .install(id, |arch| build_for(app, arch), progress)
+            .await
+            .map_err(|f| {
+                if f.details.is_empty() {
+                    format!(
+                        "Ovra could not install itself there ({}).",
+                        f.reason.as_str()
+                    )
+                } else {
+                    f.details
+                }
+            })?;
+        if app.get_webview_window(&window::label(id)).is_some() {
+            self.close(app, id);
+            self.connect(app, id);
+        }
+        Ok(())
+    }
+
     /// Ends the core on `id` (its agents stop, sessions stay resumable)
     /// and closes the link. Only the app sends the quit line.
     pub(crate) async fn stop(&self, app: &AppHandle, id: &HostId) -> Result<(), String> {
@@ -207,6 +239,44 @@ impl Remotes {
             Err(_) => window::unavailable(request, "the remote machine did not answer"),
         }
     }
+}
+
+/// This laptop's build of `ovra-daemon` for `arch`, if the app was built
+/// with one: its bytes must still hash to the SHA-256 fixed at build time
+/// (`build.rs`). A development build reads it from `OVRA_REMOTE_DAEMON_DIR`
+/// as it was then, a release from the app's resources.
+fn build_for(app: &AppHandle, arch: Arch) -> Result<Build, String> {
+    let expected = match arch {
+        Arch::X86_64 => option_env!("OVRA_REMOTE_SHA256_X86_64"),
+        Arch::Aarch64 => option_env!("OVRA_REMOTE_SHA256_AARCH64"),
+    };
+    let dir = if cfg!(debug_assertions) {
+        std::path::PathBuf::from(env!("OVRA_REMOTE_DIR"))
+    } else {
+        app.path()
+            .resource_dir()
+            .map_err(|e| e.to_string())?
+            .join("remote")
+    };
+    build_in(&dir, arch, expected)
+}
+
+/// The build for `arch` in `dir`, checked against `expected`.
+fn build_in(dir: &std::path::Path, arch: Arch, expected: Option<&str>) -> Result<Build, String> {
+    use std::io::Read as _;
+    let none = || {
+        format!(
+            "This Ovra has no build for {} Linux. Install `ovra-daemon` there yourself.",
+            arch.as_str()
+        )
+    };
+    let expected = expected.and_then(Sha256::parse).ok_or_else(none)?;
+    let file = std::fs::File::open(dir.join(arch.file_name())).map_err(|_| none())?;
+    let mut bytes = Vec::new();
+    file.take(UPLOAD_MAX as u64 + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|e| e.to_string())?;
+    Build::checked(bytes, &expected)
 }
 
 /// The machine's window: Ovra's own local UI, its own webview storage, no
@@ -382,6 +452,25 @@ mod tests {
         let mut main = replay_for("main", &statuses);
         main.sort_by_key(ToString::to_string);
         assert_eq!(main, vec![statuses["aaa"].clone(), statuses["bbb"].clone()]);
+    }
+
+    #[test]
+    fn a_build_is_uploaded_only_when_the_app_was_built_with_its_hash() {
+        let dir = tempfile::tempdir().unwrap_or_else(|e| panic!("{e}"));
+        let none = build_in(dir.path(), Arch::X86_64, None).err();
+        assert_eq!(
+            none.as_deref(),
+            Some("This Ovra has no build for x86_64 Linux. Install `ovra-daemon` there yourself.")
+        );
+        // "abc", hashed.
+        let hash = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad";
+        let missing = build_in(dir.path(), Arch::Aarch64, Some(hash)).err();
+        assert!(missing.is_some_and(|e| e.contains("aarch64")));
+        let file = dir.path().join(Arch::X86_64.file_name());
+        std::fs::write(&file, "abc").unwrap_or_else(|e| panic!("{e}"));
+        assert!(build_in(dir.path(), Arch::X86_64, Some(hash)).is_ok());
+        std::fs::write(&file, "abd").unwrap_or_else(|e| panic!("{e}"));
+        assert!(build_in(dir.path(), Arch::X86_64, Some(hash)).is_err());
     }
 
     #[test]

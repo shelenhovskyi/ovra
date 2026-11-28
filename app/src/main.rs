@@ -136,6 +136,20 @@ fn ovra_remote_restart(
     remotes.restart(&app, &id)
 }
 
+/// Installs this laptop's build of Ovra on machine `id`. For the main
+/// window only: the person clicked Install there.
+#[tauri::command]
+async fn ovra_remote_install(
+    window: tauri::WebviewWindow,
+    app: tauri::AppHandle,
+    remotes: tauri::State<'_, remote::Remotes>,
+    id: String,
+) -> Result<(), String> {
+    main_only(&window)?;
+    let id = ovra_core::ssh::HostId::parse(&id).map_err(|e| e.message)?;
+    remotes.install(&app, &id).await
+}
+
 /// Opens a web link from a remote window in the laptop's browser, unless
 /// it points at this computer or its network.
 #[tauri::command]
@@ -465,6 +479,7 @@ fn main() {
             ovra_remote_disconnect,
             ovra_remote_stop,
             ovra_remote_restart,
+            ovra_remote_install,
             ovra_open_url
         ])
         .build(tauri::generate_context!());

@@ -72,6 +72,23 @@ dev:
 build-app:
     pnpm exec tauri build --no-bundle
 
+# Ovra's Linux builds that the app installs on remote machines (ADR 0016),
+# for a development build of the app: build them, then build the app with
+# OVRA_REMOTE_DAEMON_DIR set to the folder this prints. Needs the two musl
+# targets (rustup target add x86_64-unknown-linux-musl
+# aarch64-unknown-linux-musl) and a linker for each.
+remote-daemon:
+    #!/usr/bin/env sh
+    set -eu
+    out="$PWD/target/remote-daemon"
+    mkdir -p "$out"
+    for arch in x86_64 aarch64; do
+      target="$arch-unknown-linux-musl"
+      cargo build --release -p ovra-daemon --target "$target"
+      cp "target/$target/release/ovra-daemon" "$out/ovra-daemon-$target"
+    done
+    echo "OVRA_REMOTE_DAEMON_DIR=$out"
+
 # Format everything.
 fmt:
     cargo fmt --all
