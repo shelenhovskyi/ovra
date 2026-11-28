@@ -1,7 +1,9 @@
 # Agents on a remote machine over SSH
 
 Status: approved by the owner on 2026-11-27 as written (agent limit per
-machine). Architecture: ADR 0016.
+machine). Steps 6 and 7 (staying on while the laptop is away, installing
+Ovra on the machine) approved by the owner on 2026-11-28. Architecture:
+ADR 0016.
 Security code: every step that touches `crates/ssh`, the SSH command line,
 the host key pins, the frame bridge or the remote window's capabilities
 gets an independent security review before it lands. The first review
@@ -64,9 +66,10 @@ Each lands on its own, in this order.
 5. **UI**: "Connect to remote machine…" in the File menu and the palette,
    the add-machine dialog, the "on <name>" bar, connection status and
    reconnect.
-6. **Later, separate approval**: keep the remote core running while the
-   laptop is away (attach and detach), and copying Ovra's own daemon to the
-   remote machine.
+6. **Staying on** (section 6): the remote core keeps running while the
+   laptop is away, and the laptop attaches to it again.
+7. **Installing Ovra on the machine** (section 7): the laptop copies its
+   own `ovra-daemon` there when the person asks.
 
 ## 2. The remote side: `ovra-daemon --stdio`
 
@@ -95,8 +98,9 @@ Each lands on its own, in this order.
   when a line takes it more than 60 s to write, or at once when stdin
   closes. Sessions and transcripts stay in the remote
   machine's store and can be resumed after reconnecting, only by the
-  person; a reconnect never resumes anything on its own. Step 6 changes
-  this.
+  person; a reconnect never resumes anything on its own. Step 6 keeps
+  the core and its agents running instead (section 6); `--stdio` stays
+  as the one-client mode for tests and the e2e bridge.
 - **One core per data directory.** `--stdio` takes an exclusive lock on
   `stdio.lock` in the data directory. A second `--stdio` (a reconnect while
   the old one has not timed out) waits up to 10 s for the lock, then writes
@@ -352,6 +356,101 @@ ssh -T -x -a
 - Settings > Remote machines: the list, rename, remove, pinned
   fingerprints, the `ssh` in use.
 
+## 6. Staying on while the laptop is away
+
+The laptop's remote command becomes `<daemon> --attach` (the same hardened
+command line otherwise). The core then lives in a process of its own on the
+machine and outlives any one connection.
+
+- **`--core`** runs the core in the background: no stdin or stdout, logs
+  appended to `<data>/core.log` (cut to its last 1 MiB when it starts). It
+  takes the exclusive data-directory lock that `--stdio` takes, so the two
+  never run on the same data. It listens on `<data>/run/core.sock`, a Unix
+  socket only: `<data>/run` is created or checked as a 0700 folder owned by
+  the user (a symlink or anything else is refused), the socket is 0600, and
+  every connection's peer uid (`SO_PEERCRED`) must be the core's own uid or
+  it is closed unread. A socket path over the platform limit (108 bytes)
+  refuses to start with that reason. No TCP, no other listener.
+- **`--attach`** is what `ssh` runs. It connects to the socket; when no
+  core answers it starts `--core` itself, detached from the SSH session
+  (its own session via `setsid`, stdio closed), under a start lock so two
+  attaches start one core, and waits up to 10 s for the socket. Then it
+  copies bytes between its stdin/stdout and the socket and exits when
+  either side closes. It reads no frames: framing, the hello and the
+  checks stay in the core and on the laptop.
+- **One client at a time.** The core serves each client as `--stdio` does
+  (hello first, then frames, pings, the 16 MiB cap). A new client replaces
+  the current one: the old one gets the line `{"replaced":{}}` and is
+  closed, and its laptop shows `replaced` ("Ovra on <name> was opened from
+  another window or computer"). Replacing, not `busy`, is what lets a
+  laptop that slept attach again at once; both are the same SSH account,
+  so neither is trusted more.
+- **Detaching.** When the client closes, stays silent for 60 s or a write
+  takes longer than that, the core drops the client and keeps running:
+  agents, their sandbox, netproxy, dev servers and terminals go on.
+  Requests that need the person (approvals, questions) wait, as they do
+  locally while the person is away. Events sent while detached are lost;
+  the next client gets an `info.resync` right after the hello and the UI
+  reloads what it shows.
+- **Ending.** The core exits as on quit (sessions stop and stay resumable):
+  15 minutes after the last client left while no agent session, dev server
+  or terminal runs; or when a client sends the line `{"quit":{}}`, which
+  the laptop sends for "Stop Ovra on <name>" (it says that running agents
+  stop). Disconnect and closing the window only detach.
+- **Versions.** A core left running from an older build answers attach with
+  its own hello, and the laptop refuses it as `version_mismatch`. The laptop
+  then offers "Restart Ovra on <name>": it attaches with
+  `--attach --restart`, which sends `{"quit":{}}` to the running core,
+  waits up to 30 s for its lock, and starts the installed build. That stops
+  the agents there, so the button says so.
+- **Limits of staying on.** A machine whose login manager ends a user's
+  processes at logout (systemd `KillUserProcesses=yes`) ends the core with
+  the SSH session; the next attach starts a fresh one and the sessions are
+  resumable as before. Settings > Remote machines says so when the core
+  the laptop attaches to started after the last detach while sessions were
+  running (the hello carries the core's start time).
+- **Schedules.** A remote machine's scheduled tasks (ADR 0017) run while
+  its core runs, attached or not: "while Ovra is open" means that machine's
+  core.
+- UI: the bar after a drop says "Disconnected from <name>. Agents there
+  keep working." The chip's menu has Disconnect and "Stop Ovra on <name>".
+
+## 7. Installing Ovra on the machine
+
+When a connection fails with `no_daemon` or `version_mismatch`, the bar and
+Settings > Remote machines offer "Install Ovra on <name>". Nothing is copied
+without that click.
+
+- **What is copied.** Only this laptop's own build of `ovra-daemon` for
+  Linux on the machine's architecture: the app carries
+  `remote/ovra-daemon-<arch>-unknown-linux-musl` for `x86_64` and `aarch64`
+  as resources, with their SHA-256 fixed at build time. A development
+  build reads them from `OVRA_REMOTE_DAEMON_DIR` (`just remote-daemon`
+  builds them). When there is none for that architecture, the button says
+  "This Ovra has no build for <arch> Linux. Install `ovra-daemon` there
+  yourself." Producing these binaries for releases is release work, which
+  waits with releases.
+- **How.** Each step is one more connection with the same hardened command
+  line and a fixed remote command, never built from the person's input:
+  1. `uname -sm`: must be `Linux x86_64` or `Linux aarch64`.
+  2. The binary on stdin to
+     `sh -c 'umask 077; d="$HOME/.local/share/ovra/bin"; mkdir -p "$d" &&
+     cat > "$d/ovra-daemon.new" && echo "<sha256>  $d/ovra-daemon.new" |
+     sha256sum -c --status && chmod 700 "$d/ovra-daemon.new" &&
+     mv -f "$d/ovra-daemon.new" "$d/ovra-daemon"'`, where `<sha256>` is the
+     64 hex digits fixed at build time. A hash mismatch or a short upload
+     leaves the old binary in place.
+     The remote command is single-quoted for the person's login shell and
+     runs in `sh`, so it works under bash, zsh, fish and csh alike.
+- The machine's record then names `~/.local/share/ovra/bin/ovra-daemon`
+  (the host record's `daemon` field). A path the person set themselves is
+  kept unless they choose Install.
+- Uploads are capped at 128 MiB and 5 minutes, with progress shown. The
+  laptop never runs the uploaded file; the machine runs it on the next
+  attach, as it would one the person installed.
+- The app's command `ovra_remote_install` acts on one machine: from the
+  main window for any machine, from a machine's window for its own only.
+
 ## Threat model
 
 | #   | Threat                                                                                    | Answer                                                                                                                                                                                                                                                                                                                                                                                                             |
@@ -361,7 +460,7 @@ ssh -T -x -a
 | T3  | Local credentials leak to the remote machine                                              | The SSH agent and Kerberos tickets are never forwarded; `ssh` gets only a short variable list, so `SendEnv` has nothing secret to send; Ovra's keys (secrets), Claude credentials and `gh` login are never sent. Claude and `gh` sign in on the remote machine itself.                                                                                                                                             |
 | T4  | A crafted destination or path injects options or commands                                 | Strict character sets per part, `--` before the destination, a fixed remote command, arguments without a local shell, a quoted pin path.                                                                                                                                                                                                                                                                           |
 | T5  | The person's `~/.ssh/config` turns on forwarding, a shared master, or changes the session | Command-line options win, checked again with `ssh -G`; `ControlPath=none` avoids reusing a master that has forwarding.                                                                                                                                                                                                                                                                                             |
-| T6  | Other users on the remote machine reach the core                                          | `--stdio` has no listener; the data directory is 0700. Step 6 must keep that (a 0700 socket with a peer uid check).                                                                                                                                                                                                                                                                                                |
+| T6  | Other users on the remote machine reach the core                                          | `--stdio` has no listener; the data directory is 0700. `--core` listens only on a Unix socket in a 0700 folder, 0600, and closes any peer whose uid is not its own (section 6).                                                                                                                                                                                                                                    |
 | T7  | Agents on the remote machine reach the laptop or its network                              | No reverse channel exists. The remote netproxy refuses loopback and private addresses as before. Links to the laptop's loopback and private hosts are refused.                                                                                                                                                                                                                                                     |
 | T8  | Agents run unsandboxed on a machine without bubblewrap                                    | Agents, language servers, dev servers and the browser refuse to start there.                                                                                                                                                                                                                                                                                                                                       |
 | T9  | A remote machine floods or crashes the UI                                                 | 16 MiB line cap, frame checks, bounded queue with resync, capped stderr, close on violation.                                                                                                                                                                                                                                                                                                                       |
@@ -370,6 +469,10 @@ ssh -T -x -a
 | T12 | The person thinks they act locally but act on the remote machine                          | "on <name>" bar and accent on every remote window, from the app, not the remote.                                                                                                                                                                                                                                                                                                                                   |
 | T13 | Agents keep running unattended after the laptop leaves                                    | Ping every 15 s, sessions stop after 60 s without frames; one core per data directory.                                                                                                                                                                                                                                                                                                                             |
 | T14 | The headless token reaches the person's machines                                          | `/ws/ssh/<id>` exists only in e2e builds.                                                                                                                                                                                                                                                                                                                                                                          |
+| T15 | Agents on the machine drive its core through `core.sock`                                  | The data directory, `run/` included, is a protected path: the sandbox does not mount it, so the socket does not exist inside it (an attack test connects from a sandboxed agent). Unsandboxed processes of the same user (the person's terminal) can reach it, as they can the data directory today.                                                                                                               |
+| T16 | A detached core keeps acting with nobody watching                                         | It does only what the person's policies allow; anything that asks waits for a person. Agent limits and the netproxy stay. It ends 15 minutes after the last client once nothing runs, and "Stop Ovra on <name>" ends it at once.                                                                                                                                                                                   |
+| T17 | Another computer with the same SSH account takes over the machine                         | It replaces the current client, which is told `replaced`. Same account, same trust as an SSH login.                                                                                                                                                                                                                                                                                                                |
+| T18 | The install step runs something other than Ovra's own build, or a crafted command         | The remote commands are fixed strings with only the build-time SHA-256 (64 hex digits) in them; the binary comes only from the app's own resources and is checked with `sha256sum -c` before it replaces the old one; the laptop never runs it. Nothing is copied without the person's click.                                                                                                                      |
 
 Remaining risks, documented in ADR 0016: the person's own `ProxyCommand`
 or `ProxyJump` runs as they configured it, and jump hosts use the person's
@@ -414,3 +517,17 @@ each.
   `KnownHostsCommand`, `VerifyHostKeyDNS yes`, `GSSAPIKeyExchange yes`,
   `GSSAPIDelegateCredentials yes` and `SessionType none`, and a remote that
   sends `ssh.*` events or frames meant for another window.
+- Staying on (daemon tests, a real `--core` on a temporary data
+  directory): attach, detach and attach again with an agent still running
+  and an `info.resync` after the second hello; a second client replaces
+  the first, which reads `{"replaced":{}}`; `{"quit":{}}` stops the core;
+  the idle exit with a fake clock; a peer of another uid is closed unread
+  (where the test can switch uid, else the check is a unit test on the
+  credential comparison); a `run/` that is a symlink or not 0700 is
+  refused; `--stdio` and `--core` never share a data directory.
+- Installing (`crates/ssh` with a fake `ssh`): the exact remote commands
+  (snapshots), `uname` answers other than the two architectures refuse, a
+  hash mismatch keeps the old binary, the size cap, and the host record
+  pointing at the installed path afterwards.
+- Attack test: a sandboxed agent on the machine cannot connect to
+  `core.sock`.

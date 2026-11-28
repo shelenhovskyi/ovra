@@ -1,7 +1,8 @@
 # 0016. Remote machines over the person's own SSH
 
 - Status: accepted (owner, 2026-11-27, spec approved as written with a
-  limit of agents per machine)
+  limit of agents per machine; staying on and installing approved
+  2026-11-28)
 - Date: 2026-11-27
 - Amends: ADR 0003 (a second, tokenless entry, `ovra-daemon --stdio`,
   whose authentication is the remote machine's sshd)
@@ -54,19 +55,27 @@ Two shapes were considered:
 - Claude, `gh` and keys are signed in or set up on the remote machine
   itself. Nothing of the laptop's credentials, keys (secrets) or Claude
   login goes there.
-- v1 needs the same Ovra build on both sides and the person installs
-  `ovra-daemon` on the remote machine. Keeping the remote core alive while
-  the laptop is away, and copying Ovra's own daemon there, are later steps
-  with their own approval.
+- Both sides run the same Ovra build. The person installs `ovra-daemon`
+  on the remote machine, or asks the laptop to copy its own build there
+  over the same SSH line, checked against a hash fixed at build time
+  (amended 2026-11-28, owner approved).
+- The remote core outlives the connection (amended 2026-11-28, owner
+  approved): `ssh` runs `ovra-daemon --attach`, which relays to a
+  `--core` process on a Unix socket in the 0700 data directory, checked
+  by peer uid. One client at a time; a new one replaces the old. Agents
+  keep running while the laptop is away, and the core ends when the
+  person stops it or after a quiet while with nothing running.
 
 ## Consequences
 
 - One new crate, `crates/ssh` (security code), a `RemoteHosts` service
   trait and an `ssh.*` protocol domain on the laptop's core only.
 - Remote machines must be Linux with a working sandbox in v1.
-- When the connection drops, or no frame arrives for 60 s, the remote
-  agents stop (the person can resume them), until the attach and detach
-  step lands.
+- When the connection drops, or no frame arrives for 60 s, the laptop
+  detaches and the remote agents keep working; a machine that ends a
+  user's processes at logout stops them instead (they stay resumable).
+- The remote machine has a long-running process with a local socket, so
+  the sandbox must keep agents away from Ovra's data directory there too.
 - Agent limits, billing and the `ANTHROPIC_API_KEY` warning are per
   machine, so with several machines the person can run one limit's worth
   on each.
