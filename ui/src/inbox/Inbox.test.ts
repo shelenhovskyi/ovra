@@ -60,6 +60,11 @@ function press(code: string, init: KeyboardEventInit = {}) {
 }
 
 const $ = <T extends HTMLElement = HTMLElement>(selector: string) => target.querySelector<T>(selector);
+/** Opens More choices under Keep: commit and pull request live there. */
+const more = () => {
+  $<HTMLButtonElement>("[data-testid=inbox] [aria-label='More choices']")?.click();
+  flushSync();
+};
 const button = (name: RegExp) =>
   [...target.querySelectorAll<HTMLButtonElement>("[data-testid=inbox] button")].find((b) =>
     name.test(b.textContent ?? ""),
@@ -83,6 +88,8 @@ describe("Inbox", () => {
     expect(document.activeElement?.getAttribute("data-item")).toBe("r1");
     expect($("[data-item=r1]")?.classList.contains("flagged")).toBe(false);
     expect($("[data-testid=inbox-diff]")?.textContent).toContain("the readme");
+    // One part: no Keep, Discard or Comment of its own beside the review's.
+    expect($("[data-testid=hunk-keep]")).toBeNull();
     expect([...target.querySelectorAll("[data-testid=file-marker]")].map((m) => m.textContent)).toEqual([
       "Not changed by the agent's file tools",
     ]);
@@ -93,7 +100,9 @@ describe("Inbox", () => {
     // Short titles: the worker's own name; its task heads the group in the list.
     expect($("[data-testid=inbox-item] h3")?.textContent).toBe("Session s2");
     expect($("[data-file='src/a.ts']")?.textContent).toContain("Waits for the direct agent");
-    expect($("[data-testid=inbox-item]")?.textContent).toContain("into your project folder");
+    // What Keep does is its tooltip, not another line of text.
+    expect(button(/^Keep changes$/)?.title).toContain("into your project folder");
+    expect($("[data-testid=inbox-item]")?.textContent).not.toContain("into your project folder");
 
     press("Escape");
     await settle();
@@ -394,6 +403,7 @@ describe("Inbox", () => {
     expect(rows()).toEqual(["Done fixed the typo", "Checked tests passed", "Left Not said"]);
     expect(target.textContent).not.toContain("Agent's summary");
     // The commit message offered is what was done.
+    more();
     $<HTMLInputElement>("[data-testid=inbox] input[type=checkbox]")?.click();
     flushSync();
     expect($<HTMLInputElement>("[data-testid=inbox] input[type=text]")?.value).toBe("Fixed the typo");
@@ -406,6 +416,7 @@ describe("Inbox", () => {
     const core = await setup([review("r1", { summary: "Fix the typo" })]);
     await open();
     expect(core.sent("review.approve")).toEqual([]);
+    more();
     $<HTMLInputElement>("[data-testid=inbox] input[type=checkbox]")?.click();
     flushSync();
     const message = $<HTMLInputElement>("[data-testid=inbox] input[type=text]");
@@ -515,6 +526,7 @@ describe("Inbox", () => {
   it("offers no undo for a keep that committed", async () => {
     await setup([review("r1", { summary: "Fix the typo" })]);
     await open();
+    more();
     $<HTMLInputElement>("[data-testid=inbox] input[type=checkbox]")?.click();
     flushSync();
     button(/^Keep and commit$/)?.click();
@@ -831,20 +843,27 @@ describe("Inbox", () => {
   it("sends a comment with Mod+Enter and keeps the item open", async () => {
     const core = await setup();
     await open();
+    // The comment box waits behind Ask for changes, which puts the cursor in it.
+    expect($("#inbox-comment")).toBeNull();
+    button(/^Ask for changes$/)?.click();
+    await settle();
     const field = $<HTMLTextAreaElement>("#inbox-comment");
-    field?.focus();
+    expect(document.activeElement).toBe(field);
     if (field) field.value = "Add a test";
     field?.dispatchEvent(new Event("input", { bubbles: true }));
     press("Enter", { ctrlKey: true });
     await settle();
     expect(core.sent("review.comment").map((c) => c.params)).toEqual([{ id: "r1", text: "Add a test" }]);
-    expect(field?.value).toBe("");
+    // Sent: the box closes until the next Ask for changes.
+    expect($("#inbox-comment")).toBeNull();
     expect(button(/^Keep changes$/)).toBeDefined();
   });
 
   it("remembers a sent comment in AGENTS.md when asked", async () => {
     const core = await setup();
     await open();
+    button(/^Ask for changes$/)?.click();
+    await settle();
     const field = $<HTMLTextAreaElement>("#inbox-comment");
     if (field) field.value = "Use the fake clock";
     field?.dispatchEvent(new Event("input", { bubbles: true }));
@@ -855,6 +874,8 @@ describe("Inbox", () => {
     const written = core.sent("fs.write_file").map((c) => c.params);
     expect(written.map((w) => [w.path, w.expected_mtime_ms])).toEqual([["AGENTS.md", null]]);
     expect(written[0]?.text).toMatch(/## Rules\n\n- Use the fake clock\n$/);
+    button(/^Ask for changes$/)?.click();
+    await settle();
     expect($<HTMLInputElement>("[data-testid=inbox-remember]")?.checked).toBe(false);
   });
 
@@ -862,7 +883,8 @@ describe("Inbox", () => {
     await setup([review("r1"), review("r2", { files: [change("b.md")] })]);
     await open();
     const field = () => $<HTMLTextAreaElement>("#inbox-comment");
-    field()?.focus();
+    button(/^Ask for changes$/)?.click();
+    await settle();
     const typed = field();
     if (typed) typed.value = "please rename the file";
     typed?.dispatchEvent(new Event("input", { bubbles: true }));
@@ -874,7 +896,7 @@ describe("Inbox", () => {
     expect(field()?.value).toBe("please rename the file");
     $<HTMLButtonElement>("[data-item=r2]")?.click();
     await settle();
-    expect(field()?.value).toBe("");
+    expect(field()).toBeNull();
     $<HTMLButtonElement>("[data-item=r1]")?.click();
     await settle();
     expect(field()?.value).toBe("please rename the file");
@@ -975,10 +997,15 @@ describe("Inbox", () => {
   });
 
   it("keeps, discards and comments on single parts of a file", async () => {
-    const core = await setup([review("r1", { mode: "isolated", fingerprint: "f1" })]);
+    const core = await setup([review("r1", { mode: "isolated", fingerprint: "f1" })], async (core) => {
+      core.patches.set(
+        "README.md",
+        "--- a/README.md\n+++ b/README.md\n@@ -1 +1 @@\n-teh readme\n+the readme\n@@ -10 +10 @@\n-old end\n+new end\n",
+      );
+    });
     await open();
     const part = () => $("[data-testid=hunk]");
-    expect(part()?.getAttribute("aria-label")).toBe("Part 1 of 1, line 1");
+    expect(part()?.getAttribute("aria-label")).toBe("Part 1 of 2, line 1");
     // Keep is the person's mark: it folds the part and sends nothing.
     $<HTMLButtonElement>("[data-testid=hunk-keep]")?.click();
     await settle();

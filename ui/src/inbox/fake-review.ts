@@ -60,6 +60,8 @@ export class FakeReviewCore implements Transport {
   restored: string[] = [];
   /** Paths whose diff the core no longer keeps (a decided item past the limits): `not_found` with this reason. */
   diffGone = new Map<string, string>();
+  /** Diffs by path in place of the one-part default. */
+  patches = new Map<string, string>();
   /** Makes the next call of this method fail with this error. */
   failNext = new Map<Request["method"], CoreError>();
   /** Holds the next call of this method until the promise settles. */
@@ -153,7 +155,11 @@ export class FakeReviewCore implements Transport {
         const fingerprint = this.diffFingerprint ?? item.fingerprint;
         return {
           type: "review.diff",
-          data: { path: request.params.path, patch: patchFor(request.params.path), fingerprint },
+          data: {
+            path: request.params.path,
+            patch: this.patches.get(request.params.path) ?? patchFor(request.params.path),
+            fingerprint,
+          },
         };
       }
       case "review.approve":

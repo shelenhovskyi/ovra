@@ -396,7 +396,7 @@ test("a task's three workers wait in Reviews to be kept, discarded or sent back"
   for (const index of [0, 1, 2]) {
     await items.nth(index).click();
     const item = inbox.getByTestId("inbox-item");
-    await expect(item).toContainText("Agent's summary: Wrote NOTES.md.");
+    await expect(item.locator(".summary")).toHaveText("Wrote NOTES.md.");
     await expect(item.getByRole("list", { name: "Changed files" })).toContainText("NOTES.md");
     await expect(item.getByTestId("inbox-diff")).toContainText("Notes from a worker.");
   }
@@ -425,23 +425,19 @@ test("a task's three workers wait in Reviews to be kept, discarded or sent back"
   // Send the lint worker back with a comment; its rework shows in the same
   // review once the person allows the write.
   await pick("lint");
+  await item.getByRole("button", { name: "Ask for changes" }).click();
   await item.getByRole("textbox", { name: "Comment to the agent" }).fill("Say what lint checks.");
   await item.getByRole("button", { name: /^Send comment/ }).click();
-  await expect(item.getByRole("textbox", { name: "Comment to the agent" })).toHaveValue("");
+  await expect(item.getByRole("textbox", { name: "Comment to the agent" })).toBeHidden();
   const rework = approvals.getByRole("group", { name: "Write NOTES.md" });
   await expect(rework).toBeVisible();
   await arm(page);
   await rework.getByRole("button", { name: "Allow" }).click();
-  await expect(item).toContainText("Agent's summary: Reworked NOTES.md.");
+  await expect(item.locator(".summary")).toHaveText("Reworked NOTES.md.");
   await expect(item.getByTestId("inbox-diff")).toContainText("Notes reworked after your comment.");
-  await expect(item.locator(".state")).toHaveText("Waiting for review");
-
-  // Discard the one part of the new notes in the worker's worktree, then put it back.
-  const diff = item.getByTestId("inbox-diff");
-  await diff.getByRole("button", { name: /^Discard part 1/ }).click();
-  await expect(diff).toContainText("This review has no files.");
-  await diff.getByRole("button", { name: "Put back the last discarded part" }).click();
-  await expect(diff).toContainText("Notes reworked after your comment.");
+  // Waiting again: the usual state, so no label repeats it.
+  await expect(item.locator(".state")).toHaveCount(0);
+  await expect(item.getByRole("button", { name: "Keep changes" })).toBeVisible();
 });
 
 // One agent in its own copy: no coordinator, one worktree, kept from Reviews.
@@ -494,9 +490,9 @@ test("one agent works on its own copy and its change is kept from Reviews, all f
   await page.keyboard.press("Enter");
   await expect(item.getByTestId("inbox-file-explained")).toHaveText("Adds a line about the agent's work.");
   await expectAccessible(page, "in Reviews with an item and its explanation open");
-  // Keep sits above the explanation, a few Shift+Tab presses back, and Enter presses it.
+  // Keep sits in the bar under the explanation and the files, and Enter presses it.
   const keep = item.getByRole("button", { name: "Keep changes" });
-  await tabTo(page, keep, { back: true });
+  await tabTo(page, keep);
   // The item can reload as the agent's turn ends; Keep waits for that, as a person would.
   await expect(keep).toHaveAttribute("aria-disabled", "false");
   await page.keyboard.press("Enter");
@@ -522,7 +518,8 @@ test("a worker's changes open as a draft pull request whose checks show on the i
   await page.keyboard.press("Alt+Shift+R");
   const inbox = page.getByTestId("inbox");
   const item = inbox.getByTestId("inbox-item");
-  await expect(item).toContainText("Agent's summary: Wrote NOTES.md.");
+  await expect(item.locator(".summary")).toHaveText("Wrote NOTES.md.");
+  await item.getByRole("button", { name: "More choices" }).click();
   await item.getByRole("button", { name: "Open pull request…" }).click();
 
   const dialog = page.getByRole("dialog", { name: "Open pull request" });

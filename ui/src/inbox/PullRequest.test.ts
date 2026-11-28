@@ -79,6 +79,9 @@ function type(input: HTMLInputElement | HTMLTextAreaElement | null | undefined, 
 }
 
 async function openDialog() {
+  // Open pull request is one of the More choices under Keep.
+  target.querySelector<HTMLButtonElement>("[aria-label='More choices']")?.click();
+  await settle();
   button(/^Open pull request/)?.click();
   await settle();
   const dialog = $<HTMLDialogElement>("[data-testid=pr-dialog]");

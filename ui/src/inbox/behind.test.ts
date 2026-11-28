@@ -9,7 +9,9 @@ describe("behind", () => {
   });
 
   it("warns only when Keep would leave files out", () => {
-    expect(behindText({ files: 1, clashes: [] })).toMatch(/^Your project changed in 1 file since .* Keep copies all/);
+    expect(behindText({ files: 1, clashes: [] })).toBe(
+      "Your project changed in 1 file since the agent started, none that it changed.",
+    );
     expect(behindText({ files: 4, clashes: ["a", "b"] })).toContain("Keep would leave them out");
   });
 

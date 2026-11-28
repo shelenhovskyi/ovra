@@ -137,6 +137,8 @@ const LABEL = { context: "unchanged", added: "added", removed: "removed" } as co
       {@const place = hunkPlace(part)}
       {@const step = stepOf(part)}
       <section class="hunk" class:kept={isKept} aria-label="Part {index + 1} of {hunks.length}, {place}" data-testid="hunk">
+        <!-- One part: Keep, Discard and Comment would repeat the review's own; lines still take comments. -->
+        {#if hunks.length > 1}
         <header>
           <span class="place">Part {index + 1} of {hunks.length}: {place}</span>
           {#if part.hunk.header}<span class="where">{part.hunk.header}</span>{/if}
@@ -166,7 +168,9 @@ const LABEL = { context: "unchanged", added: "added", removed: "removed" } as co
             }}>Comment</button
           >
         </header>
-        {#if step}
+        {/if}
+        <!-- A lone part's step is named only when the agent said what it did. -->
+        {#if step && (hunks.length > 1 || step.said)}
           <p class="made" data-testid="hunk-step">{stepText(step)}</p>
         {/if}
         {#if !isKept || writing?.hunk === part.key}
