@@ -162,12 +162,15 @@ where
                 Line::Bad => return Ended::BadLine,
                 Line::Text(text) => {
                     deadline = Instant::now() + IDLE;
+                    // A quit ends the core without taking over first.
+                    if text.trim() == QUIT {
+                        return Ended::Quit;
+                    }
                     if let Some(first) = first_line.take() {
                         let _ = first.send(());
                     }
                     match text.trim() {
                         PING => {}
-                        QUIT => return Ended::Quit,
                         _ => running.push(async move { dispatch(client, &text).await }),
                     }
                 }

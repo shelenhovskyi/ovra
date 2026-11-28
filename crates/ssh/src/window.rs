@@ -220,6 +220,32 @@ mod tests {
         );
     }
 
+    /// The main window's list: restart and install of a remote machine
+    /// are here, never in the remote window's.
+    #[test]
+    fn the_main_window_capability_holds_only_its_commands() {
+        let file = include_str!("../../../app/capabilities/main.json");
+        let capability: serde_json::Value =
+            serde_json::from_str(file).unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(capability["windows"], serde_json::json!(["main"]));
+        assert_eq!(
+            capability["permissions"],
+            serde_json::json!([
+                "allow-ovra-call",
+                "allow-ovra-subscribe",
+                "allow-ovra-pick-folder",
+                "allow-ovra-import-drop",
+                "allow-ovra-remote-show",
+                "allow-ovra-remote-restart",
+                "allow-ovra-remote-install",
+                "core:window:allow-start-dragging",
+                "notification:allow-is-permission-granted",
+                "notification:allow-request-permission",
+                "notification:allow-notify"
+            ])
+        );
+    }
+
     #[test]
     fn each_machine_has_its_own_store() {
         assert_ne!(data_store(&id("abc")), data_store(&id("abd")));

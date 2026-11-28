@@ -98,13 +98,19 @@ pub(crate) fn open_log(data: &Private) -> anyhow::Result<std::fs::File> {
         Mode::RUSR | Mode::WUSR,
     )
     .context("opening core.log")?;
+    let stat = rustix::fs::fstat(&fd)?;
+    anyhow::ensure!(
+        FileType::from_raw_mode(stat.st_mode) == FileType::RegularFile
+            && stat.st_uid == rustix::process::geteuid().as_raw(),
+        "core.log is not a file of this user"
+    );
+    rustix::fs::fchmod(&fd, Mode::RUSR | Mode::WUSR)?;
     let file = std::fs::File::from(fd);
     cut_log(&file)?;
     Ok(file)
 }
 
-/// Keeps only the last [`LOG_KEEP`] bytes of `file` once it is past
-/// [`LOG_MAX`] (or past [`LOG_KEEP`] when `force`).
+/// Keeps only the last [`LOG_KEEP`] bytes of `file`.
 fn cut_log(file: &std::fs::File) -> std::io::Result<()> {
     use std::io::{Read, Seek, SeekFrom, Write};
     let meta = file.metadata()?;
@@ -168,7 +174,13 @@ pub(crate) fn bind(run: &Private) -> anyhow::Result<UnixListener> {
 fn same_user(stream: &UnixStream) -> bool {
     stream
         .peer_cred()
-        .is_ok_and(|cred| cred.uid() == rustix::process::geteuid().as_raw())
+        .is_ok_and(|cred| same_uid(cred.uid(), rustix::process::geteuid().as_raw()))
+}
+
+/// The core's check on a peer: its uid is the core's own, root's included
+/// only for root.
+pub(crate) fn same_uid(peer: u32, me: u32) -> bool {
+    peer == me
 }
 
 /// What one client's task tells the core.
@@ -204,7 +216,12 @@ pub(crate) async fn serve_core(core: Core, listener: UnixListener, hello: Hello)
     loop {
         tokio::select! {
             accepted = listener.accept() => {
-                let Ok((stream, _)) = accepted else { continue };
+                let Ok((stream, _)) = accepted else {
+                    // Out of descriptors, say: let some close.
+                    tracing::warn!("could not accept a client");
+                    tokio::time::sleep(Duration::from_millis(100)).await;
+                    continue;
+                };
                 if !same_user(&stream) {
                     tracing::warn!("closed a connection from another user");
                     continue;
@@ -270,9 +287,9 @@ pub(crate) async fn attach(data_dir: &Path, restart: bool) -> anyhow::Result<()>
     let run = data.child_run()?;
     let socket = run.path(SOCKET);
     if restart {
-        if let Ok(mut old) = UnixStream::connect(&socket).await {
-            old.write_all(format!("{}\n", stdio::QUIT).as_bytes())
-                .await?;
+        if let Ok(old) = UnixStream::connect(&socket).await {
+            // Its lock below says whether it ended; this only asks.
+            let _ = tokio::time::timeout(RESTART_WAIT, ask_to_quit(old)).await;
         }
         let freed = crate::lock_data_dir(data_dir, (RESTART_WAIT.as_millis() / 250) as u32).await?;
         anyhow::ensure!(freed.is_some(), "the running Ovra did not stop within 30 s");
@@ -291,6 +308,23 @@ pub(crate) async fn attach(data_dir: &Path, restart: bool) -> anyhow::Result<()>
     };
     let mut local = tokio::io::join(tokio::io::stdin(), tokio::io::stdout());
     let _ = tokio::io::copy_bidirectional(&mut local, &mut stream).await;
+    Ok(())
+}
+
+/// Asks the core on `stream` to quit, as a client: after its hello (which
+/// it writes first, so a client that closed already never gets read), and
+/// then until it closes.
+async fn ask_to_quit(stream: UnixStream) -> std::io::Result<()> {
+    use tokio::io::{AsyncBufReadExt, AsyncReadExt};
+    let (read, mut write) = stream.into_split();
+    let mut read = tokio::io::BufReader::new(read.take(stdio::LINE_MAX as u64 + 1));
+    let mut hello = Vec::new();
+    read.read_until(b'\n', &mut hello).await?;
+    write
+        .write_all(format!("{}\n", stdio::QUIT).as_bytes())
+        .await?;
+    // What it still says goes nowhere; its end is what counts.
+    tokio::io::copy(&mut read.into_inner().into_inner(), &mut tokio::io::sink()).await?;
     Ok(())
 }
 

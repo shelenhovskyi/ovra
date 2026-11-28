@@ -6,7 +6,7 @@ use ovra_transport::stdio::{Hello, QUIT, REPLACED};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::UnixStream;
 
-use super::{IDLE_EXIT, Private, bind, cut_log, may_end, serve_core};
+use super::{IDLE_EXIT, Private, bind, cut_log, may_end, open_log, same_uid, serve_core};
 
 fn ok<T, E: std::fmt::Debug>(r: Result<T, E>) -> T {
     r.unwrap_or_else(|e| panic!("{e:?}"))
@@ -168,4 +168,57 @@ async fn a_new_client_takes_over_only_with_its_first_line_and_quit_ends_the_core
 
     second.send(QUIT).await;
     assert!(ok(tokio::time::timeout(Duration::from_secs(2), served).await).is_ok());
+}
+
+#[test]
+fn only_a_peer_of_the_cores_own_user_is_served() {
+    assert!(same_uid(1000, 1000));
+    assert!(!same_uid(1001, 1000));
+    assert!(!same_uid(0, 1000));
+    assert!(!same_uid(1000, 0));
+}
+
+#[test]
+fn the_log_is_this_users_own_file_and_nothing_planted() {
+    let dir = ok(tempfile::tempdir());
+    let data = ok(Private::open(dir.path()));
+    let path = dir.path().join("core.log");
+    ok(std::fs::write(&path, "old"));
+    ok(std::fs::set_permissions(
+        &path,
+        std::fs::Permissions::from_mode(0o644),
+    ));
+    drop(ok(open_log(&data)));
+    assert_eq!(
+        ok(std::fs::metadata(&path)).permissions().mode() & 0o777,
+        0o600
+    );
+
+    ok(std::fs::remove_file(&path));
+    let elsewhere = dir.path().join("elsewhere");
+    ok(std::fs::write(&elsewhere, "mine"));
+    ok(std::os::unix::fs::symlink(&elsewhere, &path));
+    assert!(open_log(&data).is_err());
+
+    ok(std::fs::remove_file(&path));
+    ok(rustix::fs::mknodat(
+        rustix::fs::CWD,
+        &path,
+        rustix::fs::FileType::Fifo,
+        rustix::fs::Mode::RUSR | rustix::fs::Mode::WUSR,
+        0,
+    ));
+    assert!(open_log(&data).is_err());
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_core_nobody_attaches_to_ends_after_the_quiet_while() {
+    let dir = ok(tempfile::tempdir());
+    let run = ok(ok(Private::open(dir.path())).child_run());
+    let listener = ok(bind(&run));
+    let served = tokio::spawn(serve_core(Core::builder("test").build(), listener, hello()));
+    tokio::time::sleep(IDLE_EXIT - Duration::from_secs(60)).await;
+    assert!(!served.is_finished());
+    tokio::time::sleep(Duration::from_secs(120)).await;
+    assert!(served.await.is_ok());
 }
