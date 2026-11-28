@@ -1,0 +1,5 @@
+[env]
+# insta finds the workspace root by running `cargo metadata` once per test
+# process (~40 ms CPU each, and nextest runs every test in its own process).
+# Naming the root here skips that.
+INSTA_WORKSPACE_ROOT = { value = "", relative = true }
