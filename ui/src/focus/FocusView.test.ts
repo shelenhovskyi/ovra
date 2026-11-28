@@ -252,6 +252,27 @@ describe("FocusView", () => {
     localStorage.removeItem("ovra.task-mode.p1");
   });
 
+  it("offers and starts one agent in its own copy when that was the way last chosen", async () => {
+    localStorage.setItem("ovra.task-mode.p1", "own");
+    const core = await setup(() => {});
+    const select = target.querySelector<HTMLSelectElement>("[data-testid=focus-mode]");
+    expect(select?.value).toBe("own");
+    expect(select?.selectedOptions[0]?.textContent).toBe("One agent, own copy");
+    const box = target.querySelector<HTMLTextAreaElement>("#focus-task");
+    if (!box) throw new Error("no task field");
+    box.value = "Write the notes";
+    box.dispatchEvent(new Event("input", { bubbles: true }));
+    flushSync();
+    box.dispatchEvent(new KeyboardEvent("keydown", { code: "Enter", bubbles: true }));
+    await vi.waitFor(() => expect(box.value).toBe(""));
+    expect(core.calls.find((c) => c.method === "orchestration.start")?.params).toMatchObject({
+      project: "p1",
+      prompt: "Write the notes",
+      solo: true,
+    });
+    localStorage.removeItem("ovra.task-mode.p1");
+  });
+
   it("starts one agent here when that is the way chosen", async () => {
     const core = await setup(() => {});
     const box = target.querySelector<HTMLTextAreaElement>("#focus-task");

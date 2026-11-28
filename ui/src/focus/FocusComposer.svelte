@@ -14,6 +14,7 @@ import Icon from "../shell/Icon.svelte";
 
 const MODES: { id: TaskMode; label: string }[] = [
   { id: "here", label: "One agent, here" },
+  { id: "own", label: "One agent, own copy" },
   { id: "split", label: "Plan and split" },
   { id: "research", label: "Research" },
 ];
@@ -50,6 +51,7 @@ async function start(): Promise<void> {
   const items = drafts.items(target);
   try {
     if (mode === "split") await sessions.startTask(project, body, items);
+    else if (mode === "own") await sessions.startSolo(project, body, "claude", items);
     else await sessions.start(project, body, null, mode === "research" ? "research" : "direct", items);
     rememberMode(project, mode);
     drafts.clear(target);
