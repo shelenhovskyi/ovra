@@ -39,14 +39,15 @@ export function runMenuCommand(id: string): void {
 
 /**
  * Whether `command` may run now. While a modal dialog is open (the palette,
- * the close question) only the commands it names in `data-commands` (an id
- * prefix such as `palette.`) do; the rest would act behind it.
+ * Settings, the close question) only the commands it names in
+ * `data-commands` (id prefixes such as `palette.`, space-separated) do; the
+ * rest would act behind it.
  */
 function allowed(command: Command, doc: Document): boolean {
   const modal = doc.querySelector<HTMLElement>("[aria-modal='true']");
   if (!modal) return true;
-  const own = modal.dataset.commands;
-  return own !== undefined && command.id.startsWith(own);
+  const own = modal.dataset.commands?.split(/\s+/).filter(Boolean) ?? [];
+  return own.some((prefix) => command.id.startsWith(prefix));
 }
 
 /**

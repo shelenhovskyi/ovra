@@ -158,8 +158,11 @@ describe("keybindings", () => {
     dialog.dataset.commands = "palette.";
     keydown({ key: "\\", code: "Backslash", ctrlKey: true });
     keydown({ key: "p", code: "KeyP", ctrlKey: true });
+    // Settings names its own commands and the palette's.
+    dialog.dataset.commands = "settings. t.";
+    keydown({ key: "\\", code: "Backslash", ctrlKey: true });
     dialog.remove();
     keydown({ key: "\\", code: "Backslash", ctrlKey: true });
-    expect(run.mock.calls).toEqual([["files"], ["split"]]);
+    expect(run.mock.calls).toEqual([["files"], ["split"], ["split"]]);
   });
 });
