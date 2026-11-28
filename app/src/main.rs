@@ -119,7 +119,7 @@ async fn ovra_remote_stop(
     remotes: tauri::State<'_, remote::Remotes>,
 ) -> Result<(), String> {
     let id = ovra_ssh::window::machine(window.label()).ok_or("not a remote window")?;
-    remotes.stop(window.app_handle(), &id).await
+    remotes.stop(&id).await
 }
 
 /// Restarts Ovra on machine `id` with the installed build and opens its

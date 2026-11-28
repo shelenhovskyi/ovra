@@ -28,6 +28,9 @@ const STDERR_MAX: usize = 64 * 1024;
 const PING_EVERY: Duration = Duration::from_secs(15);
 /// How long a line to the remote core may take to write.
 const WRITE_WAIT: Duration = Duration::from_secs(60);
+/// How long the machine's core may take to end after the quit line: it
+/// stops its sessions first.
+const QUIT_WAIT: Duration = Duration::from_secs(30);
 /// Frames waiting for the window; past this, events are dropped and
 /// `info.resync` says how many.
 const QUEUE: usize = 256;
@@ -165,11 +168,22 @@ impl Sender {
 
 impl Sender {
     /// Asks the machine's core to quit (Stop Ovra on <name>): its agents
-    /// stop. The exact line, which no window can send as a frame.
+    /// stop. The exact line, which no window can send as a frame. Returns
+    /// once the core closed the link, which it does as it ends; an error
+    /// when the link ended before the line went out, or the core did not
+    /// close it within [`QUIT_WAIT`].
     pub async fn quit(&self) -> Result<(), Failure> {
-        match self.to.send(QUIT.to_owned()).await {
-            Ok(()) => Ok(()),
-            Err(_) => Err(ended(&self.end)),
+        if self.to.send(QUIT.to_owned()).await.is_err() {
+            return Err(ended(&self.end));
+        }
+        let mut end = self.end.clone();
+        match tokio::time::timeout(QUIT_WAIT, end.wait_for(Option::is_some)).await {
+            Ok(Ok(ended)) if ended.as_ref().is_some_and(|f| f.reason == Reason::Exited) => Ok(()),
+            Ok(_) => Err(ended(&self.end)),
+            Err(_) => Err(Failure::new(
+                Reason::Exited,
+                "Ovra on the remote machine did not stop within 30 s",
+            )),
         }
     }
 }

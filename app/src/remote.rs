@@ -33,7 +33,7 @@ type Statuses = Arc<Mutex<HashMap<String, serde_json::Value>>>;
 /// for a reply. Dropping it ends `ssh`.
 struct Open {
     sender: watch::Receiver<Option<ovra_ssh::Sender>>,
-    waiting: Arc<Mutex<HashMap<u64, oneshot::Sender<String>>>>,
+    shared: Arc<Shared>,
     task: tauri::async_runtime::JoinHandle<()>,
 }
 
@@ -41,6 +41,15 @@ impl Drop for Open {
     fn drop(&mut self) {
         self.task.abort();
     }
+}
+
+/// What a link's task shares with the calls and with Stop.
+#[derive(Default)]
+struct Shared {
+    /// The calls waiting for a reply, by request id.
+    waiting: Mutex<HashMap<u64, oneshot::Sender<String>>>,
+    /// Set while Stop waits: the link's end then says `stopped`.
+    stopping: std::sync::atomic::AtomicBool,
 }
 
 /// What a remote window and the main window learn about a link, on an
@@ -150,16 +159,23 @@ impl Remotes {
     }
 
     /// Ends the core on `id` (its agents stop, sessions stay resumable)
-    /// and closes the link. Only the app sends the quit line.
-    pub(crate) async fn stop(&self, app: &AppHandle, id: &HostId) -> Result<(), String> {
+    /// and with it the link. Only the app sends the quit line.
+    pub(crate) async fn stop(&self, id: &HostId) -> Result<(), String> {
+        use std::sync::atomic::Ordering;
         let open = lock(&self.open).get(id.as_str()).cloned();
-        let sender = open.and_then(|o| o.sender.borrow().clone());
-        let Some(sender) = sender else {
+        let Some(open) = open else {
             return Err("Ovra is not connected to this machine.".to_owned());
         };
-        sender.quit().await.map_err(|f| f.details)?;
-        self.end(app, id, "stopped");
-        Ok(())
+        let Some(sender) = open.sender.borrow().clone() else {
+            return Err("Ovra is not connected to this machine.".to_owned());
+        };
+        // The link's own task tells the windows, once the core ended it.
+        open.shared.stopping.store(true, Ordering::SeqCst);
+        let stopped = sender.quit().await;
+        if stopped.is_err() {
+            open.shared.stopping.store(false, Ordering::SeqCst);
+        }
+        stopped.map_err(|f| f.details)
     }
 
     fn start(&self, app: &AppHandle, id: &HostId, restart: bool) {
@@ -171,21 +187,21 @@ impl Remotes {
             return;
         }
         let (sender_tx, sender) = watch::channel(None);
-        let waiting = Arc::new(Mutex::new(HashMap::new()));
+        let shared = Arc::new(Shared::default());
         let task = tauri::async_runtime::spawn(run(
             app.clone(),
             self.ssh.clone(),
             id.clone(),
             self.statuses.clone(),
             sender_tx,
-            waiting.clone(),
+            shared.clone(),
             restart,
         ));
         open.insert(
             id.as_str().to_owned(),
             Arc::new(Open {
                 sender,
-                waiting,
+                shared,
                 task,
             }),
         );
@@ -194,10 +210,6 @@ impl Remotes {
     /// Ends the link of `id`, if there is one, even while a call still
     /// holds on to it.
     pub(crate) fn close(&self, app: &AppHandle, id: &HostId) {
-        self.end(app, id, "closed");
-    }
-
-    fn end(&self, app: &AppHandle, id: &HostId, state: &'static str) {
         // Held until `closed` is told, so a `connect` in between cannot
         // have its `connecting` overwritten by this older `closed`.
         let mut open = lock(&self.open);
@@ -205,7 +217,7 @@ impl Remotes {
             && !link.task.inner().is_finished()
         {
             link.task.abort();
-            tell(app, &self.statuses, id, state, None);
+            tell(app, &self.statuses, id, "closed", None);
         }
     }
 
@@ -227,9 +239,9 @@ impl Remotes {
             return window::unavailable(request, "not connected to this machine");
         };
         let (reply_tx, reply) = oneshot::channel();
-        lock(&open.waiting).insert(request, reply_tx);
+        lock(&open.shared.waiting).insert(request, reply_tx);
         if let Err(failure) = sender.send(&frame).await {
-            lock(&open.waiting).remove(&request);
+            lock(&open.shared.waiting).remove(&request);
             return window::unavailable(request, &failure.details);
         }
         drop(open);
@@ -371,7 +383,7 @@ async fn run(
     id: HostId,
     statuses: Statuses,
     sender: watch::Sender<Option<ovra_ssh::Sender>>,
-    waiting: Arc<Mutex<HashMap<u64, oneshot::Sender<String>>>>,
+    shared: Arc<Shared>,
     restart: bool,
 ) {
     let label = window::label(&id);
@@ -397,7 +409,7 @@ async fn run(
         match window::route(&frame) {
             Route::Reply(request) => {
                 // An id this window never sent waits for nobody.
-                if let Some(waiter) = lock(&waiting).remove(&request) {
+                if let Some(waiter) = lock(&shared.waiting).remove(&request) {
                     let _ = waiter.send(frame);
                 }
             }
@@ -409,8 +421,12 @@ async fn run(
         }
     };
     let _ = sender.send(None);
-    lock(&waiting).clear();
-    status("closed", Some(&failure));
+    lock(&shared.waiting).clear();
+    if shared.stopping.load(std::sync::atomic::Ordering::SeqCst) {
+        status("stopped", None);
+    } else {
+        status("closed", Some(&failure));
+    }
 }
 
 /// Opens `url` in the laptop's browser for a remote window, if it points

@@ -223,20 +223,18 @@ sleep 5"#,
 }
 
 #[tokio::test]
-async fn stopping_sends_the_exact_quit_line() {
+async fn stopping_returns_once_the_core_read_the_exact_quit_line_and_ended() {
     let dir = ok(tempfile::tempdir());
     let got = dir.path().join("got");
+    // The fake core ends only after it read the line.
     let body = format!(
-        "{}\nread -r line; printf '%s' \"$line\" > '{}'\nsleep 5",
+        "{}\nread -r line; printf '%s' \"$line\" > '{}'",
         ours(),
         got.display()
     );
     let link = ok(fake(dir.path(), None, &body).connect(&abc()).await);
     ok(link.sender().quit().await);
-    let mut waited = 0;
-    while std::fs::read_to_string(&got).unwrap_or_default().is_empty() && waited < 200 {
-        tokio::time::sleep(Duration::from_millis(10)).await;
-        waited += 1;
-    }
     assert_eq!(ok(std::fs::read_to_string(&got)), r#"{"quit":{}}"#);
+    // A link that ended already cannot be stopped.
+    assert!(link.sender().quit().await.is_err());
 }
