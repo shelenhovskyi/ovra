@@ -191,7 +191,7 @@ function seeChanges(id: SessionId): void {
     display: flex;
     gap: 8px;
     margin: 0;
-    font-size: 12px;
+    font-size: var(--fs-ui-sm);
     font-weight: 600;
     color: var(--text-2);
   }
@@ -230,7 +230,7 @@ function seeChanges(id: SessionId): void {
   }
   .who,
   .facts {
-    font-size: 12px;
+    font-size: var(--fs-ui-sm);
     color: var(--text-2);
   }
   .summary {
@@ -291,7 +291,7 @@ function seeChanges(id: SessionId): void {
   }
   .status {
     grid-column: 2;
-    font-size: 12px;
+    font-size: var(--fs-ui-sm);
     color: var(--text-2);
     overflow-wrap: anywhere;
   }
@@ -301,7 +301,7 @@ function seeChanges(id: SessionId): void {
     color: var(--text);
     background: var(--s3);
     border: 1px solid transparent;
-    border-radius: var(--radius-sm);
+    border-radius: var(--r-control);
     white-space: nowrap;
   }
   button:hover {

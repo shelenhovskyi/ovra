@@ -165,7 +165,7 @@ function onkeydown(event: KeyboardEvent): void {
     margin: 0;
   }
   .who {
-    font-size: 12px;
+    font-size: var(--fs-ui-sm);
     color: var(--text-2);
   }
   h3 {
@@ -196,7 +196,7 @@ function onkeydown(event: KeyboardEvent): void {
     color: var(--text);
     background: var(--s3);
     border: 1px solid transparent;
-    border-radius: var(--radius-sm);
+    border-radius: var(--r-control);
   }
   .primary:not(:disabled) {
     color: var(--accent-ink);
@@ -224,7 +224,7 @@ function onkeydown(event: KeyboardEvent): void {
     font-weight: 500;
   }
   .why {
-    font-size: 13px;
+    font-size: var(--fs-ui);
     color: var(--text-2);
     overflow-wrap: anywhere;
   }

@@ -673,7 +673,7 @@ function choose(option: Row): void {
   .at-menu .detail {
     min-width: 0;
     overflow: hidden;
-    font-size: 12px;
+    font-size: var(--fs-ui-sm);
     white-space: nowrap;
     text-overflow: ellipsis;
     direction: rtl;
@@ -693,12 +693,12 @@ function choose(option: Row): void {
     align-items: center;
     gap: 4px;
     max-width: 100%;
-    height: 24px;
+    height: var(--ctl-sm);
     padding: 0 2px 0 6px;
-    font-size: 12px;
+    font-size: var(--fs-ui-sm);
     color: var(--text-2);
     background: var(--s3);
-    border-radius: var(--radius);
+    border-radius: var(--r-control);
   }
   .ctx-chip.image {
     height: 40px;
@@ -736,7 +736,7 @@ function choose(option: Row): void {
     border-radius: var(--radius);
     height: 20px;
     padding: 0 4px;
-    font-size: 12px;
+    font-size: var(--fs-ui-sm);
   }
   .ctx-chip button:hover {
     background: var(--s4);
@@ -766,13 +766,13 @@ function choose(option: Row): void {
     align-items: center;
     gap: 6px;
     margin: 0;
-    font-size: 12px;
+    font-size: var(--fs-ui-sm);
     color: var(--warn);
   }
   .ctx-ask button {
     height: 22px;
     padding: 0 6px;
-    font-size: 12px;
+    font-size: var(--fs-ui-sm);
     color: var(--text);
     background: var(--s3);
     border: 0;
@@ -783,7 +783,7 @@ function choose(option: Row): void {
   }
   .ctx-drop {
     margin: 0;
-    font-size: 12px;
+    font-size: var(--fs-ui-sm);
     color: var(--accent);
   }
   :global(form[data-file-over]) {
@@ -791,12 +791,12 @@ function choose(option: Row): void {
   }
   .ctx-note {
     margin: 0;
-    font-size: 12px;
+    font-size: var(--fs-ui-sm);
     color: var(--text-2);
   }
   .ctx-error {
     margin: 0;
-    font-size: 12px;
+    font-size: var(--fs-ui-sm);
     color: var(--warn);
   }
 </style>

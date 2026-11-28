@@ -88,21 +88,21 @@ function remove(id: ProjectId): void {
     display: inline-flex;
     align-items: center;
     gap: 2px;
-    height: 32px;
+    height: var(--ctl-lg);
     padding: 0 4px 0 8px;
-    font-size: 13px;
+    font-size: var(--fs-ui);
     color: var(--text);
     background: var(--s3);
-    border-radius: var(--radius-sm);
+    border-radius: var(--r-control);
   }
   .remove {
-    width: 24px;
-    height: 24px;
+    width: var(--ctl-sm);
+    height: var(--ctl-sm);
     padding: 0;
     color: var(--text-2);
     background: none;
     border: none;
-    border-radius: var(--radius-sm);
+    border-radius: var(--r-control);
   }
   .remove:hover {
     color: var(--text);
@@ -110,14 +110,14 @@ function remove(id: ProjectId): void {
   }
   .agent-picker select {
     max-width: 100%;
-    height: 32px;
+    height: var(--ctl-lg);
     padding: 0 8px;
     font: inherit;
-    font-size: 13px;
+    font-size: var(--fs-ui);
     color: var(--text-2);
     background: var(--s3);
     border: none;
-    border-radius: var(--radius-sm);
+    border-radius: var(--r-control);
   }
   @media (forced-colors: active) {
     .agent-picker select,

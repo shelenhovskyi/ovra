@@ -152,7 +152,7 @@ function onkeydown(event: KeyboardEvent): void {
     color: var(--text);
     background: var(--s3);
     border: 1px solid transparent;
-    border-radius: var(--radius-sm);
+    border-radius: var(--r-control);
     font: inherit;
   }
   .add-context {

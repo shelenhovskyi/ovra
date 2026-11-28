@@ -82,14 +82,14 @@ let {
     display: inline-flex;
     align-items: center;
     flex: none;
-    height: 28px;
+    height: var(--ctl);
     padding: 0 7px;
     font: inherit;
-    font-size: 13px;
+    font-size: var(--fs-ui);
     color: var(--text);
     background: var(--s3);
     border: 1px solid transparent;
-    border-radius: var(--radius-sm);
+    border-radius: var(--r-control);
   }
   .quiet:hover:not(:disabled) {
     background: var(--s4);

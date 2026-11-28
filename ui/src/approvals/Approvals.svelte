@@ -981,7 +981,7 @@ function verbAndObject(summary: ToolSummary): { verb: string; object: string } {
   .approvals {
     /* At most about half the column: the agents stay in sight. */
     flex: 0 1 auto;
-    max-height: 50%;
+    max-height: 40%;
     min-height: 0;
     display: flex;
     flex-direction: column;
@@ -1075,8 +1075,8 @@ function verbAndObject(summary: ToolSummary): { verb: string; object: string } {
     overflow: auto;
   }
   .card {
-    padding: 12px 12px 10px;
-    border-radius: 12px;
+    padding: 14px 14px 12px;
+    border-radius: var(--r-lg);
     background: var(--s2);
     /* A warning bar on the leading edge marks what waits for a decision. */
     box-shadow:
@@ -1117,7 +1117,7 @@ function verbAndObject(summary: ToolSummary): { verb: string; object: string } {
     gap: 8px;
     margin: 0;
     color: var(--text-2);
-    font-size: 13px;
+    font-size: var(--fs-ui);
   }
   .name {
     min-width: 0;
@@ -1147,7 +1147,7 @@ function verbAndObject(summary: ToolSummary): { verb: string; object: string } {
   .notice:not(:empty) {
     margin: 0 0 4px;
     color: var(--text-2);
-    font-size: 13px;
+    font-size: var(--fs-ui);
     overflow-wrap: anywhere;
   }
   .notice:not(:empty) {
@@ -1165,7 +1165,7 @@ function verbAndObject(summary: ToolSummary): { verb: string; object: string } {
     align-items: center;
     gap: 4px 8px;
     margin: 0;
-    font-size: 13px;
+    font-size: var(--fs-ui);
     color: var(--text-2);
   }
   .chips:empty {
@@ -1177,8 +1177,8 @@ function verbAndObject(summary: ToolSummary): { verb: string; object: string } {
     max-width: 100%;
     margin: 4px 0 2px;
     padding: 2px 8px;
-    border-radius: var(--radius-xs);
-    font-size: 13px;
+    border-radius: var(--r-control);
+    font-size: var(--fs-ui);
     font-weight: 500;
     overflow-wrap: anywhere;
   }
@@ -1210,7 +1210,7 @@ function verbAndObject(summary: ToolSummary): { verb: string; object: string } {
   }
   .worker {
     margin: 0;
-    font-size: 13px;
+    font-size: var(--fs-ui);
     color: var(--text-2);
   }
   .object {
@@ -1228,14 +1228,14 @@ function verbAndObject(summary: ToolSummary): { verb: string; object: string } {
     scroll-margin: 4px;
   }
   .note {
-    font-size: 13px;
+    font-size: var(--fs-ui);
     overflow-wrap: anywhere;
   }
   .code,
   .diff,
   dl {
     padding: 6px 10px;
-    border-radius: 10px;
+    border-radius: var(--r-sm);
     background: var(--s1);
   }
   /* Label and value side by side: the buttons stay in sight in a short column. */
@@ -1280,7 +1280,7 @@ function verbAndObject(summary: ToolSummary): { verb: string; object: string } {
   }
   dt {
     color: var(--text-2);
-    font-size: 13px;
+    font-size: var(--fs-ui);
   }
   dd {
     margin: 0;
@@ -1291,14 +1291,14 @@ function verbAndObject(summary: ToolSummary): { verb: string; object: string } {
     overflow: auto;
     white-space: pre-wrap;
     overflow-wrap: anywhere;
-    font-size: 13px;
+    font-size: var(--fs-ui);
   }
   /* Muted: every Linux card has gaps, and the warning colour on every card
      would teach people to skip the real warnings. */
   .extra {
     margin: 8px 0 0;
     color: var(--text-2);
-    font-size: 13px;
+    font-size: var(--fs-ui);
   }
   .extra summary {
     display: inline-flex;
@@ -1348,7 +1348,7 @@ function verbAndObject(summary: ToolSummary): { verb: string; object: string } {
   }
   .after .quiet {
     margin-left: -6px;
-    font-size: 13px;
+    font-size: var(--fs-ui);
   }
   .always code {
     font: 12px / 1.3 var(--mono);
@@ -1358,12 +1358,12 @@ function verbAndObject(summary: ToolSummary): { verb: string; object: string } {
   }
   .always-note {
     color: var(--text-2);
-    font-size: 13px;
+    font-size: var(--fs-ui);
   }
   .wait {
     flex: 1 1 12em;
     color: var(--warn);
-    font-size: 13px;
+    font-size: var(--fs-ui);
     /* Scrolled to whole: fractional heights would leave a sliver clipped. */
     scroll-margin: 4px;
   }
@@ -1377,7 +1377,7 @@ function verbAndObject(summary: ToolSummary): { verb: string; object: string } {
     color: var(--text);
     background: var(--s3);
     border: 0;
-    border-radius: var(--radius);
+    border-radius: var(--r-control);
     cursor: pointer;
   }
   button:hover {
@@ -1438,14 +1438,14 @@ function verbAndObject(summary: ToolSummary): { verb: string; object: string } {
   .toggle,
   .more {
     padding: 1px 8px;
-    font-size: 13px;
+    font-size: var(--fs-ui);
   }
   .more {
     margin-top: 6px;
   }
   .more-line {
     margin-left: -6px;
-    font-size: 13px;
+    font-size: var(--fs-ui);
   }
   button[aria-disabled="true"] {
     opacity: 0.55;
@@ -1471,7 +1471,7 @@ function verbAndObject(summary: ToolSummary): { verb: string; object: string } {
   }
   label {
     color: var(--text-2);
-    font-size: 13px;
+    font-size: var(--fs-ui);
   }
   textarea {
     font: inherit;

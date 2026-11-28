@@ -81,7 +81,7 @@ const line = $derived(
   }
   h4 {
     margin: 0;
-    font-size: 13px;
+    font-size: var(--fs-ui);
     font-weight: 600;
   }
   ul {
@@ -121,14 +121,14 @@ const line = $derived(
   }
   button {
     flex: none;
-    height: 28px;
+    height: var(--ctl);
     padding: 0 10px;
     font: inherit;
-    font-size: 13px;
+    font-size: var(--fs-ui);
     color: var(--text);
     background: var(--s3);
     border: none;
-    border-radius: var(--radius-sm);
+    border-radius: var(--r-control);
     cursor: pointer;
   }
   button:disabled {

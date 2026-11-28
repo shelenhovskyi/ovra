@@ -2014,7 +2014,7 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
-    font-size: 13px;
+    font-size: var(--fs-ui);
     color: var(--text-2);
     white-space: nowrap;
   }
@@ -2060,7 +2060,7 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
   }
   .line,
   .status {
-    font-size: 13px;
+    font-size: var(--fs-ui);
     color: var(--text-2);
     overflow-wrap: anywhere;
   }
@@ -2069,7 +2069,7 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
   }
   .error {
     margin: 0 16px 8px;
-    font-size: 13px;
+    font-size: var(--fs-ui);
     color: var(--danger);
   }
   .compose .error {
@@ -2092,7 +2092,7 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
     color: var(--text);
     background: none;
     border: none;
-    border-radius: var(--radius-sm);
+    border-radius: var(--r-control);
     cursor: pointer;
   }
   button:disabled {
@@ -2109,9 +2109,9 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    height: 28px;
+    height: var(--ctl);
     padding: 0 8px;
-    font-size: 13px;
+    font-size: var(--fs-ui);
     color: var(--text-2);
   }
   .quiet:hover:not(:disabled) {
@@ -2119,7 +2119,7 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
     background: var(--s3);
   }
   .primary {
-    height: 32px;
+    height: var(--ctl-lg);
     padding: 0 14px;
     font-weight: 500;
     color: var(--accent-ink);
@@ -2136,9 +2136,9 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
     color: var(--warn);
   }
   .tabs button {
-    height: 24px;
+    height: var(--ctl-sm);
     padding: 0 8px;
-    font-size: 13px;
+    font-size: var(--fs-ui);
   }
   /* The conversation keeps the detail's own layout. */
   .talk {
@@ -2171,7 +2171,7 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
     position: relative;
     display: flex;
     align-items: flex-start;
-    border-radius: 10px;
+    border-radius: var(--r-md);
   }
   .sessions li:hover {
     background: var(--s2);
@@ -2196,7 +2196,7 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
     column-gap: 10px;
     padding: 10px;
     text-align: left;
-    border-radius: 10px;
+    border-radius: var(--r-md);
   }
   .state-mark {
     width: 9px;
@@ -2256,7 +2256,7 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
     white-space: nowrap;
   }
   .state {
-    font-size: 13px;
+    font-size: var(--fs-ui);
     color: var(--text-2);
     overflow: hidden;
     text-overflow: ellipsis;
@@ -2274,7 +2274,7 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
     height: 22px;
     padding: 0 8px;
     border-radius: var(--radius-sm);
-    font-size: 12px;
+    font-size: var(--fs-ui-sm);
     font-weight: 500;
     white-space: nowrap;
   }
@@ -2292,7 +2292,7 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
   .no-sandbox {
     flex: none;
     padding: 0 16px 6px;
-    font-size: 13px;
+    font-size: var(--fs-ui);
   }
   /* A security fact: full-strength text with a shield, apart from the
      yellow of "Needs approval". */
@@ -2304,7 +2304,7 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
     font-weight: 500;
   }
   .taken {
-    font-size: 12px;
+    font-size: var(--fs-ui-sm);
     color: var(--text-3);
     font-variant-numeric: tabular-nums;
     overflow: hidden;
@@ -2316,7 +2316,7 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
     align-items: center;
     gap: 8px;
     margin-top: 2px;
-    font-size: 13px;
+    font-size: var(--fs-ui);
     color: var(--text-2);
   }
   .meter {
@@ -2360,7 +2360,7 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
     display: flex;
     flex-direction: column;
     gap: 6px;
-    font-size: 13px;
+    font-size: var(--fs-ui);
     background: var(--s2);
     border-radius: var(--radius);
   }
@@ -2380,7 +2380,7 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
     display: flex;
     align-items: center;
     gap: 8px;
-    font-size: 13px;
+    font-size: var(--fs-ui);
     color: var(--text-2);
   }
   .cut-off p {
@@ -2393,7 +2393,7 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
     display: flex;
     align-items: center;
     gap: 8px;
-    font-size: 13px;
+    font-size: var(--fs-ui);
     color: var(--text-2);
   }
   .went-back p {
@@ -2481,12 +2481,12 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
   }
   .more summary {
     width: fit-content;
-    font-size: 13px;
+    font-size: var(--fs-ui);
     color: var(--text-2);
     cursor: pointer;
   }
   .more p {
-    font-size: 13px;
+    font-size: var(--fs-ui);
     color: var(--text-2);
   }
   .card {
@@ -2524,7 +2524,7 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
   code {
     min-width: 0;
     padding: 4px 8px;
-    font-size: 13px;
+    font-size: var(--fs-ui);
     background: var(--s3);
     border-radius: var(--radius-sm);
     user-select: all;
@@ -2532,7 +2532,7 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
   }
   .outcome h4 {
     margin: 0;
-    font-size: 13px;
+    font-size: var(--fs-ui);
     font-weight: 600;
   }
   .outcome ul {
@@ -2563,12 +2563,12 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
   .compose {
     flex: none;
     margin: 8px;
-    padding: 10px;
+    padding: 12px;
     display: flex;
     flex-direction: column;
     gap: 8px;
     background: var(--s2);
-    border-radius: 12px;
+    border-radius: var(--r-lg);
   }
   /* The field looks like one (an input's --s3), so it is clear where to type;
      the label, the field, the controls and the hint share the box's left edge. */
@@ -2605,6 +2605,16 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
     flex-wrap: wrap;
     justify-content: flex-start;
     gap: 6px;
+  }
+  /* The reply box's hint shares the row with its buttons, in one line. */
+  .compose .row > .line {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    font-size: var(--fs-ui-sm);
+    color: var(--text-2);
+    white-space: nowrap;
+    text-overflow: ellipsis;
   }
   /* The start box's controls are boxes of one height, like the account picker. */
   .compose.new .row .quiet {
@@ -2668,7 +2678,7 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
     box-shadow: inset 3px 0 0 var(--accent);
   }
   .menu .what {
-    font-size: 13px;
+    font-size: var(--fs-ui);
     opacity: 0.85;
   }
   /* Its text starts where the start box's content does (8 px margin + 10 px padding). */
@@ -2677,9 +2687,9 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
     margin: -4px 8px 6px;
   }
   .foot .quiet {
-    height: 24px;
+    height: var(--ctl-sm);
     padding: 0 10px;
-    font-size: 12px;
+    font-size: var(--fs-ui-sm);
   }
   .foot .warn {
     color: var(--warn);
@@ -2689,7 +2699,7 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
     align-items: center;
     justify-content: space-between;
     gap: 8px;
-    font-size: 13px;
+    font-size: var(--fs-ui);
     color: var(--warn);
   }
   /* Its action keeps to one line; the reason wraps beside it. */
@@ -2718,10 +2728,10 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
     gap: 4px;
     max-width: 100%;
     padding: 0 0 0 8px;
-    font-size: 13px;
+    font-size: var(--fs-ui);
     color: var(--ok);
     background: var(--ok-soft);
-    border-radius: 10px;
+    border-radius: var(--r-control);
   }
   .chip span {
     overflow: hidden;
@@ -2762,20 +2772,20 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
     display: flex;
     align-items: center;
     gap: var(--sp-1);
-    font-size: 13px;
+    font-size: var(--fs-ui);
     color: var(--text-2);
     white-space: nowrap;
   }
   .agent-picker select {
     max-width: 100%;
-    height: 32px;
+    height: var(--ctl-lg);
     padding: 0 8px;
     font: inherit;
-    font-size: 13px;
+    font-size: var(--fs-ui);
     color: var(--text-2);
     background: var(--s3);
     border: none;
-    border-radius: var(--radius-sm);
+    border-radius: var(--r-control);
   }
   @media (forced-colors: active) {
     .agent-picker select {

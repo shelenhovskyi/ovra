@@ -35,14 +35,14 @@ let {
   /* A component of its own: the agents panel's button styles do not reach it. */
   .primary {
     flex: none;
-    height: 32px;
+    height: var(--ctl-lg);
     padding: 0 14px;
     font: inherit;
     font-weight: 500;
     color: var(--accent-ink);
     background: var(--accent);
     border: 1px solid transparent;
-    border-radius: var(--radius-sm);
+    border-radius: var(--r-control);
   }
   .primary:disabled {
     color: var(--text-2);

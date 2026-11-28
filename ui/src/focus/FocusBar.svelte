@@ -57,7 +57,7 @@ const { workspace } = useOvra();
     color: var(--text);
     background: var(--s3);
     border: 1px solid transparent;
-    border-radius: var(--radius-sm);
+    border-radius: var(--r-control);
     white-space: nowrap;
   }
   button:hover {

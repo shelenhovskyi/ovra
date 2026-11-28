@@ -73,14 +73,14 @@ const time = $derived(now - since >= 1000 ? elapsed(now - since) : "");
 <style>
   .who {
     display: block;
-    font-size: 13px;
+    font-size: var(--fs-ui);
     color: var(--text-2);
   }
   .live {
     display: flex;
     align-items: center;
     gap: 8px;
-    font-size: 13px;
+    font-size: var(--fs-ui);
     color: var(--text-2);
     min-width: 0;
   }
@@ -90,7 +90,7 @@ const time = $derived(now - since >= 1000 ? elapsed(now - since) : "");
     white-space: nowrap;
   }
   .stuck {
-    font-size: 13px;
+    font-size: var(--fs-ui);
     color: var(--text-2);
     border-left: 2px solid var(--warn);
     padding-left: 8px;

@@ -96,13 +96,13 @@ function onkeydown(event: KeyboardEvent): void {
   }
   h3 {
     margin: 0;
-    font-size: 13px;
+    font-size: var(--fs-ui);
     font-weight: 600;
     color: var(--text-2);
   }
   .note {
     margin: 2px 0 4px;
-    font-size: 13px;
+    font-size: var(--fs-ui);
     color: var(--text-2);
   }
   ul {
@@ -114,7 +114,7 @@ function onkeydown(event: KeyboardEvent): void {
     display: flex;
     align-items: center;
     gap: 8px;
-    min-height: 28px;
+    min-height: var(--row);
   }
   .name {
     flex: 1;
@@ -123,10 +123,10 @@ function onkeydown(event: KeyboardEvent): void {
     text-overflow: ellipsis;
     white-space: nowrap;
     font-family: var(--mono);
-    font-size: 13px;
+    font-size: var(--fs-ui);
   }
   .size {
-    font-size: 13px;
+    font-size: var(--fs-ui);
     color: var(--text-2);
     font-variant-numeric: tabular-nums;
     white-space: nowrap;
@@ -139,7 +139,7 @@ function onkeydown(event: KeyboardEvent): void {
   }
   .confirm p {
     margin: 0 0 6px;
-    font-size: 13px;
+    font-size: var(--fs-ui);
   }
   .buttons {
     display: flex;
@@ -150,11 +150,11 @@ function onkeydown(event: KeyboardEvent): void {
     height: var(--control-h-sm);
     padding: 0 8px;
     font: inherit;
-    font-size: 13px;
+    font-size: var(--fs-ui);
     color: var(--text-2);
     background: transparent;
     border: 1px solid transparent;
-    border-radius: var(--radius-sm);
+    border-radius: var(--r-control);
   }
   .quiet:hover:not(:disabled) {
     color: var(--text);
@@ -163,16 +163,16 @@ function onkeydown(event: KeyboardEvent): void {
   .danger {
     height: var(--control-h-sm);
     padding: 0 10px;
-    font-size: 13px;
+    font-size: var(--fs-ui);
     font-weight: 500;
     color: var(--danger);
     background: var(--danger-soft);
     border: 1px solid transparent;
-    border-radius: var(--radius-sm);
+    border-radius: var(--r-control);
   }
   .error {
     margin: 4px 0 0;
-    font-size: 13px;
+    font-size: var(--fs-ui);
     color: var(--danger);
   }
 </style>

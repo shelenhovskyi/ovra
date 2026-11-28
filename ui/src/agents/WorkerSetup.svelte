@@ -81,13 +81,13 @@ async function retry(skip: boolean): Promise<void> {
   }
   .why {
     margin: 0;
-    font-size: 13px;
+    font-size: var(--fs-ui);
     color: var(--danger);
     overflow-wrap: anywhere;
   }
   .note {
     margin: 0;
-    font-size: 13px;
+    font-size: var(--fs-ui);
     color: var(--text-2);
     overflow-wrap: anywhere;
   }
@@ -109,11 +109,11 @@ async function retry(skip: boolean): Promise<void> {
     height: var(--control-h-sm);
     padding: 0 8px;
     font: inherit;
-    font-size: 13px;
+    font-size: var(--fs-ui);
     color: var(--text-2);
     background: transparent;
     border: 1px solid transparent;
-    border-radius: var(--radius-sm);
+    border-radius: var(--r-control);
   }
   .quiet:hover:not(:disabled) {
     color: var(--text);
@@ -136,14 +136,14 @@ async function retry(skip: boolean): Promise<void> {
     border-radius: var(--radius-sm);
     background: var(--s3);
     font-family: var(--mono);
-    font-size: 12px;
+    font-size: var(--fs-ui-sm);
     color: var(--text-2);
     white-space: pre-wrap;
     overflow-wrap: anywhere;
   }
   .error {
     margin: 0;
-    font-size: 13px;
+    font-size: var(--fs-ui);
     color: var(--danger);
   }
 </style>

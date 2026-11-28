@@ -254,7 +254,7 @@ function choose(row: Row): void {
   .slash-menu .detail {
     min-width: 0;
     overflow: hidden;
-    font-size: 12px;
+    font-size: var(--fs-ui-sm);
     white-space: nowrap;
     text-overflow: ellipsis;
     opacity: 0.7;

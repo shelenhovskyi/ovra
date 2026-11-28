@@ -451,8 +451,8 @@ const lastError = $derived.by(() => {
     flex: none;
     align-self: flex-end;
     margin: 2px 12px 4px;
-    width: 28px;
-    height: 28px;
+    width: var(--ctl);
+    height: var(--ctl);
     padding: 0;
     display: grid;
     place-items: center;
@@ -480,7 +480,7 @@ const lastError = $derived.by(() => {
     display: flex;
     align-items: center;
     gap: 8px;
-    font-size: 12px;
+    font-size: var(--fs-ui-sm);
     color: var(--text-2);
   }
   .divider::before,
@@ -492,14 +492,14 @@ const lastError = $derived.by(() => {
   }
   .back {
     margin-top: 4px;
-    height: 24px;
+    height: var(--ctl-sm);
     padding: 0 8px;
     font: inherit;
-    font-size: 13px;
+    font-size: var(--fs-ui);
     color: var(--text-2);
     background: transparent;
     border: none;
-    border-radius: var(--radius-sm);
+    border-radius: var(--r-control);
     opacity: 0;
   }
   .user_text:hover .back,
@@ -516,7 +516,7 @@ const lastError = $derived.by(() => {
     cursor: default;
   }
   .why {
-    font-size: 13px;
+    font-size: var(--fs-ui);
     color: var(--text-2);
   }
   .confirm {
@@ -525,7 +525,7 @@ const lastError = $derived.by(() => {
     display: flex;
     flex-direction: column;
     gap: 6px;
-    font-size: 13px;
+    font-size: var(--fs-ui);
     background: var(--s2);
     border-radius: var(--radius);
   }
@@ -535,14 +535,14 @@ const lastError = $derived.by(() => {
     gap: 4px;
   }
   .quiet {
-    height: 28px;
+    height: var(--ctl);
     padding: 0 8px;
     font: inherit;
-    font-size: 13px;
+    font-size: var(--fs-ui);
     color: var(--text-2);
     background: transparent;
     border: none;
-    border-radius: var(--radius-sm);
+    border-radius: var(--r-control);
   }
   .strong {
     color: var(--text);
@@ -563,7 +563,7 @@ const lastError = $derived.by(() => {
     text-overflow: ellipsis;
     white-space: nowrap;
     font-family: var(--mono);
-    font-size: 12px;
+    font-size: var(--fs-ui-sm);
   }
   /* Right to left, so the ellipsis eats the folders, not the file's name. */
   .object.path {
@@ -580,14 +580,14 @@ const lastError = $derived.by(() => {
   }
   .retry {
     margin-top: 8px;
-    height: 28px;
+    height: var(--ctl);
     padding: 0 12px;
     font: inherit;
-    font-size: 13px;
+    font-size: var(--fs-ui);
     color: var(--text);
     background: var(--s3);
     border: none;
-    border-radius: var(--radius-sm);
+    border-radius: var(--r-control);
   }
   .transcript {
     margin: 0;
@@ -624,7 +624,7 @@ const lastError = $derived.by(() => {
   }
   .who {
     display: block;
-    font-size: 13px;
+    font-size: var(--fs-ui);
     color: var(--text-2);
   }
   p,
@@ -644,7 +644,7 @@ const lastError = $derived.by(() => {
   .notes,
   .interrupted,
   .turn_end {
-    font-size: 13px;
+    font-size: var(--fs-ui);
     color: var(--text-2);
   }
   .step > summary,
@@ -652,10 +652,10 @@ const lastError = $derived.by(() => {
     display: flex;
     align-items: center;
     gap: 8px;
-    min-height: 24px;
+    min-height: var(--ctl-sm);
     min-width: 0;
     list-style: none;
-    border-radius: var(--radius-sm);
+    border-radius: var(--r-control);
   }
   .step > summary::-webkit-details-marker,
   .group > summary::-webkit-details-marker {
@@ -721,7 +721,7 @@ const lastError = $derived.by(() => {
   pre {
     max-height: 200px;
     overflow: auto;
-    font-size: 13px;
+    font-size: var(--fs-ui);
     background: var(--s2);
     padding: 6px 8px;
     border-radius: var(--radius-sm);

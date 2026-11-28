@@ -119,7 +119,7 @@ const next = $derived(steps.findIndex((s) => !s.done));
   }
   h3 {
     margin: 0;
-    font-size: 13px;
+    font-size: var(--fs-ui);
     font-weight: 600;
   }
   .count {
@@ -128,14 +128,14 @@ const next = $derived(steps.findIndex((s) => !s.done));
     color: var(--text-2);
   }
   .hide {
-    height: 24px;
+    height: var(--ctl-sm);
     padding: 0 8px;
     font: inherit;
-    font-size: 13px;
+    font-size: var(--fs-ui);
     color: var(--text-2);
     background: none;
     border: none;
-    border-radius: var(--radius-sm);
+    border-radius: var(--r-control);
   }
   .hide:hover {
     color: var(--text);
@@ -184,14 +184,14 @@ const next = $derived(steps.findIndex((s) => !s.done));
   .act {
     flex: none;
     align-self: center;
-    height: 24px;
+    height: var(--ctl-sm);
     padding: 0 10px;
     font: var(--t-small);
     font-weight: 500;
     color: var(--accent-ink);
     background: var(--accent);
     border: none;
-    border-radius: var(--radius-sm);
+    border-radius: var(--r-control);
   }
   .act:hover {
     filter: brightness(1.08);

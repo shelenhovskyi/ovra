@@ -162,7 +162,7 @@ function onclick(event: MouseEvent): void {
     display: block;
     overflow-x: auto;
     border-collapse: collapse;
-    font-size: 13px;
+    font-size: var(--fs-ui);
   }
   .md :global(th),
   .md :global(td) {
