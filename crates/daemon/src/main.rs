@@ -7,6 +7,8 @@ use std::net::{Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
 use std::sync::Arc;
 
+#[cfg(target_os = "linux")]
+mod attach;
 #[cfg(feature = "fake-agent")]
 mod fake_ssh;
 
@@ -54,6 +56,19 @@ struct Args {
     /// agents without a working sandbox.
     #[arg(long)]
     stdio: bool,
+    /// Runs the core of a remote machine in the background, serving one
+    /// client at a time on `<data>/run/core.sock` (ADR 0016). Linux only;
+    /// `--attach` starts it.
+    #[arg(long, conflicts_with_all = ["stdio", "attach"])]
+    core: bool,
+    /// What `ssh` runs on a remote machine: relays stdin and stdout to the
+    /// machine's `--core`, starting it when none runs. Linux only.
+    #[arg(long, conflicts_with = "stdio")]
+    attach: bool,
+    /// With `--attach`: asks the running core to quit first, so this build
+    /// starts. Its agents stop.
+    #[arg(long, requires = "attach")]
+    restart: bool,
     /// Runs a scripted fake agent instead of the user's `claude` (tests and UX reviews).
     #[cfg(feature = "fake-agent")]
     #[arg(long)]
@@ -98,13 +113,21 @@ impl Args {
     /// core checks agents' absolute file paths against them (board claims,
     /// policies), which a relative folder would never match.
     fn absolute(mut self) -> anyhow::Result<Self> {
-        let dir = match (self.data_dir_flag.take(), self.stdio) {
+        let dir = match (self.data_dir_flag.take(), self.remote()) {
             (Some(dir), _) => dir,
             (None, false) => PathBuf::from(".ovra-data"),
             (None, true) => remote_data_dir().context("finding the data directory")?,
         };
         self.data_dir = std::path::absolute(dir).context("resolving --data-dir")?;
         Ok(self)
+    }
+}
+
+impl Args {
+    /// Whether this is a remote machine's side (ADR 0016): no port, no UI,
+    /// no phone access, opener or keeping awake, and the required sandbox.
+    fn remote(&self) -> bool {
+        self.stdio || self.core || self.attach
     }
 }
 
@@ -124,7 +147,7 @@ fn remote_data_dir() -> Option<PathBuf> {
 /// in. With `--stdio` it refuses to run anything when the machine has no
 /// working sandbox, instead of running it unsandboxed.
 fn services_sandbox(args: &Args) -> Arc<dyn Sandbox> {
-    services_sandbox_from(ovra_sandbox::for_this_os(&args.data_dir), args.stdio)
+    services_sandbox_from(ovra_sandbox::for_this_os(&args.data_dir), args.remote())
 }
 
 fn services_sandbox_from(sandbox: Arc<dyn Sandbox>, stdio: bool) -> Arc<dyn Sandbox> {
@@ -146,6 +169,12 @@ async fn serve() -> anyhow::Result<()> {
     let args = Args::parse().absolute()?;
     if args.stdio {
         return serve_stdio(&args).await;
+    }
+    if args.attach {
+        return attach(&args).await;
+    }
+    if args.core {
+        return serve_core(&args).await;
     }
 
     // Loopback only: headless mode must never be reachable from the network.
@@ -275,6 +304,60 @@ async fn serve_stdio(args: &Args) -> anyhow::Result<()> {
     Ok(())
 }
 
+#[cfg(target_os = "linux")]
+async fn attach(args: &Args) -> anyhow::Result<()> {
+    private_dir(&args.data_dir)?;
+    attach::attach(&args.data_dir, args.restart).await
+}
+
+#[cfg(not(target_os = "linux"))]
+async fn attach(_: &Args) -> anyhow::Result<()> {
+    anyhow::bail!("--attach runs on Linux only")
+}
+
+#[cfg(not(target_os = "linux"))]
+async fn serve_core(_: &Args) -> anyhow::Result<()> {
+    anyhow::bail!("--core runs on Linux only")
+}
+
+/// `--core`: the remote machine's core in the background, wired as
+/// `--stdio` is, serving one client at a time on its socket until asked
+/// to quit or alone with nothing running (ssh-remotes.md, section 6).
+#[cfg(target_os = "linux")]
+async fn serve_core(args: &Args) -> anyhow::Result<()> {
+    private_dir(&args.data_dir)?;
+    let data = attach::Private::open(&args.data_dir)?;
+    let Some(lock) = lock_data_dir(&args.data_dir, 1).await? else {
+        tracing::warn!("another core uses {}", args.data_dir.display());
+        std::process::exit(attach::EXIT_BUSY);
+    };
+    // Bound before any service starts: the umask it sets is the process's.
+    let listener = attach::bind(&data.child_run()?)?;
+    let no_sandbox = match ovra_sandbox::for_this_os(&args.data_dir).status() {
+        SandboxStatus::Available { .. } => None,
+        SandboxStatus::Unavailable { reason } => Some(reason),
+    };
+    if let Some(reason) = &no_sandbox {
+        tracing::warn!(%reason, "no sandbox: nothing runs for agents on this machine");
+    }
+    let (dev_servers, _servers_dir) = dev_servers(args)?;
+    let core = services(args, Core::builder("remote"), dev_servers)?.build();
+    let started_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX))
+        .ok();
+    let hello = ovra_transport::stdio::Hello {
+        version: env!("CARGO_PKG_VERSION").to_owned(),
+        protocol: ovra_transport::stdio::PROTOCOL,
+        os: std::env::consts::OS.to_owned(),
+        no_sandbox,
+        started_ms,
+    };
+    attach::serve_core(core, listener, hello).await;
+    std::mem::forget(lock);
+    Ok(())
+}
+
 /// Makes `dir` and keeps it to this user alone (0700). A symlink, or a
 /// folder this user cannot make private, is refused.
 fn private_dir(dir: &std::path::Path) -> anyhow::Result<()> {
@@ -283,6 +366,9 @@ fn private_dir(dir: &std::path::Path) -> anyhow::Result<()> {
     #[cfg(unix)]
     std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
     builder.create(dir).context("creating the data directory")?;
+    // Owner compared, mode set on the descriptor, no symlink followed.
+    #[cfg(target_os = "linux")]
+    attach::Private::open(dir)?;
     let meta = std::fs::symlink_metadata(dir).context("reading the data directory")?;
     anyhow::ensure!(meta.is_dir(), "{} is not a folder", dir.display());
     #[cfg(unix)]
@@ -1077,6 +1163,19 @@ mod tests {
             args.map(|a| a.data_dir).ok(),
             Some(std::path::PathBuf::from("/d"))
         );
+    }
+
+    #[test]
+    fn the_core_and_attach_are_wired_as_a_remote_machines_side() {
+        for flag in ["--core", "--attach"] {
+            let args = Args::parse_from(["ovra-daemon", flag]).absolute();
+            let args = args.unwrap_or_else(|e| panic!("{e}"));
+            assert!(args.remote(), "{flag}");
+            assert!(args.data_dir.ends_with("ovra"), "{flag}");
+        }
+        assert!(!Args::parse_from(["ovra-daemon"]).remote());
+        assert!(Args::try_parse_from(["ovra-daemon", "--core", "--stdio"]).is_err());
+        assert!(Args::try_parse_from(["ovra-daemon", "--restart"]).is_err());
     }
 
     #[test]

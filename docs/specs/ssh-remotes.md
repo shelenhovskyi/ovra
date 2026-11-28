@@ -393,7 +393,7 @@ machine and outlives any one connection.
   cut to its last 1 MiB when it starts and whenever it passes 2 MiB.
 - **`--attach`** is what `ssh` runs. It connects to the socket; `ENOENT` and
   `ECONNREFUSED` mean no core, and then it starts `--core` itself, detached
-  from the SSH session (its own session via `setsid`), and keeps retrying
+  from the SSH session (its own process group; with no terminal nothing hangs it up when the session ends), and keeps retrying
   the connect for up to 10 s. A second `--core` started meanwhile fails to
   take the lock and exits, so no start lock of its own is needed. While a
   `--stdio` holds the lock, `--attach` writes `{"busy":{}}`, as `--stdio`

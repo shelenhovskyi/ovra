@@ -3603,6 +3603,7 @@ dependencies = [
  "ovra-transport",
  "ovra-worktree",
  "rand 0.9.5",
+ "rustix",
  "serde",
  "serde_json",
  "tempfile",
