@@ -1562,12 +1562,13 @@ function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
     background: var(--s2);
   }
   /* Capsules are wider than the old buttons: tight gaps keep the bar on one row in a narrow panel. */
-  .bar {
+  /* Sized so the four controls fit one row in a 360px column. */
+  .buttons.bar {
     align-items: center;
-    gap: 4px;
+    gap: 2px;
   }
   .bar button {
-    padding-inline: 10px;
+    padding-inline: 8px;
   }
   /* Ask for changes and More stay together at the end, on a row of their own when narrow. */
   .bar .end {
@@ -1577,10 +1578,10 @@ function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
   }
   .bar .quiet {
     align-self: center;
-    padding-inline: 8px;
+    padding-inline: 6px;
   }
   .bar .icon {
-    padding-inline: 6px;
+    padding-inline: 4px;
   }
   .actions p {
     margin: 0;
