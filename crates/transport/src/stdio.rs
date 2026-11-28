@@ -25,6 +25,11 @@ pub const PING: &str = r#"{"ping":{}}"#;
 /// The only line a core writes, instead of [`Hello`], when another
 /// `--stdio` core still uses its data directory.
 pub const BUSY: &str = r#"{"busy":{}}"#;
+/// The line a client sends to end a `--core` (Stop Ovra on <name>); it gets
+/// no answer. Only the exact line counts.
+pub const QUIT: &str = r#"{"quit":{}}"#;
+/// The last line a `--core` writes to a client another one replaced.
+pub const REPLACED: &str = r#"{"replaced":{}}"#;
 /// The most requests that run at once; more wait unread.
 const IN_FLIGHT_MAX: usize = 64;
 /// Raised when the frames change in a way an older side cannot read.
@@ -40,6 +45,10 @@ pub struct Hello {
     /// Why there is no sandbox on this machine; `None` when there is one.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub no_sandbox: Option<String>,
+    /// When a `--core` started, in milliseconds since the Unix epoch; the
+    /// laptop tells from it that a core it left was ended meanwhile.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub started_ms: Option<u64>,
 }
 
 #[derive(Serialize)]
@@ -65,14 +74,60 @@ pub enum Ended {
     BadLine,
     /// Writing failed: the client is gone.
     Gone,
+    /// The client sent [`QUIT`].
+    Quit,
+    /// Another client took over; this one was told [`REPLACED`].
+    Replaced,
+}
+
+/// What a `--core` adds to serving one client ([`serve_client`]).
+#[derive(Debug, Default)]
+pub struct Attach {
+    /// Told once, when the client sends its first line: only then may it
+    /// replace the current client.
+    pub first_line: Option<tokio::sync::oneshot::Sender<()>>,
+    /// Ends the client with [`REPLACED`] when it fires or is dropped.
+    pub replaced: Option<tokio::sync::oneshot::Receiver<()>>,
+    /// Sends an `info.resync` right after the hello: events were lost
+    /// while no client was attached.
+    pub resync: bool,
 }
 
 /// Serves one client of `core` on `input` and `output` until it ends.
-pub async fn serve<R, W>(core: Core, input: R, mut output: W, hello: &Hello) -> Ended
+pub async fn serve<R, W>(core: Core, input: R, output: W, hello: &Hello) -> Ended
 where
     R: AsyncBufRead + Unpin,
     W: AsyncWrite + Unpin,
 {
+    serve_client(core, input, output, hello, Attach::default()).await
+}
+
+/// [`serve`] for one client of a `--core`, with what [`Attach`] adds.
+pub async fn serve_client<R, W>(
+    core: Core,
+    input: R,
+    mut output: W,
+    hello: &Hello,
+    attach: Attach,
+) -> Ended
+where
+    R: AsyncBufRead + Unpin,
+    W: AsyncWrite + Unpin,
+{
+    let Attach {
+        mut first_line,
+        replaced,
+        resync,
+    } = attach;
+    let replaced = async move {
+        match replaced {
+            Some(replaced) => {
+                let _ = replaced.await;
+            }
+            None => std::future::pending().await,
+        }
+    };
+    tokio::pin!(replaced);
     let mut events = core.subscribe();
     let client = core.connect();
     let hello = serde_json::to_string(&HelloFrame { hello }).unwrap_or_default();
@@ -80,6 +135,16 @@ where
         || write_line(&mut output, &event_frame(InfoEvent::Ready.into()))
             .await
             .is_err()
+    {
+        return Ended::Gone;
+    }
+    if resync
+        && write_line(
+            &mut output,
+            &event_frame(InfoEvent::Resync { skipped: 0 }.into()),
+        )
+        .await
+        .is_err()
     {
         return Ended::Gone;
     }
@@ -97,10 +162,19 @@ where
                 Line::Bad => return Ended::BadLine,
                 Line::Text(text) => {
                     deadline = Instant::now() + IDLE;
-                    if text.trim() != PING {
-                        running.push(async move { dispatch(client, &text).await });
+                    if let Some(first) = first_line.take() {
+                        let _ = first.send(());
+                    }
+                    match text.trim() {
+                        PING => {}
+                        QUIT => return Ended::Quit,
+                        _ => running.push(async move { dispatch(client, &text).await }),
                     }
                 }
+            },
+            () = &mut replaced => {
+                let _ = write_line(&mut output, REPLACED).await;
+                return Ended::Replaced;
             },
             Some(reply) = running.next(), if !running.is_empty() => {
                 if write_line(&mut output, &reply).await.is_err() {

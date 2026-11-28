@@ -11,6 +11,7 @@ fn hello() -> Hello {
         protocol: 1,
         os: "linux".into(),
         no_sandbox: None,
+        started_ms: None,
     }
 }
 
@@ -137,4 +138,91 @@ async fn the_laptop_reads_the_hello_back_and_lines_keep_their_limit() {
     let mut lines = Lines::with_limit(BufReader::new(&b"abcd\nabcdef\n"[..]), 4);
     assert_eq!(lines.next().await, Line::Text("abcd".into()));
     assert_eq!(lines.next().await, Line::Bad);
+}
+
+/// A served `--core` client and its ends, with what [`super::Attach`] adds.
+struct Attached {
+    task: tokio::task::JoinHandle<Ended>,
+    input: DuplexStream,
+    output: tokio::io::Lines<BufReader<DuplexStream>>,
+    first: tokio::sync::oneshot::Receiver<()>,
+    replace: tokio::sync::oneshot::Sender<()>,
+}
+
+fn start_attached(resync: bool) -> Attached {
+    let (client_in, server_in) = tokio::io::duplex(1 << 16);
+    let (server_out, client_out) = tokio::io::duplex(1 << 16);
+    let (first_tx, first_rx) = tokio::sync::oneshot::channel();
+    let (replace_tx, replace_rx) = tokio::sync::oneshot::channel();
+    let core = Core::builder("test").build();
+    let attach = super::Attach {
+        first_line: Some(first_tx),
+        replaced: Some(replace_rx),
+        resync,
+    };
+    let task = tokio::spawn(async move {
+        super::serve_client(
+            core,
+            BufReader::new(server_in),
+            server_out,
+            &hello(),
+            attach,
+        )
+        .await
+    });
+    Attached {
+        task,
+        input: client_in,
+        output: BufReader::new(client_out).lines(),
+        first: first_rx,
+        replace: replace_tx,
+    }
+}
+
+#[tokio::test]
+async fn an_attached_client_says_when_it_takes_over_and_hears_when_it_was_replaced() {
+    let Attached {
+        task,
+        mut input,
+        mut output,
+        mut first,
+        replace,
+    } = start_attached(true);
+    assert!(line(&mut output).await.starts_with(r#"{"hello":"#));
+    assert!(line(&mut output).await.contains("info.ready"));
+    assert!(line(&mut output).await.contains("info.resync"));
+    // Nothing is taken over before the client's first line.
+    assert!(first.try_recv().is_err());
+    input
+        .write_all(b"{\"ping\":{}}\n")
+        .await
+        .unwrap_or_default();
+    assert!(first.await.is_ok());
+    let _ = replace.send(());
+    assert_eq!(line(&mut output).await, super::REPLACED);
+    assert_eq!(task.await.ok(), Some(Ended::Replaced));
+}
+
+#[tokio::test]
+async fn only_the_exact_quit_line_ends_a_core() {
+    let Attached {
+        task,
+        mut input,
+        mut output,
+        first: _first,
+        replace: _replace,
+    } = start_attached(false);
+    assert!(line(&mut output).await.starts_with(r#"{"hello":"#));
+    assert!(line(&mut output).await.contains("info.ready"));
+    // Not a quit: a request frame that only mentions it gets an answer.
+    input
+        .write_all(b"{\"id\":1,\"method\":\"projects.list\",\"quit\":{}}\n")
+        .await
+        .unwrap_or_default();
+    assert!(line(&mut output).await.starts_with(r#"{"id":1,"#));
+    input
+        .write_all(b"{\"quit\":{}}\n")
+        .await
+        .unwrap_or_default();
+    assert_eq!(task.await.ok(), Some(Ended::Quit));
 }

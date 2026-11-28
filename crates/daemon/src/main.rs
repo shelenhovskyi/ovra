@@ -264,6 +264,7 @@ async fn serve_stdio(args: &Args) -> anyhow::Result<()> {
         protocol: ovra_transport::stdio::PROTOCOL,
         os: std::env::consts::OS.to_owned(),
         no_sandbox,
+        started_ms: None,
     };
     let input = tokio::io::BufReader::new(tokio::io::stdin());
     let ended = ovra_transport::stdio::serve(core, input, tokio::io::stdout(), &hello).await;
