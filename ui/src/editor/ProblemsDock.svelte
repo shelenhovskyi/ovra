@@ -182,14 +182,14 @@ const starts = $derived(files.map((_, i) => files.slice(0, i).reduce((n, f) => n
   .hide {
     display: grid;
     place-items: center;
-    width: 26px;
-    height: 26px;
+    width: var(--ctl-sm);
+    height: var(--ctl-sm);
     margin-left: auto;
     padding: 0;
     color: var(--text-2);
     background: none;
     border: 0;
-    border-radius: var(--r-sm);
+    border-radius: var(--r-control);
   }
   .hide:hover {
     color: var(--text);
@@ -208,7 +208,7 @@ const starts = $derived(files.map((_, i) => files.slice(0, i).reduce((n, f) => n
   .file {
     padding: 6px 8px 2px;
     font-family: var(--mono);
-    font-size: 13px;
+    font-size: var(--fs-ui);
     color: var(--text-2);
     overflow: hidden;
     text-overflow: ellipsis;
@@ -218,7 +218,7 @@ const starts = $derived(files.map((_, i) => files.slice(0, i).reduce((n, f) => n
     display: flex;
     align-items: center;
     gap: 8px;
-    min-height: 26px;
+    min-height: var(--row);
     padding: 0 8px 0 16px;
     border-radius: var(--r-sm);
     cursor: default;
@@ -251,13 +251,13 @@ const starts = $derived(files.map((_, i) => files.slice(0, i).reduce((n, f) => n
   .ask {
     display: grid;
     place-items: center;
-    width: 24px;
-    height: 24px;
+    width: var(--ctl-sm);
+    height: var(--ctl-sm);
     padding: 0;
     color: var(--text-2);
     background: none;
     border: 0;
-    border-radius: var(--r-sm);
+    border-radius: var(--r-control);
     visibility: hidden;
   }
   .row:hover .ask,

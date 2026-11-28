@@ -29,7 +29,7 @@ function showProblems(): void {
     font-variant-numeric: tabular-nums;
     background: none;
     border: 0;
-    border-radius: var(--r-sm);
+    border-radius: var(--r-control);
     cursor: default;
   }
   button:hover {

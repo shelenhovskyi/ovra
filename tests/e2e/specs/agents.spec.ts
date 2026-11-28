@@ -242,9 +242,9 @@ test("at 1024x700 the request's answers are in sight and not covered", async ({ 
   // The command once, in mono; nothing repeats it.
   await expect(run).toContainText("List files");
   await expect(run).not.toContainText(/\bcommand\b|\bdescription\b/);
-  // The group head is one line (once the project list is in: until then it warns it cannot check paths).
+  // The group head is one line, its 28 px chip included (once the project list is in: until then it warns it cannot check paths).
   await expect(approvals.getByTestId("approval-unknown-project")).toHaveCount(0);
-  expect((await approvals.locator(".who").boundingBox())?.height).toBeLessThan(28);
+  expect((await approvals.locator(".who").boundingBox())?.height).toBeLessThan(36);
   for (const name of ["Deny", "Allow once", "Deny with a message…"]) {
     const button = run.getByRole("button", { name, exact: name === "Deny" });
     await expect(button).toBeInViewport({ ratio: 1 });

@@ -121,7 +121,7 @@ const count = $derived.by(() => {
     color: var(--text);
     background: var(--s3);
     border: 1px solid transparent;
-    border-radius: var(--radius-sm);
+    border-radius: var(--r-control);
   }
   input:focus-visible {
     outline: 2px solid var(--accent);
@@ -131,7 +131,7 @@ const count = $derived.by(() => {
     min-width: 0;
     padding: 0 6px;
     white-space: nowrap;
-    font-size: 12px;
+    font-size: var(--fs-ui-sm);
   }
   .count:empty {
     padding: 0;
@@ -139,13 +139,13 @@ const count = $derived.by(() => {
   button {
     display: grid;
     place-items: center;
-    width: 24px;
-    height: 24px;
+    width: var(--ctl-sm);
+    height: var(--ctl-sm);
     padding: 0;
     color: inherit;
     background: none;
     border: none;
-    border-radius: var(--radius-sm);
+    border-radius: var(--r-control);
     cursor: pointer;
   }
   button:hover {

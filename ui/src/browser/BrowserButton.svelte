@@ -60,13 +60,13 @@ function toggle(): void {
     color: var(--text-2);
     background: transparent;
     border: 0;
-    border-radius: 3px;
+    border-radius: var(--r-control);
     cursor: pointer;
   }
   .badge {
     margin-left: 4px;
     padding: 0 5px;
-    font-size: 12px;
+    font-size: var(--fs-ui-sm);
     font-weight: 600;
     color: var(--warn);
     background: var(--warn-soft);

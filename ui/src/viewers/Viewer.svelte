@@ -260,7 +260,7 @@ async function openExternal() {
     align-items: center;
     gap: 8px;
     padding: 4px 12px 4px 16px;
-    font-size: 13px;
+    font-size: var(--fs-ui);
   }
   .path {
     flex: 1;
@@ -273,7 +273,7 @@ async function openExternal() {
   .notice {
     margin: 0;
     padding: 0 16px 4px;
-    font-size: 13px;
+    font-size: var(--fs-ui);
     color: var(--text-2);
   }
   .notice:empty {
@@ -286,7 +286,7 @@ async function openExternal() {
     color: var(--text-2);
     background: none;
     border: 1px solid transparent;
-    border-radius: var(--radius-sm);
+    border-radius: var(--r-control);
     cursor: pointer;
     white-space: nowrap;
   }

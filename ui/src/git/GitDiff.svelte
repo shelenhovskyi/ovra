@@ -371,7 +371,7 @@ const range = (hunk: Hunk) =>
   }
   .side {
     flex: none;
-    font-size: 13px;
+    font-size: var(--fs-ui);
     font-weight: 400;
     color: var(--text-2);
   }
@@ -379,11 +379,11 @@ const range = (hunk: Hunk) =>
     min-height: var(--control-h-sm);
     padding: 2px 10px;
     font: inherit;
-    font-size: 13px;
+    font-size: var(--fs-ui);
     color: var(--text-2);
     background: transparent;
     border: 1px solid transparent;
-    border-radius: var(--radius-sm);
+    border-radius: var(--r-control);
     cursor: default;
   }
   /* Stage hunk on demand: on the pointed-at hunk, or while it has focus. */
@@ -416,7 +416,7 @@ const range = (hunk: Hunk) =>
   .hint,
   .error {
     margin: 8px 16px;
-    font-size: 13px;
+    font-size: var(--fs-ui);
     color: var(--text-2);
   }
   .error {
@@ -444,7 +444,7 @@ const range = (hunk: Hunk) =>
     min-width: 0;
     margin: 0;
     overflow: hidden;
-    font-size: 13px;
+    font-size: var(--fs-ui);
     font-weight: 500;
     white-space: nowrap;
     color: var(--text-2);
@@ -457,7 +457,7 @@ const range = (hunk: Hunk) =>
   }
   .lines {
     font-family: var(--mono);
-    font-size: 13px;
+    font-size: var(--fs-ui);
     line-height: 1.6;
   }
   .line {

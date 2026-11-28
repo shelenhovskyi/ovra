@@ -421,7 +421,7 @@ function onListKeydown(event: KeyboardEvent): void {
     color: var(--text);
     background: var(--s3);
     border: 0;
-    border-radius: var(--r-md);
+    border-radius: var(--r-control);
   }
   .teach-button,
   .where button {
@@ -430,7 +430,7 @@ function onListKeydown(event: KeyboardEvent): void {
     color: var(--text);
     background: var(--s3);
     border: 0;
-    border-radius: var(--r-md);
+    border-radius: var(--r-control);
     cursor: default;
   }
   .teach-button:hover,

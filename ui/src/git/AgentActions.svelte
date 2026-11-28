@@ -143,7 +143,7 @@ function onfocusout(event: FocusEvent): void {
     color: var(--text-2);
     background: transparent;
     border: 1px solid transparent;
-    border-radius: var(--radius-sm);
+    border-radius: var(--r-control);
     cursor: default;
   }
   button:hover {
@@ -158,14 +158,14 @@ function onfocusout(event: FocusEvent): void {
     display: inline-flex;
     align-items: center;
     gap: 4px;
-    height: 28px;
+    height: var(--ctl);
     padding: 0 6px;
-    font-size: 12px;
+    font-size: var(--fs-ui-sm);
     white-space: nowrap;
   }
   .note {
     margin: 4px 8px 2px;
-    font-size: 12px;
+    font-size: var(--fs-ui-sm);
     color: var(--text-2);
   }
   .toggle[aria-disabled="true"] {
@@ -186,9 +186,9 @@ function onfocusout(event: FocusEvent): void {
     box-shadow: var(--card-shadow, none);
   }
   .menu button {
-    min-height: 26px;
+    min-height: var(--ctl-sm);
     padding: 0 8px;
-    font-size: 13px;
+    font-size: var(--fs-ui);
     text-align: left;
     color: var(--text);
     white-space: normal;

@@ -148,15 +148,15 @@ function shown(keys: string): string {
     display: flex;
     align-items: center;
     width: 100%;
-    min-height: 26px;
+    min-height: var(--ctl-sm);
     padding: 0 10px;
-    font: 13px / 18px var(--font);
+    font: var(--t-small);
     color: var(--text);
     text-align: left;
     white-space: nowrap;
     background: transparent;
     border: 0;
-    border-radius: var(--radius-sm);
+    border-radius: var(--r-control);
     cursor: default;
   }
   button:focus {

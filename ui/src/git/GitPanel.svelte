@@ -418,7 +418,7 @@ async function dismissGot(): Promise<void> {
     flex-direction: column;
     gap: 8px;
     padding: 10px 12px;
-    font-size: 13px;
+    font-size: var(--fs-ui);
     background: var(--accent-soft);
     border-radius: var(--radius);
   }
@@ -460,20 +460,20 @@ async function dismissGot(): Promise<void> {
     overflow-wrap: anywhere;
   }
   .hint {
-    font-size: 13px;
+    font-size: var(--fs-ui);
     color: var(--text-2);
   }
   .error {
-    font-size: 13px;
+    font-size: var(--fs-ui);
     color: var(--danger);
   }
   .ok {
-    font-size: 13px;
+    font-size: var(--fs-ui);
     color: var(--ok);
   }
   .operation {
     padding: 8px 10px;
-    font-size: 13px;
+    font-size: var(--fs-ui);
     background: var(--warn-soft);
     border-radius: var(--radius);
   }
@@ -481,11 +481,11 @@ async function dismissGot(): Promise<void> {
     align-self: flex-start;
     padding: 2px 10px;
     font: inherit;
-    font-size: 13px;
+    font-size: var(--fs-ui);
     color: var(--text-2);
     background: transparent;
     border: 1px solid transparent;
-    border-radius: var(--radius-sm);
+    border-radius: var(--r-control);
     cursor: pointer;
   }
   button:hover {
@@ -529,7 +529,7 @@ async function dismissGot(): Promise<void> {
     flex-direction: column;
     gap: 6px;
     padding: 8px 10px;
-    font-size: 13px;
+    font-size: var(--fs-ui);
     background: var(--accent-soft);
     border-radius: var(--radius);
   }
@@ -539,7 +539,7 @@ async function dismissGot(): Promise<void> {
     gap: 4px;
     align-items: center;
     padding: 6px 10px;
-    font-size: 13px;
+    font-size: var(--fs-ui);
     background: var(--s3);
     border-radius: var(--radius);
   }
@@ -552,7 +552,7 @@ async function dismissGot(): Promise<void> {
     align-items: center;
     gap: 4px;
     padding: 2px 4px;
-    font-size: 13px;
+    font-size: var(--fs-ui);
     font-weight: 600;
     color: var(--text-2);
     background: transparent;
@@ -576,7 +576,7 @@ async function dismissGot(): Promise<void> {
     white-space: nowrap;
   }
   .meta {
-    font-size: 13px;
+    font-size: var(--fs-ui);
     color: var(--text-2);
   }
   .visually-hidden {

@@ -329,7 +329,7 @@ const all = $derived(files.flatMap((f) => (kind === "staged" && f.from ? [f.path
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    font-size: 13px;
+    font-size: var(--fs-ui);
     font-weight: 600;
     color: var(--text-2);
   }
@@ -369,7 +369,7 @@ const all = $derived(files.flatMap((f) => (kind === "staged" && f.from ? [f.path
     color: inherit;
     background: transparent;
     border: 1px solid transparent;
-    border-radius: var(--r-xs);
+    border-radius: var(--r-control);
     cursor: default;
   }
   button:focus-visible {
@@ -391,9 +391,9 @@ const all = $derived(files.flatMap((f) => (kind === "staged" && f.from ? [f.path
     flex: none;
     min-height: var(--ctl-sm);
     padding: 0 8px;
-    font-size: 13px;
+    font-size: var(--fs-ui);
     color: var(--text-2);
-    border-radius: var(--r-sm);
+    border-radius: var(--r-control);
   }
   .head button:hover {
     color: var(--text);
@@ -443,7 +443,7 @@ const all = $derived(files.flatMap((f) => (kind === "staged" && f.from ? [f.path
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
-    font-size: 13px;
+    font-size: var(--fs-ui);
     color: var(--text-2);
   }
   /* The hover slot: two 24 px actions and a 4 px gap, reserved even while
@@ -488,7 +488,7 @@ const all = $derived(files.flatMap((f) => (kind === "staged" && f.from ? [f.path
   }
   .confirm p {
     margin: 0 0 6px;
-    font-size: 13px;
+    font-size: var(--fs-ui);
     overflow-wrap: anywhere;
   }
   .buttons {
@@ -507,12 +507,12 @@ const all = $derived(files.flatMap((f) => (kind === "staged" && f.from ? [f.path
   }
   .keys {
     margin: 4px 4px 0;
-    font-size: 13px;
+    font-size: var(--fs-ui);
     color: var(--text-2);
   }
   .empty {
     margin: 2px 6px;
-    font-size: 13px;
+    font-size: var(--fs-ui);
     color: var(--text-2);
   }
   .visually-hidden {

@@ -148,7 +148,7 @@ function who(session: string | null): string {
     color: var(--text);
     background: var(--s3);
     border: 0;
-    border-radius: var(--r-md);
+    border-radius: var(--r-control);
   }
   button {
     font-weight: 500;

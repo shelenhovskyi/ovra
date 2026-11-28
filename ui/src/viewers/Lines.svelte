@@ -104,7 +104,7 @@ function onscroll() {
     height: 100%;
     overflow: auto;
     font-family: var(--mono);
-    font-size: 13px;
+    font-size: var(--fs-ui);
   }
   .viewport:focus-visible {
     outline: 2px solid var(--accent);

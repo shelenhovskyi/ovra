@@ -180,7 +180,7 @@ function onkeydown(event: KeyboardEvent): void {
     display: flex;
     flex-direction: column;
     gap: 4px;
-    font-size: 13px;
+    font-size: var(--fs-ui);
     color: var(--text-2);
   }
   textarea {
@@ -213,7 +213,7 @@ function onkeydown(event: KeyboardEvent): void {
     color: var(--accent-ink);
     background: var(--accent);
     border: 1px solid transparent;
-    border-radius: var(--radius-sm);
+    border-radius: var(--r-control);
     cursor: pointer;
   }
   kbd {
@@ -230,7 +230,7 @@ function onkeydown(event: KeyboardEvent): void {
   .ok,
   .error p {
     margin: 0;
-    font-size: 13px;
+    font-size: var(--fs-ui);
     color: var(--text-2);
     overflow-wrap: anywhere;
   }
@@ -245,7 +245,7 @@ function onkeydown(event: KeyboardEvent): void {
     margin: 2px 0 0;
     padding: 6px 8px;
     overflow: auto;
-    font-size: 12px;
+    font-size: var(--fs-ui-sm);
     white-space: pre-wrap;
     overflow-wrap: anywhere;
     background: var(--s3);
@@ -264,7 +264,7 @@ function onkeydown(event: KeyboardEvent): void {
     outline-offset: 2px;
   }
   details {
-    font-size: 13px;
+    font-size: var(--fs-ui);
     color: var(--text-2);
   }
 </style>

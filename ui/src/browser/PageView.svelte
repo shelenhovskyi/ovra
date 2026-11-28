@@ -419,7 +419,7 @@ $effect(() => {
   .mode,
   .waiting {
     color: var(--text-2);
-    font-size: 13px;
+    font-size: var(--fs-ui);
   }
   .mode.controlling {
     color: var(--warn);
@@ -460,7 +460,7 @@ $effect(() => {
     color: var(--text);
     background: var(--s3);
     border: 0;
-    border-radius: var(--radius);
+    border-radius: var(--r-control);
     cursor: pointer;
   }
   button[aria-pressed="true"] {

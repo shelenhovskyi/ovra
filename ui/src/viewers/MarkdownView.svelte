@@ -86,7 +86,7 @@ async function openWeb(url: string) {
   }
   .markdown :global(code) {
     font-family: var(--mono);
-    font-size: 13px;
+    font-size: var(--fs-ui);
     background: var(--s3);
     padding: 1px 5px;
     border-radius: var(--radius-xs);

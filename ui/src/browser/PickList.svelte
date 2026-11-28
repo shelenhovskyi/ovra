@@ -69,7 +69,7 @@ async function remove(pickId: string): Promise<void> {
   .hint {
     margin: 0;
     color: var(--text-2);
-    font-size: 13px;
+    font-size: var(--fs-ui);
   }
   input {
     flex: 1;
@@ -79,7 +79,7 @@ async function remove(pickId: string): Promise<void> {
     padding: 4px 10px;
     background: var(--s3);
     border: 0;
-    border-radius: var(--radius);
+    border-radius: var(--r-control);
   }
   button {
     font: inherit;
@@ -87,7 +87,7 @@ async function remove(pickId: string): Promise<void> {
     color: var(--text);
     background: var(--s3);
     border: 0;
-    border-radius: var(--radius);
+    border-radius: var(--r-control);
     cursor: pointer;
   }
 </style>

@@ -164,7 +164,7 @@ function where(session: SessionInfo | undefined, project: string): string {
     margin-top: var(--sp-6);
   }
   .switch input {
-    width: 24px;
-    height: 24px;
+    width: var(--ctl-sm);
+    height: var(--ctl-sm);
   }
 </style>

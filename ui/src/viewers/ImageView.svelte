@@ -55,6 +55,6 @@ function onload(event: Event) {
   figcaption,
   .note {
     color: var(--text-2);
-    font-size: 13px;
+    font-size: var(--fs-ui);
   }
 </style>

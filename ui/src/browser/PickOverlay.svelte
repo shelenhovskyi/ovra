@@ -75,7 +75,7 @@ function placed(p: PendingPick) {
     overflow: hidden;
     white-space: nowrap;
     text-overflow: ellipsis;
-    font-size: 12px;
+    font-size: var(--fs-ui-sm);
     color: var(--accent-ink);
     background: var(--accent);
   }

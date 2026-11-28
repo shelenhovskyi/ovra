@@ -247,7 +247,7 @@ function onKeydown(event: KeyboardEvent): void {
     color: var(--text);
     background: var(--s3);
     border: 1px solid transparent;
-    border-radius: var(--radius-sm);
+    border-radius: var(--r-control);
     cursor: pointer;
   }
   button:hover {
@@ -285,7 +285,7 @@ function onKeydown(event: KeyboardEvent): void {
     border-radius: var(--radius);
     box-shadow: var(--card-shadow);
     color: var(--text);
-    font-size: 13px;
+    font-size: var(--fs-ui);
   }
   h2 {
     margin: 0 0 8px;
@@ -294,7 +294,7 @@ function onKeydown(event: KeyboardEvent): void {
   }
   h3 {
     margin: 12px 0 4px;
-    font-size: 13px;
+    font-size: var(--fs-ui);
     font-weight: 600;
   }
   ul {
@@ -334,7 +334,7 @@ function onKeydown(event: KeyboardEvent): void {
     padding: 4px 8px;
     border-radius: var(--radius-sm);
     background: var(--s3);
-    font-size: 12px;
+    font-size: var(--fs-ui-sm);
     user-select: all;
     overflow-wrap: anywhere;
   }

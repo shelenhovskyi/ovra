@@ -167,7 +167,7 @@ $effect(() => {
     flex-wrap: wrap;
     align-items: center;
     gap: 4px 8px;
-    font-size: 13px;
+    font-size: var(--fs-ui);
     color: var(--text-2);
   }
   .line p {
@@ -190,11 +190,11 @@ $effect(() => {
     padding: 8px;
     background: var(--s2);
     border-radius: var(--r-lg, var(--radius));
-    font-size: 13px;
+    font-size: var(--fs-ui);
   }
   h3 {
     margin: 0;
-    font-size: 13px;
+    font-size: var(--fs-ui);
     font-weight: 600;
   }
   h3:focus-visible {
@@ -220,7 +220,7 @@ $effect(() => {
     box-sizing: border-box;
     font: inherit;
     font-family: var(--font-mono, monospace);
-    font-size: 12px;
+    font-size: var(--fs-ui-sm);
     color: var(--text);
     background: var(--s1);
     border: 1px solid var(--separator, transparent);
@@ -249,7 +249,7 @@ $effect(() => {
   button {
     font: inherit;
     border: 1px solid transparent;
-    border-radius: var(--radius-sm);
+    border-radius: var(--r-control);
     padding: 3px 10px;
     cursor: default;
   }
@@ -263,7 +263,7 @@ $effect(() => {
   .small {
     align-self: flex-start;
     padding: 0 6px;
-    font-size: 12px;
+    font-size: var(--fs-ui-sm);
   }
   .primary {
     color: var(--accent-ink, white);

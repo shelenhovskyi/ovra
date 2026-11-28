@@ -409,7 +409,7 @@ $effect(() => {
     display: flex;
     align-items: center;
     flex-shrink: 0;
-    border-radius: var(--radius-sm);
+    border-radius: var(--r-control);
     color: var(--text-2);
   }
   .tab:hover {
@@ -445,10 +445,10 @@ $effect(() => {
   .close {
     display: grid;
     place-items: center;
-    width: 24px;
-    height: 24px;
+    width: var(--ctl-sm);
+    height: var(--ctl-sm);
     margin-right: 4px;
-    border-radius: var(--radius-sm);
+    border-radius: var(--r-control);
     color: var(--text-2);
     opacity: 0;
   }
@@ -475,9 +475,9 @@ $effect(() => {
   .actions button {
     display: grid;
     place-items: center;
-    width: 26px;
-    height: 26px;
-    border-radius: var(--radius-sm);
+    width: var(--ctl-sm);
+    height: var(--ctl-sm);
+    border-radius: var(--r-control);
     font-size: 16px;
     color: var(--text-3);
   }

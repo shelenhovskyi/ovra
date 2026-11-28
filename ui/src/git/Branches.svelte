@@ -246,7 +246,7 @@ function onfilterkeydown(event: KeyboardEvent): void {
     color: var(--text);
     background: transparent;
     border: 1px solid transparent;
-    border-radius: var(--radius-sm);
+    border-radius: var(--r-control);
     cursor: pointer;
   }
   button:hover {
@@ -284,7 +284,7 @@ function onfilterkeydown(event: KeyboardEvent): void {
     display: flex;
     gap: 6px;
     margin: 0 6px;
-    font-size: 13px;
+    font-size: var(--fs-ui);
     color: var(--text-2);
     min-width: 0;
   }
@@ -301,7 +301,7 @@ function onfilterkeydown(event: KeyboardEvent): void {
     max-height: min(26em, 70vh);
     padding: 6px;
     background: var(--s4);
-    border-radius: var(--radius);
+    border-radius: var(--r-lg);
     box-shadow: var(--card-shadow);
   }
   ul {
@@ -323,7 +323,7 @@ function onfilterkeydown(event: KeyboardEvent): void {
     display: flex;
     flex-direction: column;
     gap: 4px;
-    font-size: 13px;
+    font-size: var(--fs-ui);
     color: var(--text-2);
   }
   input {
@@ -334,7 +334,7 @@ function onfilterkeydown(event: KeyboardEvent): void {
     color: var(--text);
     background: var(--s3);
     border: 1px solid transparent;
-    border-radius: var(--radius-sm);
+    border-radius: var(--r-control);
   }
   .buttons {
     display: flex;
@@ -368,7 +368,7 @@ function onfilterkeydown(event: KeyboardEvent): void {
   .hint,
   .error {
     margin: 4px 0 0;
-    font-size: 13px;
+    font-size: var(--fs-ui);
     color: var(--text-2);
     overflow-wrap: anywhere;
   }

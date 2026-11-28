@@ -237,11 +237,11 @@ $effect(() => {
     display: flex;
     align-items: center;
     gap: 10px;
-    height: 32px;
+    height: var(--ctl-lg);
     padding: 0 6px 0 14px;
     color: var(--text);
     background: var(--s4);
-    border-radius: 16px;
+    border-radius: var(--r-control);
     box-shadow: var(--card-shadow);
   }
   .banner .dot {
@@ -284,13 +284,13 @@ $effect(() => {
   button {
     display: grid;
     place-items: center;
-    min-width: 28px;
+    min-width: var(--ctl);
     font: inherit;
     padding: 3px 8px;
     color: var(--text-2);
     background: transparent;
     border: 0;
-    border-radius: var(--radius-sm);
+    border-radius: var(--r-control);
     cursor: pointer;
   }
   button:hover {

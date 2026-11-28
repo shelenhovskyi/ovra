@@ -301,7 +301,7 @@ function onPaneKeydown(event: KeyboardEvent): void {
   label,
   .muted {
     color: var(--text-2);
-    font-size: 13px;
+    font-size: var(--fs-ui);
   }
   .address input {
     flex: 1;
@@ -369,7 +369,7 @@ function onPaneKeydown(event: KeyboardEvent): void {
     color: var(--text);
     background: var(--s3);
     border: 0;
-    border-radius: var(--radius);
+    border-radius: var(--r-control);
   }
   button {
     cursor: pointer;

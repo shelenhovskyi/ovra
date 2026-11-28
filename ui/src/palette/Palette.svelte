@@ -385,7 +385,7 @@ function onfocusout(event: FocusEvent): void {
   .detail {
     margin-left: 8px;
     color: var(--text-2);
-    font-size: 13px;
+    font-size: var(--fs-ui);
   }
   .category {
     display: inline-block;
@@ -440,7 +440,7 @@ function onfocusout(event: FocusEvent): void {
     margin: 0;
     padding: 8px 12px 4px;
     color: var(--text-2);
-    font-size: 13px;
+    font-size: var(--fs-ui);
   }
   .empty {
     color: var(--text-2);

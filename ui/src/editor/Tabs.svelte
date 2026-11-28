@@ -509,7 +509,7 @@ function scrollToActive(): void {
     display: flex;
     align-items: center;
     flex-shrink: 0;
-    height: 32px;
+    height: var(--ctl-lg);
     box-sizing: border-box;
     border-radius: var(--r-md) var(--r-md) 0 0;
     color: var(--text-2);
@@ -526,7 +526,7 @@ function scrollToActive(): void {
     top: 4px;
     bottom: 4px;
     width: 2px;
-    border-radius: 1px;
+    border-radius: var(--r-control);
     background: var(--accent);
     pointer-events: none;
   }
@@ -583,7 +583,7 @@ function scrollToActive(): void {
   }
   .hint {
     min-width: 0;
-    font-size: 13px;
+    font-size: var(--fs-ui);
     font-weight: 400;
     color: var(--text-2);
   }
@@ -591,10 +591,10 @@ function scrollToActive(): void {
   .pin {
     display: grid;
     place-items: center;
-    width: 24px;
-    height: 24px;
+    width: var(--ctl-sm);
+    height: var(--ctl-sm);
     margin-right: 4px;
-    border-radius: var(--radius-sm);
+    border-radius: var(--r-control);
     color: var(--text-2);
     opacity: 0;
   }
@@ -683,7 +683,7 @@ function scrollToActive(): void {
   .confirm button {
     padding: 4px 12px;
     border: 1px solid transparent;
-    border-radius: var(--radius-sm);
+    border-radius: var(--r-control);
     color: var(--text-2);
   }
   .confirm button:hover {

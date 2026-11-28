@@ -507,7 +507,7 @@ const folder = (path: string) => path.slice(0, Math.max(path.lastIndexOf("/"), 0
     color: inherit;
     background: var(--s3);
     border: 1px solid transparent;
-    border-radius: var(--radius-sm);
+    border-radius: var(--r-control);
   }
   .toggles {
     display: flex;
@@ -515,13 +515,13 @@ const folder = (path: string) => path.slice(0, Math.max(path.lastIndexOf("/"), 0
   }
   /* Secondary chrome: muted until hovered or focused. */
   .toggles button {
-    min-width: 28px;
+    min-width: var(--ctl);
     padding: 2px 6px;
     font: 13px var(--mono);
     color: var(--text-2);
     background: transparent;
     border: 0;
-    border-radius: var(--radius-sm);
+    border-radius: var(--r-control);
     cursor: pointer;
   }
   .toggles button:hover {
@@ -544,10 +544,10 @@ const folder = (path: string) => path.slice(0, Math.max(path.lastIndexOf("/"), 0
   .quiet,
   .row-action {
     flex: none;
-    min-height: 26px;
+    min-height: var(--row);
     padding: 0 8px;
     font: inherit;
-    font-size: 13px;
+    font-size: var(--fs-ui);
     color: var(--text-2);
     background: transparent;
     border: 0;
@@ -578,14 +578,14 @@ const folder = (path: string) => path.slice(0, Math.max(path.lastIndexOf("/"), 0
     gap: 6px;
   }
   .danger {
-    min-height: 26px;
+    min-height: var(--ctl-sm);
     padding: 0 10px;
     font: inherit;
     font-weight: 500;
     color: var(--danger);
     background: var(--danger-soft);
     border: 0;
-    border-radius: var(--radius-sm);
+    border-radius: var(--r-control);
   }
   .confirm button:focus-visible,
   .row-action:focus-visible {
@@ -594,13 +594,13 @@ const folder = (path: string) => path.slice(0, Math.max(path.lastIndexOf("/"), 0
   }
   .note {
     margin: 0;
-    font-size: 13px;
+    font-size: var(--fs-ui);
     color: var(--text-2);
   }
   /* Per-file and per-line replace: shown on hover or focus of the row. */
   .row-action {
     display: none;
-    min-height: 22px;
+    min-height: var(--row);
     background: var(--s3);
   }
   .file-name:hover .row-action,
@@ -621,7 +621,7 @@ const folder = (path: string) => path.slice(0, Math.max(path.lastIndexOf("/"), 0
     display: flex;
     flex-direction: column;
     gap: 4px;
-    font-size: 13px;
+    font-size: var(--fs-ui);
     color: var(--text-2);
   }
   .summary,
@@ -671,12 +671,12 @@ const folder = (path: string) => path.slice(0, Math.max(path.lastIndexOf("/"), 0
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
-    font-size: 13px;
+    font-size: var(--fs-ui);
     color: var(--text-2);
   }
   .count {
     padding: 0 7px;
-    font-size: 12px;
+    font-size: var(--fs-ui-sm);
     border-radius: var(--radius-lg);
     color: var(--text-2);
     background: var(--s3);

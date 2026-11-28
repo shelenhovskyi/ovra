@@ -149,7 +149,7 @@ async function search(words: string, only: ProjectId | ""): Promise<void> {
     color: var(--text);
     background: var(--s3);
     border: 0;
-    border-radius: var(--r-md);
+    border-radius: var(--r-control);
   }
   .muted {
     color: var(--text-2);

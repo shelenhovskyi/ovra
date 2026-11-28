@@ -205,7 +205,7 @@ function onEnter(event: KeyboardEvent, send: () => void): void {
   }
   .summary,
   .who {
-    font-size: 13px;
+    font-size: var(--fs-ui);
     color: var(--text-2);
   }
   .who {
@@ -231,17 +231,17 @@ function onEnter(event: KeyboardEvent, send: () => void): void {
     gap: 6px;
   }
   .soft {
-    height: 32px;
+    height: var(--ctl-lg);
     padding: 0 12px;
     color: var(--text);
     background: var(--s3);
   }
   .why {
-    font-size: 13px;
+    font-size: var(--fs-ui);
     color: var(--text-2);
   }
   .who-changes summary {
-    font-size: 13px;
+    font-size: var(--fs-ui);
     color: var(--text-2);
     cursor: pointer;
   }
@@ -252,7 +252,7 @@ function onEnter(event: KeyboardEvent, send: () => void): void {
     display: flex;
     flex-direction: column;
     gap: 4px;
-    font-size: 13px;
+    font-size: var(--fs-ui);
   }
   .who-changes li {
     display: flex;
@@ -296,7 +296,7 @@ function onEnter(event: KeyboardEvent, send: () => void): void {
   button {
     font: inherit;
     border: none;
-    border-radius: var(--radius-sm);
+    border-radius: var(--r-control);
     cursor: pointer;
     flex: none;
   }
@@ -304,7 +304,7 @@ function onEnter(event: KeyboardEvent, send: () => void): void {
     cursor: default;
   }
   .primary {
-    height: 32px;
+    height: var(--ctl-lg);
     padding: 0 14px;
     font-weight: 500;
     color: var(--accent-ink);
@@ -315,9 +315,9 @@ function onEnter(event: KeyboardEvent, send: () => void): void {
     background: var(--s3);
   }
   .quiet {
-    height: 28px;
+    height: var(--ctl);
     padding: 0 8px;
-    font-size: 13px;
+    font-size: var(--fs-ui);
     color: var(--text-2);
     background: none;
   }
@@ -329,7 +329,7 @@ function onEnter(event: KeyboardEvent, send: () => void): void {
     opacity: 0.5;
   }
   .error {
-    font-size: 13px;
+    font-size: var(--fs-ui);
     color: var(--danger);
   }
   .visually-hidden {

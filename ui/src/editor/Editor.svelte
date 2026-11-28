@@ -326,7 +326,7 @@ function discard(path: string): void {
     align-items: center;
     gap: 8px;
     padding: 4px 12px 4px 16px;
-    font-size: 13px;
+    font-size: var(--fs-ui);
     color: var(--text-2);
   }
   .dirty {
@@ -347,7 +347,7 @@ function discard(path: string): void {
     color: var(--text-2);
     background: none;
     border: 1px solid transparent;
-    border-radius: var(--radius-sm);
+    border-radius: var(--r-control);
     cursor: pointer;
     white-space: nowrap;
   }

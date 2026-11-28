@@ -39,7 +39,7 @@ function goToLine(): void {
     color: inherit;
     background: none;
     border: 0;
-    border-radius: var(--r-sm);
+    border-radius: var(--r-control);
     cursor: default;
   }
   button:hover {

@@ -100,7 +100,7 @@ async function reveal(): Promise<void> {
   .crumbs {
     min-width: 0;
     overflow: hidden;
-    font-size: 12px;
+    font-size: var(--fs-ui-sm);
   }
   ol {
     display: flex;
@@ -122,13 +122,13 @@ async function reveal(): Promise<void> {
     color: var(--text-3);
   }
   button {
-    min-height: 24px;
+    min-height: var(--ctl-sm);
     padding: 0 2px;
     font: inherit;
     color: var(--text-2);
     background: none;
     border: none;
-    border-radius: var(--radius-sm);
+    border-radius: var(--r-control);
     cursor: pointer;
   }
   button:hover {

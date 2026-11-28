@@ -38,13 +38,13 @@ $effect(() => untrack(() => power.follow()));
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 28px;
-    height: 28px;
+    width: var(--ctl);
+    height: var(--ctl);
     padding: 0;
     color: var(--text-2);
     background: none;
     border: none;
-    border-radius: var(--radius-sm);
+    border-radius: var(--r-control);
   }
   .keep-awake:hover {
     color: var(--text);

@@ -199,7 +199,7 @@ const SIGN = { context: " ", added: "+", removed: "-" } as const;
     align-items: center;
     gap: 8px 12px;
     padding: 6px 16px;
-    font-size: 13px;
+    font-size: var(--fs-ui);
   }
   .summary button,
   .summary select {
@@ -209,7 +209,7 @@ const SIGN = { context: " ", added: "+", removed: "-" } as const;
     color: var(--text-2);
     background: transparent;
     border: 1px solid transparent;
-    border-radius: var(--radius-sm);
+    border-radius: var(--r-control);
     cursor: pointer;
   }
   .summary select {
@@ -289,7 +289,7 @@ const SIGN = { context: " ", added: "+", removed: "-" } as const;
     padding: 0 4px;
     border: 1px solid currentColor;
     border-radius: var(--radius-xs);
-    font-size: 12px;
+    font-size: var(--fs-ui-sm);
     font-weight: 400;
   }
   .visually-hidden {
