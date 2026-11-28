@@ -3844,6 +3844,7 @@ dependencies = [
  "rand 0.9.5",
  "rustix",
  "serde_json",
+ "sha2 0.10.9",
  "tempfile",
  "tokio",
  "url",

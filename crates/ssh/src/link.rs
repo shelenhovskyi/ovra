@@ -289,6 +289,15 @@ async fn exited_early(child: &mut Group, stderr: &mut Stderr) -> Failure {
     let status = tokio::time::timeout(Duration::from_secs(5), child.0.wait()).await;
     let code = status.ok().and_then(Result::ok).and_then(|s| s.code());
     let said = stderr.said().await;
+    if code == Some(127) {
+        return Failure::new(Reason::NoDaemon, said);
+    }
+    failed(code, said)
+}
+
+/// Why `ssh` failed with exit status `code`, having said `said` (already
+/// plain text): for 255, its own failures, what it said tells which.
+pub(crate) fn failed(code: Option<i32>, said: String) -> Failure {
     let reason = match code {
         Some(255)
             if said.contains("REMOTE HOST IDENTIFICATION HAS CHANGED")
@@ -297,7 +306,6 @@ async fn exited_early(child: &mut Group, stderr: &mut Stderr) -> Failure {
             Reason::HostKeyChanged
         }
         Some(255) if said.contains("Permission denied") => Reason::AuthFailed,
-        Some(127) => Reason::NoDaemon,
         _ => Reason::Exited,
     };
     Failure::new(reason, said)
@@ -452,7 +460,7 @@ impl Stderr {
 
 /// `text` without control characters other than line breaks and tabs, so
 /// a remote machine cannot draw with escape sequences, cut to `max` bytes.
-fn plain(text: &str, max: usize) -> String {
+pub(crate) fn plain(text: &str, max: usize) -> String {
     let mut out = String::new();
     for c in text.trim().chars() {
         if out.len() + c.len_utf8() > max {
@@ -474,4 +482,4 @@ pub(crate) fn pipes(command: &mut tokio::process::Command) {
 }
 
 #[cfg(all(test, unix))]
-mod tests;
+pub(crate) mod tests;

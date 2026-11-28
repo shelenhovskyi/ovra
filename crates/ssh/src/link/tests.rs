@@ -10,19 +10,19 @@ use super::Reason;
 use crate::OpenSsh;
 use crate::tools::Tools;
 
-fn ok<T, E: std::fmt::Debug>(r: Result<T, E>) -> T {
+pub(crate) fn ok<T, E: std::fmt::Debug>(r: Result<T, E>) -> T {
     r.unwrap_or_else(|e| panic!("{e:?}"))
 }
 
-fn hello(version: &str) -> String {
+pub(crate) fn hello(version: &str) -> String {
     format!(r#"echo '{{"hello":{{"version":"{version}","protocol":1,"os":"linux"}}}}'"#)
 }
 
-fn ours() -> String {
+pub(crate) fn ours() -> String {
     hello(env!("CARGO_PKG_VERSION"))
 }
 
-fn safe_config(pins: &Path) -> String {
+pub(crate) fn safe_config(pins: &Path) -> String {
     format!(
         "user dev\nhostname build.example\nport 22\nstricthostkeychecking true\n\
          updatehostkeys false\nbatchmode yes\ncheckhostip no\nrequesttty false\n\
@@ -37,7 +37,7 @@ fn safe_config(pins: &Path) -> String {
 
 /// An `OpenSsh` with the machine `abc` whose `ssh` prints `config` for
 /// `-G` and otherwise runs `body`.
-fn fake(dir: &Path, config: Option<&str>, body: &str) -> OpenSsh {
+pub(crate) fn fake(dir: &Path, config: Option<&str>, body: &str) -> OpenSsh {
     use std::os::unix::fs::PermissionsExt;
     let data = dir.join("data");
     let pins = data.join("ssh/abc/known_hosts");
@@ -74,7 +74,7 @@ fn fake(dir: &Path, config: Option<&str>, body: &str) -> OpenSsh {
     ssh
 }
 
-fn abc() -> HostId {
+pub(crate) fn abc() -> HostId {
     ok(HostId::parse("abc"))
 }
 

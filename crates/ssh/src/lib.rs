@@ -7,6 +7,7 @@
 //! [`OpenSsh::connect`] opens a [`Link`] to one of them.
 
 mod config;
+pub mod install;
 mod known;
 mod link;
 mod tools;
@@ -192,6 +193,20 @@ impl OpenSsh {
 }
 
 impl OpenSsh {
+    /// Points the record of `id` at `daemon`.
+    fn set_daemon(&self, id: &HostId, daemon: &DaemonPath) -> ServiceResult<RemoteHost> {
+        let _changing = lock(&self.changing);
+        let mut hosts = self.read()?;
+        let host = hosts
+            .iter_mut()
+            .find(|h| h.id == id.as_str())
+            .ok_or_else(|| missing(id))?;
+        daemon.as_str().clone_into(&mut host.daemon);
+        let host = host.clone();
+        self.write(&hosts)?;
+        Ok(host)
+    }
+
     /// Connects to the machine `id` with the hardened command line, after
     /// `ssh -G` showed that it won over the person's config.
     pub async fn connect(&self, id: &HostId) -> Result<Link, Failure> {
@@ -205,6 +220,28 @@ impl OpenSsh {
     }
 
     async fn connect_with(&self, id: &HostId, restart: bool) -> Result<Link, Failure> {
+        let what = if restart { What::Restart } else { What::Attach };
+        let mut command = self.command(id, what).await?;
+        link::pipes(&mut command);
+        let child = command.spawn().map_err(|e| self.lost_ssh(&e))?;
+        link::open(tools::Group(child)).await
+    }
+
+    /// `ssh` has moved or was upgraded since it was found: look again next
+    /// time.
+    fn lost_ssh(&self, e: &std::io::Error) -> Failure {
+        *lock(&self.tools) = None;
+        Failure::new(Reason::NoSsh, format!("could not run ssh: {e}"))
+    }
+
+    /// `ssh` to the machine `id` with the hardened command line running
+    /// `what`, after `ssh -G` showed that it won over the person's config;
+    /// in its own process group, with the kept variables only.
+    async fn command(
+        &self,
+        id: &HostId,
+        what: What<'_>,
+    ) -> Result<tokio::process::Command, Failure> {
         let host = self
             .read()
             .map_err(|e| Failure::new(Reason::NoPin, e.message))?
@@ -221,10 +258,11 @@ impl OpenSsh {
         let unsafe_config = |e: ProtocolError| Failure::new(Reason::UnsafeConfig, e.message);
         let destination = Destination::parse(&host.destination).map_err(unsafe_config)?;
         let daemon = DaemonPath::parse(Some(&host.daemon)).map_err(unsafe_config)?;
-        let remote = if restart {
-            Remote::Restart(&daemon)
-        } else {
-            Remote::Attach(&daemon)
+        let remote = match what {
+            What::Attach => Remote::Attach(&daemon),
+            What::Restart => Remote::Restart(&daemon),
+            What::Uname => Remote::Uname,
+            What::Install(sha) => Remote::Install(sha),
         };
         let args = arguments(&pins, id, &destination, remote).map_err(unsafe_config)?;
         let tools = self
@@ -256,14 +294,17 @@ impl OpenSsh {
         }
         command.args(&args);
         tools::own_group(&mut command);
-        link::pipes(&mut command);
-        let child = command.spawn().map_err(|e| {
-            // Moved or upgraded since it was found: look again next time.
-            *lock(&self.tools) = None;
-            Failure::new(Reason::NoSsh, format!("could not run ssh: {e}"))
-        })?;
-        link::open(tools::Group(child)).await
+        Ok(command)
     }
+}
+
+/// What a command line from [`OpenSsh::command`] runs on the machine.
+#[derive(Clone, Copy)]
+enum What<'a> {
+    Attach,
+    Restart,
+    Uname,
+    Install(&'a install::Sha256),
 }
 
 fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
@@ -477,6 +518,8 @@ pub fn arguments(
             "--attach".to_owned(),
             "--restart".to_owned(),
         ]),
+        Remote::Uname => args.push(install::UNAME.to_owned()),
+        Remote::Install(sha) => args.push(install::command(sha)),
     }
     Ok(args)
 }
@@ -490,6 +533,10 @@ pub enum Remote<'a> {
     /// `<daemon> --attach --restart`: the running core quits first, so the
     /// installed build starts; its agents stop.
     Restart(&'a DaemonPath),
+    /// `uname -sm`: which build the machine needs.
+    Uname,
+    /// The upload of this laptop's build ([`install::command`]).
+    Install(&'a install::Sha256),
 }
 
 /// The options of `args`, up to and with the destination: what `ssh -G`

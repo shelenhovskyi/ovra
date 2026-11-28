@@ -1,0 +1,5 @@
+---
+source: crates/ssh/src/install/tests.rs
+expression: command
+---
+sh -c 'umask 077; [ -n "$HOME" ] || exit 1; p="$HOME/.local/share/ovra"; d="$p/bin"; f="$d/ovra-daemon.new"; mkdir -p "$d" || exit 1; for x in "$p" "$d"; do [ -d "$x" ] && [ ! -L "$x" ] && [ -O "$x" ] && chmod 700 "$x" || exit 1; done; [ ! -d "$d/ovra-daemon" ] || exit 1; rm -f "$f"; if cat > "$f" && [ "$(sha256sum < "$f" | cut -c1-64)" = "87cd91c69511a9d701207a0677c29b9f2a530b71554738fec526ea6bdfbdceec" ] && chmod 700 "$f" && mv -f "$f" "$d/ovra-daemon"; then exit 0; fi; rm -f "$f"; exit 1'
