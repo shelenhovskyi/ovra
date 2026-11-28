@@ -63,8 +63,9 @@ Two shapes were considered:
   approved): `ssh` runs `ovra-daemon --attach`, which relays to a
   `--core` process on a Unix socket in the 0700 data directory, checked
   by peer uid. One client at a time; a new one replaces the old. Agents
-  keep running while the laptop is away, and the core ends when the
-  person stops it or after a quiet while with nothing running.
+  keep running while the laptop is away, but nothing new starts there
+  (schedules run only while a client is attached), and the core ends when
+  the person stops it or after a quiet while with nothing running.
 
 ## Consequences
 
