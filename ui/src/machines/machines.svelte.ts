@@ -63,6 +63,19 @@ export class Machines {
     return this.attempt(() => this.transport.call({ method: "ssh.remove", params: { id } }));
   }
 
+  /** Copies this computer's build to the machine, then reads the list again for its new path; the person confirmed first. */
+  async install(host: RemoteHost): Promise<boolean> {
+    const done = await this.attempt(async () => {
+      await this.transport.installRemote?.(host.id);
+      return true;
+    });
+    if (!done) return false;
+    // The app changed the machine's record, not the core: no `ssh.changed` came.
+    const reply = await this.attempt(() => this.transport.call({ method: "ssh.list" }));
+    if (reply) this.hosts = reply.data;
+    return true;
+  }
+
   /** Ends Ovra on the machine and starts its installed build; the person confirmed first. */
   restart(host: RemoteHost): Promise<unknown> {
     return this.attempt(async () => this.transport.restartRemote?.(host.id));
@@ -91,9 +104,9 @@ export function linkMessage(name: string, link: RemoteLink): string {
     case "auth_failed":
       return `${name} did not accept your SSH key. Check that \`ssh\` to it works in a terminal without a password prompt.`;
     case "no_daemon":
-      return `Ovra is not installed on ${name}, or not where Ovra looked. Install it there, or set its path in Settings.`;
+      return `Ovra is not installed on ${name}, or not where Ovra looked. Install it from Settings > Remote machines in Ovra's main window.`;
     case "version_mismatch":
-      return `${name} runs a different version of Ovra. Restart it from Settings > Remote machines in Ovra's main window.`;
+      return `${name} runs a different version of Ovra. Install this one, or restart it, from Settings > Remote machines in Ovra's main window.`;
     case "busy":
       return `Ovra is already open on ${name}, for you or for someone else. Close it there first.`;
     case "no_ssh":

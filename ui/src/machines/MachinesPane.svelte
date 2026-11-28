@@ -23,9 +23,27 @@ let prepared = $state<PreparedHost | null>(null);
 let renaming = $state<string | null>(null);
 /** Each machine's link, from the app: only the laptop's own window hears them. */
 const links = $state<Record<string, RemoteLink>>({});
-$effect(() => untrack(() => transport.onRemoteLinks?.((id, link) => (links[id] = link))));
-/** The machine whose restart waits for the person's confirmation. */
-let restarting = $state<string | null>(null);
+$effect(() =>
+  untrack(() =>
+    transport.onRemoteLinks?.((id, link) => {
+      links[id] = link;
+      delete installed[id];
+    }),
+  ),
+);
+/** The step that waits for the person's confirmation, and for which machine. */
+let confirming = $state<{ id: string; step: "install" | "restart" } | null>(null);
+/** The upload under way, in bytes. */
+let installing = $state<{ id: string; sent: number; total: number } | null>(null);
+/** Machines installed since their link last said anything. */
+const installed = $state<Record<string, boolean>>({});
+$effect(() =>
+  untrack(() =>
+    transport.onInstallProgress?.((id, sent, total) => {
+      if (installing?.id === id) installing = { id, sent, total };
+    }),
+  ),
+);
 let newName = $state("");
 
 function reset(): void {
@@ -47,12 +65,27 @@ async function trust(): Promise<void> {
 }
 
 async function restart(host: RemoteHost): Promise<void> {
-  restarting = null;
+  confirming = null;
   await machines.restart(host);
 }
 
-/** Whether the machine's Ovra answered as another build, which a restart may fix. */
-const otherVersion = (id: string) => links[id]?.state === "failed" && links[id]?.reason === "version_mismatch";
+async function install(host: RemoteHost): Promise<void> {
+  confirming = null;
+  installing = { id: host.id, sent: 0, total: 0 };
+  const done = await machines.install(host);
+  installing = null;
+  if (done) installed[host.id] = true;
+}
+
+/** Why the machine's Ovra did not answer, when installing or restarting may help. */
+function trouble(id: string): "other_version" | "missing" | null {
+  const link = links[id];
+  if (link?.state !== "failed" || installed[id]) return null;
+  if (link.reason === "version_mismatch") return "other_version";
+  return link.reason === "no_daemon" ? "missing" : null;
+}
+
+const percent = (sent: number, total: number) => (total > 0 ? Math.floor((sent * 100) / total) : 0);
 
 async function saveName(host: RemoteHost, event: SubmitEvent): Promise<void> {
   event.preventDefault();
@@ -93,24 +126,52 @@ async function saveName(host: RemoteHost, event: SubmitEvent): Promise<void> {
                 {/if}
               </div>
             {/if}
-            {#if otherVersion(host.id) && transport.restartRemote}
-              <div class="notice" data-testid="machine-other-version">
-                {#if restarting === host.id}
-                  <p>
-                    Restart Ovra on {host.name}? Agents running there stop. Their sessions can be resumed later.
-                  </p>
+            {#if installed[host.id]}
+              <p class="hint" role="status" data-testid="machine-installed">
+                Ovra is installed on {host.name}. Open it to connect.
+              </p>
+            {:else if installing?.id === host.id}
+              <p class="hint" role="status" data-testid="machine-installing">
+                Installing Ovra on {host.name}… {percent(installing.sent, installing.total)}%
+              </p>
+            {:else if trouble(host.id) && (transport.installRemote || transport.restartRemote)}
+              <div class="notice" data-testid="machine-help">
+                {#if confirming?.id === host.id && confirming.step === "restart"}
+                  <p>Restart Ovra on {host.name}? Agents running there stop. Their sessions can be resumed later.</p>
                   <div class="row">
                     <button type="button" class="danger" onclick={() => void restart(host)} data-testid="machine-restart-confirm"
                       >Restart</button
                     >
-                    <button type="button" onclick={() => (restarting = null)}>Cancel</button>
+                    <button type="button" onclick={() => (confirming = null)}>Cancel</button>
+                  </div>
+                {:else if confirming?.id === host.id}
+                  <p>
+                    Copy this computer's build of Ovra to <span class="mono">~/.local/share/ovra/bin</span> on {host.name}?
+                    Ovra starts it from there from then on.
+                  </p>
+                  <div class="row">
+                    <button type="button" class="primary" onclick={() => void install(host)} data-testid="machine-install-confirm"
+                      >Install</button
+                    >
+                    <button type="button" onclick={() => (confirming = null)}>Cancel</button>
                   </div>
                 {:else}
-                  <p>Ovra on {host.name} is a different version from this one.</p>
+                  <p>
+                    {trouble(host.id) === "other_version"
+                      ? `Ovra on ${host.name} is a different version from this one.`
+                      : `Ovra is not installed on ${host.name}, or not where Ovra looked.`}
+                  </p>
                   <div class="row">
-                    <button type="button" onclick={() => (restarting = host.id)} data-testid="machine-restart"
-                      >Restart Ovra on {host.name}</button
-                    >
+                    {#if transport.installRemote}
+                      <button type="button" onclick={() => (confirming = { id: host.id, step: "install" })} data-testid="machine-install"
+                        >Install Ovra on {host.name}</button
+                      >
+                    {/if}
+                    {#if trouble(host.id) === "other_version" && transport.restartRemote}
+                      <button type="button" onclick={() => (confirming = { id: host.id, step: "restart" })} data-testid="machine-restart"
+                        >Restart Ovra on {host.name}</button
+                      >
+                    {/if}
                   </div>
                 {/if}
               </div>

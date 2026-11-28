@@ -30,6 +30,8 @@ function fake(options: { keys?: boolean; list?: boolean; links?: Record<string, 
   const sent: Request[] = [];
   const opened: unknown[] = [];
   const restarted: string[] = [];
+  const installed: string[] = [];
+  let progress: ((id: string, sent: number, total: number) => void) | null = null;
   const emit = (e: CoreEvent) => {
     for (const listener of listeners) listener(e);
   };
@@ -72,9 +74,18 @@ function fake(options: { keys?: boolean; list?: boolean; links?: Record<string, 
     restartRemote: async (id) => {
       restarted.push(id);
     },
+    installRemote: async (id) => {
+      progress?.(id, 50, 200);
+      installed.push(id);
+      hosts = [{ ...BUILD, daemon: "~/.local/share/ovra/bin/ovra-daemon" }];
+    },
+    onInstallProgress: (listener) => {
+      progress = listener;
+      return () => {};
+    },
   };
   if (options.links) hosts = [BUILD];
-  return { transport, sent, opened, restarted };
+  return { transport, sent, opened, restarted, installed };
 }
 
 let cleanup: (() => void)[] = [];
@@ -157,21 +168,40 @@ it("offers to restart a machine that runs another version, after the person conf
   const core = fake({ links });
   const root = show(TestHost, { transport: core.transport });
   await settle();
-  expect(root.querySelector("[data-testid=machine-other-version]")?.textContent).toContain("different version");
+  expect(root.querySelector("[data-testid=machine-help]")?.textContent).toContain("different version");
   button(root, "Restart Ovra on Build").click();
   flushSync();
-  expect(root.querySelector("[data-testid=machine-other-version]")?.textContent).toContain("Agents running there stop");
+  expect(root.querySelector("[data-testid=machine-help]")?.textContent).toContain("Agents running there stop");
   expect(core.restarted).toEqual([]);
   button(root, "Restart").click();
   await settle();
   expect(core.restarted).toEqual(["abc"]);
 });
 
+it("installs Ovra on a machine that has none, after the person confirms, and shows the new path", async () => {
+  const core = fake({ links: { abc: { state: "failed", reason: "no_daemon", details: null } } });
+  const root = show(TestHost, { transport: core.transport });
+  await settle();
+  const help = () => root.querySelector("[data-testid=machine-help]");
+  expect(help()?.textContent).toContain("not installed on Build");
+  expect(button(root, "Restart Ovra on Build")).toBeUndefined();
+  button(root, "Install Ovra on Build").click();
+  flushSync();
+  expect(help()?.textContent).toContain("~/.local/share/ovra/bin");
+  expect(core.installed).toEqual([]);
+  button(root, "Install").click();
+  await settle();
+  expect(core.installed).toEqual(["abc"]);
+  expect(root.querySelector("[data-testid=machine-installed]")).not.toBeNull();
+  expect(help()).toBeNull();
+  expect(root.textContent).toContain("~/.local/share/ovra/bin/ovra-daemon");
+});
+
 it("offers no restart for a machine whose link is fine", async () => {
   const core = fake({ links: { abc: { state: "closed", reason: null, details: null } } });
   const root = show(TestHost, { transport: core.transport });
   await settle();
-  expect(root.querySelector("[data-testid=machine-other-version]")).toBeNull();
+  expect(root.querySelector("[data-testid=machine-help]")).toBeNull();
 });
 
 it("says so where there are no remote machines", async () => {

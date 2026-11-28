@@ -127,6 +127,12 @@ describe("the Tauri transport", () => {
     ]);
     await transport.restartRemote?.("abc");
     expect(tauri.invoke).toHaveBeenCalledWith("ovra_remote_restart", { id: "abc" });
+    const progress: unknown[] = [];
+    transport.onInstallProgress?.((id, sent, total) => progress.push([id, sent, total]));
+    send({ sshInstall: { id: "abc", sent: 1, total: 2 } });
+    expect(progress).toEqual([["abc", 1, 2]]);
+    await transport.installRemote?.("abc");
+    expect(tauri.invoke).toHaveBeenCalledWith("ovra_remote_install", { id: "abc" });
   });
 });
 
@@ -199,5 +205,6 @@ describe("a remote machine's Tauri window", () => {
     expect(tauri.invoke).toHaveBeenCalledWith("ovra_remote_stop");
     expect(transport.restartRemote).toBeUndefined();
     expect(transport.onRemoteLinks).toBeUndefined();
+    expect(transport.installRemote).toBeUndefined();
   });
 });

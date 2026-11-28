@@ -50,6 +50,10 @@ export interface Transport {
   onRemoteLinks?(listener: (id: string, link: RemoteLink) => void): () => void;
   /** Ends Ovra on machine `id` and starts its installed build, after the person confirmed. Laptop's app window only. */
   restartRemote?(id: string): Promise<void>;
+  /** Copies this computer's build of Ovra to machine `id`, after the person confirmed. Laptop's app window only. */
+  installRemote?(id: string): Promise<void>;
+  /** How far an install's upload is, in bytes. Laptop's app window only. */
+  onInstallProgress?(listener: (id: string, sent: number, total: number) => void): () => void;
 }
 
 /** A remote machine as its window knows it: from the app, never from the machine. */
@@ -190,7 +194,8 @@ type AppMessage =
   | { menu: string }
   | { drop: WindowDrop }
   | { dragOver: Point | null }
-  | { sshStatus: RemoteLink & { id: string } };
+  | { sshStatus: RemoteLink & { id: string } }
+  | { sshInstall: { id: string; sent: number; total: number } };
 
 /** The machine the app said this window shows (`app/src/remote.rs`). */
 function appRemote(): RemoteMachine | null {
@@ -205,6 +210,19 @@ function appRemote(): RemoteMachine | null {
   return null;
 }
 
+/** Asks the app to `command` machine `id`; its refusal is an `Error` with the app's words. */
+function mainOnly(
+  ready: Promise<<T>(command: string, args?: Record<string, unknown>) => Promise<T>>,
+  command: string,
+  id: string,
+): Promise<void> {
+  return ready
+    .then((invoke) => invoke<void>(command, { id }))
+    .catch((err: unknown) => {
+      throw err instanceof Error ? err : new Error(String(err));
+    });
+}
+
 export function connectTauri(): Transport {
   let router: FrameRouter;
   const machine = appRemote();
@@ -214,6 +232,7 @@ export function connectTauri(): Transport {
   const overListeners = new Set<(at: Point | null) => void>();
   const links = new Map<string, RemoteLink>();
   const linkListeners = new Set<(id: string, link: RemoteLink) => void>();
+  const installListeners = new Set<(id: string, sent: number, total: number) => void>();
   // Everything the app tells this window comes on the window's own channel:
   // app events would reach every window, a remote machine's too.
   const ready = import("@tauri-apps/api/core").then(async (core) => {
@@ -231,6 +250,9 @@ export function connectTauri(): Transport {
           links.set(id, { state, reason, details });
           for (const listener of linkListeners) listener(id, { state, reason, details });
         }
+      } else if ("sshInstall" in message && !machine) {
+        const { id, sent, total } = message.sshInstall;
+        for (const listener of installListeners) listener(id, sent, total);
       }
     });
     await core.invoke("ovra_subscribe", { channel });
@@ -294,12 +316,12 @@ export function connectTauri(): Transport {
       for (const [id, known] of links) listener(id, known);
       return () => linkListeners.delete(listener);
     },
-    restartRemote: (id: string) =>
-      ready
-        .then((invoke) => invoke<void>("ovra_remote_restart", { id }))
-        .catch((err: unknown) => {
-          throw err instanceof Error ? err : new Error(String(err));
-        }),
+    restartRemote: (id: string) => mainOnly(ready, "ovra_remote_restart", id),
+    installRemote: (id: string) => mainOnly(ready, "ovra_remote_install", id),
+    onInstallProgress: (listener: (id: string, sent: number, total: number) => void) => {
+      installListeners.add(listener);
+      return () => installListeners.delete(listener);
+    },
   });
 }
 
