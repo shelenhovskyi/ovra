@@ -100,7 +100,7 @@ $effect(() => {
   .error button {
     margin-left: 6px;
     border: 0;
-    border-radius: var(--radius-sm);
+    border-radius: var(--r-control);
     background: var(--s3);
     color: var(--text);
     font: inherit;

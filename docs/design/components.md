@@ -12,7 +12,7 @@ Sizes and colours refer to [tokens.md](tokens.md).
 - Title bar 44 px on `--s0`. Traffic lights centred on the bar; leading
   padding leaves about 20 px after the zoom button. In full screen the
   padding drops to 16 px.
-- Three groups, no more. Items are borderless 28 px squares with `--r-md`,
+- Three groups, no more. Items are borderless `--ctl` circles (`--r-control`),
   `--s3` on hover, `--s4` pressed. Empty space drags the window.
 - The branch is a button that opens the branch menu.
 - The centre field is 32 px, `--s1`, reads "Search or run" with a Mod+K key
@@ -42,7 +42,7 @@ Sizes and colours refer to [tokens.md](tokens.md).
   line on the side facing the main area marks the edge, and on hover, focus or drag it
   turns into a 2 px `--accent` line with a grip. The bottom dock (terminals, servers,
   problems) is `--s1` under the same hairline, so it never reads as part of the file.
-- Rows: `--row` 28 px with a 4 px inset so the selection reads as a pill
+- Rows: `--row` 32 px with a 4 px inset so the selection reads as a pill
   (`--r-xs`). `--sel-focus` while the list has focus, `--sel` otherwise.
   Indent 16 px per level; chevron 12 px rotating over `--dur-2`; 16 px
   monochrome file icon; git status as a 6 px dot (`--warn` changed, `--ok`
@@ -68,13 +68,13 @@ Sizes and colours refer to [tokens.md](tokens.md).
 
 ## Buttons
 
-| Kind                   | Look                                                                                  |
-| ---------------------- | ------------------------------------------------------------------------------------- |
-| Primary (one per area) | `--accent` fill, `--accent-ink`, 28 px (32 in sheets and the composer), `--r-md`, 500 |
-| Quiet                  | transparent, `--text-2`, `--s3` on hover                                              |
-| Bordered quiet         | `--s3` fill; where a button must be found without hover (Deny)                        |
-| Disabled               | `--s3` fill with `--text-2`; no opacity fade                                          |
-| Danger                 | quiet with `--danger` text; filled only in a confirm sheet                            |
+| Kind                   | Look                                                                                           |
+| ---------------------- | ---------------------------------------------------------------------------------------------- |
+| Primary (one per area) | `--accent` fill, `--accent-ink`, `--ctl` (`--ctl-lg` in sheets and the composer), capsule, 500 |
+| Quiet                  | transparent, `--text-2`, `--s3` on hover                                                       |
+| Bordered quiet         | `--s3` fill; where a button must be found without hover (Deny)                                 |
+| Disabled               | `--s3` fill with `--text-2`; no opacity fade                                                   |
+| Danger                 | quiet with `--danger` text; filled only in a confirm sheet                                     |
 
 - `cursor: default` on buttons, rows, tabs and segmented controls; the hand
   only on real links.

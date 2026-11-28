@@ -89,7 +89,7 @@ describe("FileTree", () => {
     expect(t.rows().length).toBeLessThan(60);
     expect(t.rows()[0]?.getAttribute("aria-setsize")).toBe("20000");
 
-    Object.defineProperty(t.tree(), "scrollTop", { value: 28 * 10_000, configurable: true });
+    Object.defineProperty(t.tree(), "scrollTop", { value: 32 * 10_000, configurable: true });
     t.tree().dispatchEvent(new Event("scroll"));
     flushSync();
     const shown = t.rows().map((r) => r.dataset.path);
@@ -135,7 +135,7 @@ describe("FileTree", () => {
     t.key("ArrowDown");
     const active = () => document.getElementById(t.tree().getAttribute("aria-activedescendant") ?? "");
     expect(active()?.dataset.path).toBe("f000000");
-    Object.defineProperty(t.tree(), "scrollTop", { value: 28 * 500, configurable: true, writable: true });
+    Object.defineProperty(t.tree(), "scrollTop", { value: 32 * 500, configurable: true, writable: true });
     t.tree().dispatchEvent(new Event("scroll"));
     flushSync();
     expect(active()?.dataset.path).toBe("f000000");
@@ -278,14 +278,14 @@ describe("FileTree", () => {
     const core = new FakeCore(new Map([["", flatDir(1000)]]));
     const t = mountTree(core);
     await settle();
-    let top = 28 * 500;
+    let top = 32 * 500;
     Object.defineProperty(t.tree(), "scrollTop", { get: () => top, set: (v: number) => (top = v), configurable: true });
     t.tree().dispatchEvent(new Event("scroll"));
     flushSync();
     core.dirs = new Map([["", [...flatDir(3, "a"), ...flatDir(1000)]]]);
     core.emit({ type: "fs.changed", data: { project: "p1", paths: ["a000000", "a000001", "a000002"] } });
     await settle();
-    expect(top).toBe(28 * 503);
+    expect(top).toBe(32 * 503);
   });
 
   it("reveals and selects the open file without taking focus", async () => {

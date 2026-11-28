@@ -81,7 +81,7 @@ let {
   ontrashed?: (paths: string[]) => void;
 } = $props();
 
-const ROW_HEIGHT = 28;
+const ROW_HEIGHT = 32;
 const OVERSCAN = 8;
 const TYPEAHEAD_RESET_MS = 700;
 const ID = `tree-${Math.random().toString(36).slice(2, 8)}`;
@@ -892,11 +892,11 @@ function onkeydown(e: KeyboardEvent): void {
   .icon {
     display: grid;
     place-items: center;
-    width: 26px;
-    height: 26px;
+    width: var(--ctl-sm);
+    height: var(--ctl-sm);
     padding: 0;
     border: 0;
-    border-radius: var(--radius-sm);
+    border-radius: var(--r-control);
     background: transparent;
     color: var(--text-3);
   }
@@ -931,13 +931,14 @@ function onkeydown(e: KeyboardEvent): void {
   .spacer {
     position: relative;
   }
-  /* A 4 px inset, so the selection reads as a pill. 28 px from --ctl: the
-     shell uses the name --row for its grid, which hides the token here. */
+  /* A 4 px inset, so the selection reads as a pill. 32 px, the theme's --row
+     and the script's ROW_HEIGHT: the shell uses the name --row for its grid,
+     which hides the token here. */
   .row {
     position: absolute;
     left: var(--sp-1);
     right: var(--sp-1);
-    height: var(--ctl);
+    height: 32px;
     display: flex;
     align-items: center;
     gap: 6px;

@@ -75,10 +75,10 @@ function onkeydown(e: KeyboardEvent): void {
   input {
     box-sizing: border-box;
     width: 100%;
-    height: 24px;
+    height: var(--ctl-sm);
     padding: 0 6px;
     border: 1px solid var(--accent);
-    border-radius: var(--radius-sm);
+    border-radius: var(--r-control);
     background: var(--s3);
     color: var(--text);
     font: inherit;
@@ -100,7 +100,7 @@ function onkeydown(e: KeyboardEvent): void {
     background: var(--s4);
     box-shadow: var(--card-shadow);
     color: var(--danger);
-    font-size: 13px;
+    font-size: var(--fs-ui);
     white-space: normal;
   }
 </style>

@@ -29,7 +29,7 @@ let dismissed = $state<number | null>(null);
     border-radius: var(--radius);
     background: var(--warn-soft);
     color: var(--text);
-    font-size: 13px;
+    font-size: var(--fs-ui);
   }
   p {
     margin: 0 0 6px;
@@ -51,7 +51,7 @@ let dismissed = $state<number | null>(null);
     margin-top: 4px;
     padding: 2px 8px;
     border: 0;
-    border-radius: var(--radius-sm);
+    border-radius: var(--r-control);
     background: transparent;
     color: var(--text-2);
     font: inherit;

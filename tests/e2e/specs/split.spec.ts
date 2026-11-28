@@ -27,7 +27,7 @@ test("split right shows one text in two groups; an edit on the right saves, a re
   // Each group is narrow at 1280 px: its bar keeps one line, without the key caps.
   const viewButton = right.getByRole("button", { name: /^View/ });
   await expect(viewButton.locator("kbd")).toBeHidden();
-  expect((await viewButton.boundingBox())?.height).toBeLessThan(34);
+  expect((await viewButton.boundingBox())?.height).toBeLessThan(40);
 
   // One buffer: typing on the right shows on the left, and both tabs say it is unsaved.
   await page.keyboard.press("ControlOrMeta+End");

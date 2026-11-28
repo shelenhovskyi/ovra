@@ -87,10 +87,10 @@ function onfocusout(e: FocusEvent): void {
     gap: 6px;
   }
   button {
-    min-height: 26px;
+    min-height: var(--ctl-sm);
     padding: 0 10px;
     border: 0;
-    border-radius: var(--radius-sm);
+    border-radius: var(--r-control);
     font: inherit;
   }
   .danger {

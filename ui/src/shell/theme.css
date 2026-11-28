@@ -111,14 +111,19 @@
   --font:
     system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI Variable Text", "Segoe UI", Roboto, "Noto Sans", sans-serif;
   --mono: ui-monospace, "SF Mono", Menlo, "Cascadia Mono", Consolas, "DejaVu Sans Mono", monospace;
-  /* Type roles, for `font:`; letter-spacing -0.01em from 14 px, -0.02em from 17 px. */
+  /* Type roles, for `font:`; letter-spacing -0.01em from 14 px, -0.02em from 17 px.
+     Roomy scale (owner, 2026-11-28): 14 px is the interface's own text. */
   --t-caption: 500 12px / 16px var(--font);
-  --t-small: 400 13px / 18px var(--font);
-  --t-body: 400 14px / 20px var(--font);
-  --t-headline: 600 14px / 20px var(--font);
-  --t-title3: 600 15px / 20px var(--font);
-  --t-title2: 600 17px / 22px var(--font);
-  --t-title1: 600 22px / 28px var(--font);
+  --t-small: 400 14px / 20px var(--font);
+  --t-body: 400 15px / 22px var(--font);
+  --t-headline: 600 15px / 22px var(--font);
+  --t-title3: 600 16px / 22px var(--font);
+  --t-title2: 600 18px / 24px var(--font);
+  --t-title1: 600 24px / 30px var(--font);
+  /* Font sizes for rules that set only a size: the interface text and the
+     smaller secondary text. */
+  --fs-ui: 14px;
+  --fs-ui-sm: 13px;
   /* Spacing on a 4 px grid; control, row and icon sizes. */
   --sp-1: 4px;
   --sp-2: 8px;
@@ -126,19 +131,23 @@
   --sp-4: 16px;
   --sp-5: 20px;
   --sp-6: 24px;
-  --ctl-sm: 24px;
-  --ctl: 28px;
-  --ctl-lg: 32px;
-  --row: 28px;
+  --ctl-sm: 28px;
+  --ctl: 34px;
+  --ctl-lg: 38px;
+  --row: 32px;
   --icon-sm: 16px;
   --icon: 18px;
-  /* Concentric radii: inner = outer minus inset, never below 4 px. */
-  --r-xs: 4px;
-  --r-sm: 6px;
-  --r-md: 8px;
-  --r-lg: 12px;
-  --r-xl: 16px;
+  /* Concentric radii: inner = outer minus inset, never below 4 px. Large and
+     soft, after the Claude app's proportions (owner, 2026-11-28). */
+  --r-xs: 8px;
+  --r-sm: 12px;
+  --r-md: 16px;
+  --r-lg: 24px;
+  --r-xl: 30px;
   --r-pill: 999px;
+  /* Buttons, fields, selects, tabs and segments are capsules; an icon-only
+     button is a circle. Cards, menus and panels take --r-lg / --r-xl. */
+  --r-control: var(--r-pill);
   /* The older names, until every area uses the ones above. */
   --radius-xs: var(--r-xs);
   --radius-sm: var(--r-sm);
@@ -179,8 +188,8 @@
   );
   --menu-blur: blur(24px) saturate(1.6);
   /* Control heights: quiet and inline buttons, primary buttons and inputs. */
-  --control-h-sm: 28px;
-  --control-h: 32px;
+  --control-h-sm: var(--ctl);
+  --control-h: var(--ctl-lg);
   --chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12' fill='none' stroke='%23888' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 4.5 6 7.5 9 4.5'/%3E%3C/svg%3E");
   color-scheme: dark;
   accent-color: var(--accent);
@@ -315,7 +324,7 @@ body {
   color: var(--text);
   background-color: var(--s3);
   border: 1px solid transparent;
-  border-radius: var(--radius-sm);
+  border-radius: var(--r-control);
 }
 /* Controls take the text font, not the browser's 13.33 px one. */
 :where(button, input, select, textarea) {
@@ -330,21 +339,21 @@ body {
 :where(select) {
   appearance: none;
   min-height: var(--control-h-sm);
-  padding: 0 10px;
+  padding: 0 14px;
   color: var(--text);
   background-color: var(--s3);
   border: 1px solid transparent;
-  border-radius: var(--radius-sm);
+  border-radius: var(--r-control);
 }
 select {
   /* biome-ignore lint/complexity/noImportantStyles: panels set their own background and padding on selects. */
-  padding-inline-end: 28px !important;
+  padding-inline-end: 32px !important;
   /* biome-ignore lint/complexity/noImportantStyles: panels set their own background and padding on selects. */
   background-image: var(--chevron) !important;
   /* biome-ignore lint/complexity/noImportantStyles: panels set their own background and padding on selects. */
   background-repeat: no-repeat !important;
   /* biome-ignore lint/complexity/noImportantStyles: panels set their own background and padding on selects. */
-  background-position: right 10px center !important;
+  background-position: right 12px center !important;
 }
 :where(select:hover) {
   background-color: var(--s4);

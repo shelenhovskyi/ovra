@@ -164,7 +164,7 @@ function move(e: KeyboardEvent): void {
   }
   h3 {
     margin: 0 0 6px;
-    font-size: 13px;
+    font-size: var(--fs-ui);
     font-weight: 500;
     color: var(--text-2);
   }
@@ -195,13 +195,13 @@ function move(e: KeyboardEvent): void {
   .tile {
     display: grid;
     place-items: center;
-    width: 32px;
-    height: 32px;
-    font-size: 13px;
+    width: var(--ctl-lg);
+    height: var(--ctl-lg);
+    font-size: var(--fs-ui);
     font-weight: 600;
     color: var(--text-2);
     background: var(--s3);
-    border-radius: var(--radius-sm);
+    border-radius: var(--r-control);
   }
   .text {
     display: flex;
@@ -219,7 +219,7 @@ function move(e: KeyboardEvent): void {
     font: 13px var(--mono);
   }
   .when {
-    font-size: 13px;
+    font-size: var(--fs-ui);
     color: var(--text-2);
     white-space: nowrap;
   }
@@ -251,7 +251,7 @@ function move(e: KeyboardEvent): void {
     display: block;
     margin-bottom: 6px;
     color: var(--text-2);
-    font-size: 13px;
+    font-size: var(--fs-ui);
   }
   .row {
     display: flex;
@@ -262,7 +262,7 @@ function move(e: KeyboardEvent): void {
     min-width: 0;
     padding: 6px 10px;
     border: 1px solid transparent;
-    border-radius: var(--radius-sm);
+    border-radius: var(--r-control);
     background: var(--s3);
     color: inherit;
     font: 13px var(--mono);
@@ -274,7 +274,7 @@ function move(e: KeyboardEvent): void {
   .pick {
     padding: 6px 12px;
     border: 0;
-    border-radius: var(--radius-sm);
+    border-radius: var(--r-control);
     background: var(--accent);
     color: var(--accent-ink);
     font: inherit;
@@ -301,11 +301,11 @@ function move(e: KeyboardEvent): void {
   }
   .hint {
     margin: 6px 0 0;
-    font-size: 13px;
+    font-size: var(--fs-ui);
   }
   .error {
     margin: 6px 0 0;
-    font-size: 13px;
+    font-size: var(--fs-ui);
     color: var(--danger);
   }
 

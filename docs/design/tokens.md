@@ -5,18 +5,20 @@ hex values, no stray sizes. Existing Quiet names stay; this page adds to them.
 
 ## Type
 
-The Quiet sizes stay (14 body, 13 secondary, 12 for key caps and badges).
-Roles get names so every area uses the same pairs.
+The roomy scale (owner, 2026-11-28, after the Claude app's proportions): 15
+body, 14 for the interface's own text, 12 for key caps and badges. Roles get
+names so every area uses the same pairs. A rule that sets only a size uses
+`--fs-ui` (14) or `--fs-ui-sm` (13), never a px value.
 
 | Token          | Size / line | Weight | Use                                                  |
 | -------------- | ----------- | ------ | ---------------------------------------------------- |
 | `--t-caption`  | 12 / 16     | 500    | key caps, badges, status bar, section labels         |
-| `--t-small`    | 13 / 18     | 400    | secondary text, menu items, tooltips, chrome buttons |
-| `--t-body`     | 14 / 20     | 400    | rows, transcript, approvals, forms                   |
-| `--t-headline` | 14 / 20     | 600    | panel titles, task titles                            |
-| `--t-title3`   | 15 / 20     | 600    | card titles ("Run npm test")                         |
-| `--t-title2`   | 17 / 22     | 600    | sheet and settings pane titles                       |
-| `--t-title1`   | 22 / 28     | 600    | start screen heading only                            |
+| `--t-small`    | 14 / 20     | 400    | secondary text, menu items, tooltips, chrome buttons |
+| `--t-body`     | 15 / 22     | 400    | rows, transcript, approvals, forms                   |
+| `--t-headline` | 15 / 22     | 600    | panel titles, task titles                            |
+| `--t-title3`   | 16 / 22     | 600    | card titles ("Run npm test")                         |
+| `--t-title2`   | 18 / 24     | 600    | sheet and settings pane titles                       |
+| `--t-title1`   | 24 / 30     | 600    | start screen heading only                            |
 
 - `body` line height is an exact `20px`, so rows land on the 4 px grid.
 - `letter-spacing: -0.01em` from 14 px, `-0.02em` from 17 px (WebKit's
@@ -39,10 +41,10 @@ Fonts:
 
 ```css
 --sp-1: 4px; --sp-2: 8px; --sp-3: 12px; --sp-4: 16px; --sp-5: 20px; --sp-6: 24px;
---ctl-sm: 24px;  /* header icon buttons, chips, small segmented */
---ctl:    28px;  /* buttons, fields, selects, list rows */
---ctl-lg: 32px;  /* title-bar search, composer button, sheet buttons */
---row:    28px;  /* tree, git, search rows (macOS medium sidebar row) */
+--ctl-sm: 28px;  /* header icon buttons, chips, small segmented */
+--ctl:    34px;  /* buttons, fields, selects */
+--ctl-lg: 38px;  /* title-bar search, composer button, sheet buttons */
+--row:    32px;  /* tree, git, search rows */
 --icon-sm: 16px; --icon: 18px;
 ```
 
@@ -53,17 +55,19 @@ Fonts:
 ## Radii (concentric)
 
 ```css
---r-xs: 4px;    /* kbd, badges, inline code, row selection */
---r-sm: 6px;    /* 24 px controls, menu item highlight, chips */
---r-md: 8px;    /* 28-32 px controls, search field, rail buttons, tabs */
---r-lg: 12px;   /* cards: approval, composer, toasts, menus */
---r-xl: 16px;   /* palette, sheets */
+--r-xs: 8px;    /* kbd, badges, inline code, row selection */
+--r-sm: 12px;   /* menu item highlight, code blocks, small cards */
+--r-md: 16px;   /* panels' inner cards, popovers */
+--r-lg: 24px;   /* cards: approval, composer, toasts, menus */
+--r-xl: 30px;   /* palette, sheets */
 --r-pill: 999px;
+--r-control: var(--r-pill); /* buttons, fields, selects, tabs, segments */
 ```
 
-Rule: inner radius = outer radius minus inset, never below 4. A menu of 12
-with 6 px padding gets 6 px highlights; the palette of 16 with an 8 px inset
-gets 8 px rows. These replace `--radius`, `--radius-sm` and the stray values.
+Rule: inner radius = outer radius minus inset, never below 4. A menu of 24
+with 8 px padding gets 16 px highlights; the palette of 30 with a 10 px inset
+gets 20 px rows. Controls are capsules (`--r-control`) and an icon-only
+button is a circle. These replace `--radius`, `--radius-sm` and the stray values.
 
 ## Colour additions
 
