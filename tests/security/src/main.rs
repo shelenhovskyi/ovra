@@ -13,9 +13,13 @@ fn main() -> ExitCode {
         #[cfg(unix)]
         ["connect-unix", path] => std::os::unix::net::UnixStream::connect(path).is_ok(),
         #[cfg(target_os = "linux")]
+        ["connect-unix-in", dir, name] => connect_in(dir, name),
+        #[cfg(target_os = "linux")]
         ["connect-abstract", name] => connect_abstract(name),
         _ => {
-            eprintln!("usage: connect-unix PATH | connect-abstract NAME");
+            eprintln!(
+                "usage: connect-unix PATH | connect-unix-in DIR NAME | connect-abstract NAME"
+            );
             return ExitCode::from(2);
         }
     };
@@ -32,4 +36,15 @@ fn connect_abstract(name: &str) -> bool {
     use std::os::linux::net::SocketAddrExt as _;
     use std::os::unix::net::{SocketAddr, UnixStream};
     SocketAddr::from_abstract_name(name).is_ok_and(|addr| UnixStream::connect_addr(&addr).is_ok())
+}
+
+/// Connects to the socket `name` in `dir` through `/proc/self/fd`, as the
+/// daemon does, so a long folder path still fits a socket address.
+#[cfg(target_os = "linux")]
+fn connect_in(dir: &str, name: &str) -> bool {
+    use std::os::fd::AsRawFd as _;
+    std::fs::File::open(dir).is_ok_and(|dir| {
+        let path = format!("/proc/self/fd/{}/{name}", dir.as_raw_fd());
+        std::os::unix::net::UnixStream::connect(path).is_ok()
+    })
 }

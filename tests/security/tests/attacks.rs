@@ -633,6 +633,48 @@ fn refusals(events: &mut tokio::sync::broadcast::Receiver<Event>) -> Vec<String>
     seen
 }
 
+/// T15 (ADR 0016): a remote machine's core listens on `<data>/run/core.sock`
+/// and outlives the laptop's connection. An agent on that machine must not
+/// reach it, with the data folder under the home folder (the default) or
+/// outside it (`XDG_DATA_HOME`).
+#[test]
+fn an_agent_cannot_reach_its_machines_core() {
+    for (name, under_home) in [("core-xdg", false), ("core-home", true)] {
+        let mut world = World::new(name);
+        if under_home {
+            world.data = world.home.join(".local/share/ovra");
+        }
+        let Some(sandbox) = world.sandbox() else {
+            return;
+        };
+        let run = world.data.join("run");
+        fs::create_dir_all(&run).unwrap();
+        // Bound as the daemon binds it, so a long path still fits.
+        let dir = fs::File::open(&run).unwrap();
+        let fd = std::os::fd::AsRawFd::as_raw_fd(&dir);
+        let _core = UnixListener::bind(format!("/proc/self/fd/{fd}/core.sock")).unwrap();
+        let run = run.display();
+        let script = attacks(&format!(
+            "connect to the core: {AGENT} connect-unix-in {run} core.sock
+            see the socket: test -S {run}/core.sock
+            list the run folder: ls {run}"
+        ));
+        let control = outside(&world.project, &script, &[]);
+        assert_eq!(failed(&control), Vec::<&str>::new(), "{name}: {control}");
+        let inside = run_in(&sandbox, &world, &script);
+        assert_eq!(worked(&inside), Vec::<&str>::new(), "{name}: {inside}");
+    }
+}
+
+fn run_in(sandbox: &Bubblewrap, world: &World, script: &str) -> String {
+    run(
+        sandbox,
+        &world.profile(ProfileNetwork::Blocked),
+        script,
+        &[],
+    )
+}
+
 #[test]
 fn the_netproxy_is_the_only_way_out_and_holds() {
     let world = World::new("network");
