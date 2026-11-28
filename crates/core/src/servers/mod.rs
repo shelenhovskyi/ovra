@@ -128,6 +128,11 @@ fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
 }
 
 impl DevServerState {
+    /// Whether any dev server has not ended.
+    pub(crate) fn any_running(&self) -> bool {
+        lock(&self.state).servers.iter().any(Entry::running)
+    }
+
     /// The root process of `work_dir`'s pod while one runs.
     pub(crate) fn pod_pid(&self, work_dir: &std::path::Path) -> Option<u32> {
         self.dev.pod_pid(work_dir)

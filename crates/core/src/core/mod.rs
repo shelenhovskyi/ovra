@@ -521,6 +521,24 @@ impl Core {
         &self.inner.schedules
     }
 
+    /// Whether a person is attached. A remote core without a client
+    /// starts nothing scheduled (`docs/specs/ssh-remotes.md`, section 6);
+    /// every other core is always attended.
+    pub fn set_attended(&self, attended: bool) {
+        self.inner
+            .schedules
+            .unattended
+            .store(!attended, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// Whether an agent session, a dev server or a shell still runs: a
+    /// remote core without a client stays while one does.
+    pub fn runs_anything(&self) -> bool {
+        self.inner.sessions.not_ended_any()
+            || self.inner.dev_servers.any_running()
+            || self.inner.terminals.running() > 0
+    }
+
     pub(crate) fn orchestration_state(&self) -> &Orchestration {
         &self.inner.orchestration
     }

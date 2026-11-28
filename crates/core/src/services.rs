@@ -266,6 +266,11 @@ pub trait TerminalService: Send + Sync + Debug {
     /// The kept tail of the output and the `seq` of the last output event
     /// it contains. Answers for an ended terminal until it is closed.
     fn scrollback(&self, id: &TerminalId) -> Result<(String, u64)>;
+    /// How many shells still run; a remote core stays while any does
+    /// (`docs/specs/ssh-remotes.md`, section 6).
+    fn running(&self) -> usize {
+        0
+    }
 }
 
 /// What a runtime needs to start one session.

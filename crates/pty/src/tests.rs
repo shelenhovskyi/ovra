@@ -149,8 +149,10 @@ async fn close_ends_the_shell_and_forgets_the_terminal() {
     let first = pty.open(here(), SIZE, core.sink()).expect("open");
     let second = pty.open(here(), SIZE, core.sink()).expect("open");
     assert_eq!((first.0.as_str(), second.0.as_str()), ("t1", "t2"));
+    assert_eq!(pty.running(), 2);
 
     pty.close(&first).expect("close");
+    assert_eq!(pty.running(), 1);
     // Killed by SIGHUP, so no exit code.
     assert_eq!(exit_code(&mut rx, &first).await, None);
     let gone = pty.close(&first).expect_err("closed");

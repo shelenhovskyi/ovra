@@ -427,3 +427,18 @@ async fn turning_them_on_skips_times_that_passed_while_off() {
     .await;
     assert!(find(&f.core, &schedule.id).is_err());
 }
+
+#[tokio::test]
+async fn a_remote_core_without_a_client_starts_nothing_scheduled_until_one_attaches() {
+    let f = fx(vec![vec![Step::Say("found two")]]).await;
+    let schedule = save(&f.core, "research").await;
+    enable(&f.core).await;
+    due_at(&f.core, &schedule.id, NOW - MINUTE);
+    f.core.set_attended(false);
+    tick(&f.core, NOW).await;
+    assert!(sessions(&f.core).is_empty());
+    assert!(!f.core.runs_anything());
+    f.core.set_attended(true);
+    tick(&f.core, NOW).await;
+    assert_eq!(sessions(&f.core).len(), 1);
+}

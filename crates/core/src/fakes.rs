@@ -953,6 +953,10 @@ impl TerminalService for EchoTerminals {
     fn scrollback(&self, id: &TerminalId) -> Result<(String, u64)> {
         self.with(id, |t| (t.output.clone(), t.seq))
     }
+
+    fn running(&self) -> usize {
+        lock(&self.open).len()
+    }
 }
 
 /// Sessions kept in memory; share one between two cores to test a restart.

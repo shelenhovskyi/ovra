@@ -237,6 +237,13 @@ impl TerminalService for Pty {
         }
     }
 
+    fn running(&self) -> usize {
+        self.terminals()
+            .values()
+            .filter(|t| t.session.is_some())
+            .count()
+    }
+
     fn scrollback(&self, id: &TerminalId) -> Result<(String, u64)> {
         let output = self
             .terminals()

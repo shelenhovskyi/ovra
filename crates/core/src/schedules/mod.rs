@@ -46,6 +46,9 @@ pub(crate) struct State {
     /// Why a due run could not start yet (the research places are full),
     /// by schedule; its outcome if the hour passes. Not saved.
     busy: Mutex<std::collections::BTreeMap<ScheduleId, String>>,
+    /// Set while a remote core has no client: nothing scheduled starts
+    /// then (`docs/specs/ssh-remotes.md`, section 6).
+    pub(crate) unattended: AtomicBool,
 }
 
 fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
@@ -318,6 +321,9 @@ fn record(
 /// Fires every schedule due at `now`: started, skipped or, an hour late,
 /// missed. A run that waits for a research place stays due.
 pub(crate) async fn tick(core: &Core, now: u64) {
+    if core.schedules().unattended.load(Ordering::Relaxed) {
+        return;
+    }
     let _firing = core.schedules().firing.lock().await;
     let Ok(settings) = core.project_store().agent_settings() else {
         return;

@@ -414,6 +414,11 @@ impl Sessions {
             .collect()
     }
 
+    /// Whether any session has not ended.
+    pub(crate) fn not_ended_any(&self) -> bool {
+        lock(&self.list).iter().any(|s| !s.info.status.is_ended())
+    }
+
     /// Every session that has not ended, of every project, for the
     /// resource monitor.
     pub(crate) fn not_ended(&self) -> Vec<Running> {

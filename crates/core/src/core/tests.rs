@@ -858,3 +858,23 @@ async fn paths_the_person_changed_outside_the_frames_are_never_the_agents_alone(
     use crate::protocol::review::ChangedBy::{Agent, Both};
     assert_eq!(by, [("img/a.png", Both), ("out.o", Agent)]);
 }
+
+#[tokio::test]
+async fn a_core_runs_something_while_a_shell_is_open() {
+    let core = Core::builder("test")
+        .projects(Arc::new(MemoryProjects::default()))
+        .fs(Arc::new(MemoryFs::default()))
+        .terminals(Arc::new(crate::fakes::EchoTerminals::default()))
+        .build();
+    let project = add(&core, "/p").await;
+    assert!(!core.runs_anything());
+    let open = serde_json::json!({"method": "terminals.open", "params": {"project": project.id.0, "size": {"cols": 80, "rows": 24}}});
+    let Ok(Response::Terminals(TerminalsResponse::Opened { id })) = core.handle(req(open)).await
+    else {
+        panic!("no terminal");
+    };
+    assert!(core.runs_anything());
+    let close = serde_json::json!({"method": "terminals.close", "params": {"id": id.0}});
+    assert!(core.handle(req(close)).await.is_ok());
+    assert!(!core.runs_anything());
+}
